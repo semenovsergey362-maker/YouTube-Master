@@ -1,0 +1,113 @@
+YOUTUBE CONTENT MASTER - RUN COMMANDS
+
+1. Установка зависимостей
+
+npm install
+
+2. Локальный запуск в development режиме
+
+npm run dev
+
+3. Production build
+
+npm run build
+
+4. Production preview (если нужно проверить собранный билд)
+
+npm run preview
+
+5. Запуск серверной части отдельно
+
+node server.js
+
+Если проект использует TypeScript server entry, то обычно используется:
+
+npx tsx server.ts
+
+или
+
+npm run start
+
+6. Переменные окружения (.env)
+
+Создай файл .env в корне проекта:
+
+NODE_ENV=production
+APP_URL=https://your-domain.com
+VITE_APP_URL=https://your-domain.com
+
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+SESSION_SECRET=replace-with-long-random-secret
+
+7. Проверка, что зависимостей хватает
+
+npm ls
+
+8. Если проект на Vite
+
+npm run dev -- --host 0.0.0.0
+
+9. Если нужно запустить на VPS / сервере
+
+npm install
+npm run build
+NODE_ENV=production APP_URL=https://your-domain.com VITE_APP_URL=https://your-domain.com GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... SESSION_SECRET=... npm run start
+
+10. Если сервер запускается через PM2
+
+npm install -g pm2
+pm2 start "npm run start" --name youtube-content-master
+pm2 logs youtube-content-master
+
+11. Проверка статуса процесса
+
+pm2 status
+
+12. Если хотите запустить в фоне на Linux
+
+nohup npm run start > app.log 2>&1 &
+
+13. Проверка, что Google OAuth доступен
+
+- Проверь, что Authorized Redirect URI = https://your-domain.com/auth/callback
+- Проверь, что Authorized JavaScript origins = https://your-domain.com
+- Проверь, что Client ID/Secret совпадают с env
+
+14. Smoke test после запуска
+
+1. Открой https://your-domain.com
+2. Нажми Sign in with Google
+3. Пройди OAuth
+4. Проверь, что пользователь виден в UI
+5. Перейди в другой браузер/устройство под другим аккаунтом
+6. Проверь, что данные не смешиваются
+7. Выполни logout и повторный login
+8. Убедись, что сессия восстановилась корректно
+
+15. Если приложение падает на запуске
+
+- Проверь .env
+- Проверь APP_URL
+- Проверь GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET
+- Проверь, что все необходимые зависимости установлены
+- Проверь, что порт и хост настроены корректно
+
+16. Для локальной разработки
+
+npm run dev -- --host localhost --port 5173
+
+17. Для проверки сборки без запуска UI
+
+npm run build
+
+18. Быстрый итог
+
+Минимальный безопасный запуск:
+
+npm install
+npm run build
+NODE_ENV=production APP_URL=https://your-domain.com VITE_APP_URL=https://your-domain.com GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... SESSION_SECRET=... npm run start
+
+Если хочешь, следующим сообщением сделаю ещё один txt-файл под конкретный хостинг: Vercel / Netlify / Railway / VPS.

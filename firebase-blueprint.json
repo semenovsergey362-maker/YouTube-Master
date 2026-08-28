@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User's unique identifier" },
+        "displayName": { "type": "string", "description": "User's display name" },
+        "email": { "type": "string", "description": "User's email address" },
+        "photoURL": { "type": "string", "description": "User's photo URL" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User's role" }
+      },
+      "required": ["uid", "email"]
+    },
+    "CMSTask": {
+      "title": "CMS Task",
+      "description": "A task in the content management system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Task identifier" },
+        "title": { "type": "string", "description": "Task title" },
+        "status": { "type": "string", "enum": ["Идея", "В работе", "Готово"], "description": "Task status" },
+        "assignee": { "type": "string", "description": "Assigned user" },
+        "deadline": { "type": "string", "format": "date", "description": "Task deadline" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "uid": { "type": "string", "description": "Owner's UID" }
+      },
+      "required": ["id", "title", "status", "uid"]
+    },
+    "ScheduledVideo": {
+      "title": "Scheduled Video",
+      "description": "A video scheduled for publication",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Video identifier" },
+        "title": { "type": "string", "description": "Video title" },
+        "description": { "type": "string", "description": "Video description" },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Video tags" },
+        "publishAt": { "type": "string", "format": "date-time", "description": "Publication time" },
+        "videoUrl": { "type": "string", "description": "URL to the video file" },
+        "status": { "type": "string", "enum": ["pending", "published", "failed"], "description": "Upload status" },
+        "uid": { "type": "string", "description": "Owner's UID" }
+      },
+      "required": ["id", "title", "publishAt", "uid", "status"]
+    },
+    "YouTubeToken": {
+      "title": "YouTube Token",
+      "description": "OAuth2 tokens for YouTube API",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User's unique identifier" },
+        "tokens": { "type": "object", "description": "The actual tokens object" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["uid", "tokens"]
+    },
+    "HistoryItem": {
+      "title": "History Item",
+      "description": "A previously generated idea, script, or prompt",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Item identifier" },
+        "type": { "type": "string", "enum": ["Идея", "Сценарий", "Промт"], "description": "Type of content" },
+        "title": { "type": "string", "description": "Title or summary" },
+        "content": { "type": "string", "description": "The actual generated content" },
+        "metadata": { "type": "object", "description": "Additional context (e.g., niche, style)" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "uid": { "type": "string", "description": "Owner's UID" }
+      },
+      "required": ["id", "type", "content", "uid", "createdAt"]
+    },
+    "UserIdeasState": {
+      "title": "User Ideas State",
+      "description": "Autosaved state of all trending and custom ideas for a user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User's unique identifier" },
+        "trendingIdeas": {
+          "type": "array",
+          "description": "List of trending/generated ideas"
+        },
+        "ideaSeries": {
+          "type": "array",
+          "description": "List of idea series"
+        },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last updated timestamp" }
+      },
+      "required": ["uid", "trendingIdeas"]
+    },
+    "IdeaSnapshot": {
+      "title": "Idea Snapshot",
+      "description": "Saved snapshot of user ideas and content plan state",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Snapshot identifier" },
+        "name": { "type": "string", "description": "Snapshot name or label" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "niche": { "type": "string", "description": "Target niche" },
+        "ideasCount": { "type": "number", "description": "Total number of ideas in snapshot" },
+        "ideas": { "type": "array", "description": "List of main ideas" },
+        "trendingIdeas": { "type": "array", "description": "List of trending ideas" },
+        "uid": { "type": "string", "description": "Owner's UID" }
+      },
+      "required": ["id", "name", "uid", "createdAt"]
+    },
+    "ScriptState": {
+      "title": "Script State",
+      "description": "Autosaved state of the active script editor session",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User's unique identifier" },
+        "scriptTopic": { "type": "string", "description": "Topic of the script" },
+        "scriptWishes": { "type": "string", "description": "User preferences/wishes" },
+        "scriptDuration": { "type": "number", "description": "Target duration in minutes" },
+        "scriptCustomDuration": { "type": "string", "description": "Custom duration string" },
+        "scriptStructure": { "type": "array", "description": "List of script structure blocks" },
+        "generatedBlocks": { "type": "object", "description": "Generated content text for each block index" },
+        "transitionPrompts": { "type": "object", "description": "Visual prompts for transitions" },
+        "activeVersionId": { "type": "string", "description": "Identifier of the active script version" },
+        "scriptBreakdown": { "type": "array", "description": "List of scene breakdowns with statuses" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last updated timestamp" }
+      },
+      "required": ["uid"]
+    },
+    "ScriptVersion": {
+      "title": "Script Version",
+      "description": "Saved version snapshot of a script",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Version identifier" },
+        "uid": { "type": "string", "description": "User's unique identifier" },
+        "name": { "type": "string", "description": "Version name or label" },
+        "changeSummary": { "type": "string", "description": "Brief description of changes in this version" },
+        "timestamp": { "type": "number", "description": "Epoch timestamp of creation" },
+        "blocks": { "type": "object", "description": "Content of blocks in this version" },
+        "structure": { "type": "array", "description": "Structure outline in this version" },
+        "scriptTopic": { "type": "string", "description": "Topic of the script in this version" },
+        "scriptWishes": { "type": "string", "description": "User wishes in this version" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "uid", "name", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/script_states/{uid}": {
+      "schema": "ScriptState",
+      "description": "Autosaved active script sessions per user"
+    },
+    "/script_versions/{versionId}": {
+      "schema": "ScriptVersion",
+      "description": "Saved script versions"
+    },
+    "/idea_snapshots/{snapshotId}": {
+      "schema": "IdeaSnapshot",
+      "description": "Saved idea snapshot documents"
+    },
+    "/ideas_state/{uid}": {
+      "schema": "UserIdeasState",
+      "description": "User ideas state documents"
+    },
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    },
+    "/cms_tasks/{taskId}": {
+      "schema": "CMSTask",
+      "description": "CMS task documents"
+    },
+    "/scheduled_videos/{videoId}": {
+      "schema": "ScheduledVideo",
+      "description": "Scheduled video documents"
+    },
+    "/youtube_tokens/{uid}": {
+      "schema": "YouTubeToken",
+      "description": "YouTube OAuth2 tokens"
+    },
+    "/history/{historyId}": {
+      "schema": "HistoryItem",
+      "description": "History of generated content"
+    }
+  }
+}

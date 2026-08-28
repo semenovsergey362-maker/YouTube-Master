@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@900&family=Oswald:wght@700&family=Roboto+Condensed:wght@700;900&family=Russo+One&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: #059669; /* Emerald 600 */
+  --color-secondary: #0a0a0a; /* Neutral 950 */
+  --color-accent: #10b981; /* Emerald 500 */
+  --color-surface: #171717; /* Neutral 900 */
+  --color-border: #262626; /* Neutral 800 */
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-spin-slow: spin-slow 3s linear infinite;
+}
+
+@layer base {
+  html, body, #root {
+    max-width: 100vw;
+    
+  }
+
+  body {
+    @apply bg-secondary text-neutral-200 font-sans antialiased;
+  }
+  
+  img, video, canvas, svg, iframe, table, input, select, textarea {
+    max-width: 100%;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-neutral-800 rounded-full border-[2px] border-solid border-transparent bg-clip-padding;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-neutral-700;
+  }
+  
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  
+  button, a, [role="button"], label {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-primary hover:bg-emerald-500 text-white rounded-lg transition-all font-bold shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-surface hover:bg-neutral-800 text-neutral-300 rounded-lg transition-all font-bold border border-border flex items-center justify-center gap-2;
+  }
+  
+  .btn-accent {
+    @apply px-4 py-2 bg-accent hover:bg-emerald-400 text-secondary rounded-lg transition-all font-bold shadow-lg shadow-accent/20 flex items-center justify-center gap-2;
+  }
+  
+  .card {
+    @apply p-6 bg-surface/50 rounded-2xl border border-border backdrop-blur-sm transition-all hover:border-primary/30;
+  }
+  
+  .input-field {
+    @apply w-full bg-neutral-950 border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary/50 transition-colors placeholder:text-neutral-600;
+  }
+  
+  .label-micro {
+    @apply text-[10px] text-neutral-500 uppercase font-bold tracking-widest mb-1 block;
+  }
+}
+
+.prose > textarea {
+  @apply w-full h-[400px] bg-neutral-950 border border-neutral-800 rounded-lg p-4 text-white;
+}

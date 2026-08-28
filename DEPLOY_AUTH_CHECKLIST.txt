@@ -1,0 +1,93 @@
+YOUTUBE CONTENT MASTER - DEPLOY AUTH CHECKLIST
+
+1. Обязательные env переменные
+
+NODE_ENV=production
+APP_URL=https://your-domain.com
+VITE_APP_URL=https://your-domain.com
+
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+SESSION_SECRET=replace-with-long-random-secret
+
+Если используется другой набор переменных, убедись, что сервер читает именно APP_URL, VITE_APP_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, а также возможные OAUTH_CLIENT_ID / OAUTH_CLIENT_SECRET.
+
+2. Google Cloud Console: Authorized JavaScript origins
+
+Добавь:
+- https://your-domain.com
+- http://localhost:5173
+- http://127.0.0.1:5173
+
+3. Google Cloud Console: Authorized redirect URIs
+
+Добавь:
+- https://your-domain.com/auth/callback
+- http://localhost:5173/auth/callback
+- http://127.0.0.1:5173/auth/callback
+
+Важно: продовый callback должен совпадать с тем, что сервер строит из APP_URL. Если URL не совпадает, Google не вернет токены.
+
+4. Важный момент про cookies
+
+Для production:
+- secure должно быть включено
+- sameSite должно быть configured как none, если используется cross-site flow
+- localhost можно оставлять в более мягком режиме
+
+Главное: не использовать один общий cookie bucket для всех пользователей.
+
+5. Правильная схема авторизации
+
+В проекте уже сделан важный механизм:
+- токены и пользователь привязываются к конкретному пользователю
+- не происходит глобального перезаписывания токенов под одним ключом
+- active user определяется по youtube_user_id
+
+Это ключевой момент для защиты сценария:
+1. пользователь A логинится
+2. пользователь B логинится
+3. данные B не должны перетирать данные A
+4. logout и повторный login должны быть стабильными
+
+6. Smoke test после деплоя
+
+Порядок проверки:
+1. Открой приложение под аккаунтом A
+2. Выполни login
+3. Проверь, что cookies / user session присутствуют
+4. Открой приложение в другом браузере или другом устройстве
+5. Выполни login под аккаунтом B
+6. Проверь, что данные A не перезаписались
+7. Выполни logout
+8. Повторно войди под A
+9. Проверь, что данные снова корректны и не смешиваются
+
+7. Что важно для реального релиза
+
+Это уже рабочая production-safe базовая схема, но для массового SaaS релиза в будущем рекомендовано добавить:
+- отдельную таблицу пользователей на сервере
+- хранение профилей по user id
+- отдельную систему session store
+- нормальную привязку токенов к учетной записи в базе данных
+
+8. Короткий итог
+
+Если настроить:
+- APP_URL
+- GOOGLE_CLIENT_ID
+- GOOGLE_CLIENT_SECRET
+- правильный redirect URI в Google Console
+- корректный cookie policy
+
+то авторизация будет в рабочем и безопасном состоянии.
+
+9. Проверка кода
+
+По свежей диагностике в проекте нет ошибок в измененных местах:
+- server.ts
+- src/firebase.ts
+- src/App.tsx
+
+Если хочешь, следующий шаг — сделать отдельный txt-файл с готовыми переменными для Vercel / Netlify / Railway / VPS и отдельным блоком для Google Console.
