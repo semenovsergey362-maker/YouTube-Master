@@ -141,6 +141,8 @@ export const ScriptTimeline: React.FC<ScriptTimelineProps> = ({
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [tempNoteText, setTempNoteText] = useState('');
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [tempNameText, setTempNameText] = useState('');
 
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newVersionName, setNewVersionName] = useState('');
@@ -344,7 +346,36 @@ export const ScriptTimeline: React.FC<ScriptTimelineProps> = ({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="text-sm font-bold text-white">{v.name}</h4>
+                          {editingNameId === v.id ? (
+                            <div className="flex items-center gap-1.5 my-0.5">
+                              <input
+                                type="text"
+                                value={tempNameText}
+                                onChange={(e) => setTempNameText(e.target.value)}
+                                className="bg-neutral-900 border border-primary/50 text-white text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-primary"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => {
+                                  if (tempNameText.trim()) {
+                                    onRenameVersion(v.id, tempNameText.trim());
+                                  }
+                                  setEditingNameId(null);
+                                }}
+                                className="px-2 py-1 bg-primary text-black font-bold text-[11px] rounded-lg cursor-pointer hover:brightness-110"
+                              >
+                                Сохранить
+                              </button>
+                              <button
+                                onClick={() => setEditingNameId(null)}
+                                className="px-2 py-1 bg-neutral-800 text-neutral-300 text-[11px] rounded-lg cursor-pointer hover:bg-neutral-700"
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          ) : (
+                            <h4 className="text-sm font-bold text-white">{v.name}</h4>
+                          )}
 
                           {isActive && (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-primary text-black uppercase tracking-wider">
@@ -507,10 +538,8 @@ export const ScriptTimeline: React.FC<ScriptTimelineProps> = ({
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => {
-                            const name = prompt("Введите новое название для версии:", v.name);
-                            if (name && name.trim()) {
-                              onRenameVersion(v.id, name.trim());
-                            }
+                            setEditingNameId(editingNameId === v.id ? null : v.id);
+                            setTempNameText(v.name);
                           }}
                           className="p-2 text-neutral-400 hover:text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl border border-neutral-800 transition-all cursor-pointer"
                           title="Переименовать"
@@ -520,9 +549,7 @@ export const ScriptTimeline: React.FC<ScriptTimelineProps> = ({
 
                         <button
                           onClick={() => {
-                            if (confirm(`Удалить версию "${v.name}" из истории?`)) {
-                              onDeleteVersion(v.id);
-                            }
+                            onDeleteVersion(v.id);
                           }}
                           className="p-2 text-neutral-500 hover:text-red-400 bg-neutral-900 hover:bg-red-500/10 rounded-xl border border-neutral-800 hover:border-red-500/20 transition-all cursor-pointer"
                           title="Удалить"

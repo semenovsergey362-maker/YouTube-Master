@@ -52,12 +52,12 @@ export const NicheTab: React.FC<NicheTabProps> = ({
     if (filteredNiches) return filteredNiches;
     if (!currentSearch.trim()) return nicheList;
     const q = currentSearch.toLowerCase();
-    return nicheList.filter(
-      (n: any) =>
-        n.name?.toLowerCase().includes(q) ||
-        n.description?.toLowerCase().includes(q) ||
-        n.category?.toLowerCase().includes(q)
-    );
+    return nicheList.filter((n: any) => {
+      const name = typeof n === "string" ? n : n.name || "";
+      const desc = typeof n === "string" ? "" : n.description || "";
+      const cat = typeof n === "string" ? "" : n.category || "";
+      return name.toLowerCase().includes(q) || desc.toLowerCase().includes(q) || cat.toLowerCase().includes(q);
+    });
   }, [filteredNiches, nicheList, currentSearch]);
 
   const REGION_OPTIONS = [
@@ -148,15 +148,21 @@ export const NicheTab: React.FC<NicheTabProps> = ({
       {/* Сетка ниш */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
         {currentFilteredNiches.map((nicheItem: any, idx: number) => {
-          const isSelected = selectedNiche === nicheItem.name && !isCustomNiche;
-          const Icon = nicheItem.icon || Sparkles;
+          const nicheName = typeof nicheItem === "string" ? nicheItem : nicheItem.name || "Ниша";
+          const nicheDesc = typeof nicheItem === "string" ? "Популярная тематика для YouTube канала с высоким потенциалом." : nicheItem.description || "";
+          const nicheComp = typeof nicheItem === "string" ? "Средняя" : nicheItem.competition || "Средняя";
+          const nicheCpm = typeof nicheItem === "string" ? "$5.00 - $10.00" : nicheItem.cpm || "";
+          const nicheTooltip = typeof nicheItem === "string" ? "" : nicheItem.tooltip || "";
+
+          const isSelected = selectedNiche === nicheName && !isCustomNiche;
+          const Icon = (typeof nicheItem === "object" && nicheItem.icon) ? nicheItem.icon : Sparkles;
 
           return (
             <motion.div
-              key={nicheItem.id || nicheItem.name || idx}
+              key={nicheName + idx}
               whileHover={{ y: -2 }}
               onClick={() => {
-                setSelectedNiche(nicheItem.name);
+                setSelectedNiche(nicheName);
                 setIsCustomNiche(false);
                 setCustomNiche("");
               }}
@@ -178,22 +184,22 @@ export const NicheTab: React.FC<NicheTabProps> = ({
                     <Icon size={18} />
                   </div>
                   <div className="flex items-center gap-1">
-                    {nicheItem.competition && (
+                    {nicheComp && (
                       <span
                         className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                          nicheItem.competition === "Низкая"
+                          nicheComp === "Низкая"
                             ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                            : nicheItem.competition === "Средняя"
+                            : nicheComp === "Средняя"
                             ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                             : "bg-red-500/10 text-red-400 border border-red-500/20"
                         }`}
                       >
-                        {nicheItem.competition} конк.
+                        {nicheComp} конк.
                       </span>
                     )}
-                    {nicheItem.tooltip && (
+                    {nicheTooltip && (
                       <span
-                        title={nicheItem.tooltip}
+                        title={nicheTooltip}
                         className="text-neutral-500 hover:text-neutral-300 transition-colors cursor-help p-0.5"
                       >
                         <HelpCircle size={14} />
@@ -204,21 +210,21 @@ export const NicheTab: React.FC<NicheTabProps> = ({
 
                 <div>
                   <h4 className="font-bold text-sm text-white group-hover:text-primary transition-colors flex items-center gap-1.5">
-                    {nicheItem.name}
+                    {nicheName}
                     {isSelected && <CheckCircle size={14} className="text-primary flex-shrink-0" />}
                   </h4>
-                  {nicheItem.description && (
+                  {nicheDesc && (
                     <p className="text-neutral-400 text-xs mt-1 line-clamp-2 leading-relaxed">
-                      {nicheItem.description}
+                      {nicheDesc}
                     </p>
                   )}
                 </div>
               </div>
 
-              {nicheItem.cpm && (
+              {nicheCpm && (
                 <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[11px]">
                   <span className="text-neutral-500">Примерный CPM:</span>
-                  <span className="font-mono font-bold text-accent">{nicheItem.cpm}</span>
+                  <span className="font-mono font-bold text-accent">{nicheCpm}</span>
                 </div>
               )}
             </motion.div>

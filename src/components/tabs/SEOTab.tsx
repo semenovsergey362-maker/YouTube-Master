@@ -570,6 +570,7 @@ export const SEOTab = (props: any) => {
   };
 
   const {
+    scriptTopic,
     nicheData,
     renderIdeaBanner,
     videoSEO,
@@ -608,6 +609,10 @@ export const SEOTab = (props: any) => {
     customInstructions = "",
     isCustomInstructionsEnabled = false
   } = props;
+
+  const CardPreviewComponent = YouTubeCardPreview || (({ title }: any) => <div className="p-4 bg-neutral-900 rounded-xl border border-neutral-800 text-white font-bold">{title || "Превью"}</div>);
+
+  const activeTopic = (scriptTopic && scriptTopic.trim()) ? scriptTopic.trim() : (selectedIdea || "");
 
   if (!nicheData) return null;
 
@@ -776,7 +781,7 @@ export const SEOTab = (props: any) => {
   };
 
   const handleEvaluateCTR = async () => {
-    const title = videoSEO?.title || selectedIdea;
+    const title = videoSEO?.title || activeTopic;
     if (!title) {
       toast.error("Не указан заголовок видео");
       return;
@@ -1000,7 +1005,7 @@ ${tagsFormatted}`;
     setIsGeneratingAITitle(true);
     const toastId = toast.loading("ИИ с генерирует улучшенный вариант заголовка...");
     try {
-      const baseTitle = videoSEO.title || selectedIdea || "";
+      const baseTitle = videoSEO.title || activeTopic || "";
       if (style === 'ctr') {
         const opt = await optimizeTitle(baseTitle);
         setVideoSEO({ ...videoSEO, title: opt });
@@ -1029,7 +1034,7 @@ ${tagsFormatted}`;
     const toastId = toast.loading("ИИ структурирует и расширяет описание...");
     try {
       const baseDesc = videoSEO.description || "";
-      const baseTitle = videoSEO.title || selectedIdea || "";
+      const baseTitle = videoSEO.title || activeTopic || "";
       const timestampsStr = blockTimestamps.map(b => `${b.timeCode} - ${b.title}`).join('\n');
 
       const expandedDesc = `📌 О ЧЕМ ЭТО ВИДЕО:
@@ -1063,7 +1068,7 @@ ${videoSEO.keywords || ''}`;
     const toastId = toast.loading("ИИ генерирует LSI ключевые фразы...");
     try {
       const currentKeywords = videoSEO.keywords ? videoSEO.keywords.split(',').map(s => s.trim()).filter(Boolean) : [];
-      const baseTopic = selectedIdea || videoSEO.title || "видео";
+      const baseTopic = activeTopic || videoSEO.title || "видео";
       const lsiAdditions = [
         `${baseTopic} 2026`,
         `как сделать ${baseTopic}`,
@@ -1120,7 +1125,7 @@ ${videoSEO.keywords || ''}`;
                   </button>
                   <button 
                     onClick={handleGenerateVideoSEO}
-                    disabled={isGeneratingVideoSEO || !selectedIdea}
+                    disabled={isGeneratingVideoSEO || !activeTopic}
                     className="flex items-center gap-2 px-3.5 py-1.5 bg-primary hover:bg-emerald-700 disabled:bg-neutral-800 disabled:text-neutral-500 text-white rounded-lg transition-all text-xs font-bold shadow-sm"
                   >
                     {isGeneratingVideoSEO ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
@@ -1149,19 +1154,23 @@ ${videoSEO.keywords || ''}`;
               )}
 
               {/* Idea Preview Card */}
-              {selectedIdea ? (
+              {activeTopic ? (
                 <div className="p-3 bg-neutral-950/60 rounded-lg border border-neutral-800/80 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <span className="text-[9px] text-neutral-500 uppercase font-bold tracking-wider">Тема / Идея видео</span>
-                    <p className="text-xs text-white font-semibold truncate italic mt-0.5">"{selectedIdea}"</p>
+                    <p className="text-xs text-white font-semibold truncate italic mt-0.5">"{activeTopic}"</p>
                   </div>
-                  <span className="px-2 py-0.5 bg-accent/10 border border-accent/20 text-accent text-[9px] font-bold uppercase rounded shrink-0">
-                    Активна
+                  <span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded shrink-0 border ${
+                    scriptTopic && activeTopic === scriptTopic.trim()
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                      : "bg-accent/10 border-accent/20 text-accent"
+                  }`}>
+                    {scriptTopic && activeTopic === scriptTopic.trim() ? "Рабочая тема" : "Активна"}
                   </span>
                 </div>
               ) : (
                 <div className="p-3 bg-neutral-950/40 rounded-lg border border-dashed border-neutral-800 text-center">
-                  <p className="text-xs text-neutral-500">Сначала выберите идею на вкладке "Идеи"</p>
+                  <p className="text-xs text-neutral-500">Сначала укажите тему сценария или выберите идею</p>
                 </div>
               )}
 
@@ -1819,7 +1828,7 @@ ${videoSEO.keywords || ''}`;
 
                   <button 
                     onClick={handleForceRegenerateThumbnailStyle}
-                    disabled={isPreviewLoading || !selectedIdea}
+                    disabled={isPreviewLoading || !activeTopic}
                     className="p-1.5 bg-neutral-950 hover:bg-neutral-800 text-neutral-300 hover:text-white rounded-lg border border-neutral-700 text-xs font-bold transition-all"
                     title="Принудительно перегенерировать стиль"
                   >
@@ -1827,7 +1836,7 @@ ${videoSEO.keywords || ''}`;
                   </button>
                   <button 
                     onClick={handleGeneratePreviewThumbnail}
-                    disabled={isPreviewLoading || !selectedIdea}
+                    disabled={isPreviewLoading || !activeTopic}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent rounded-lg text-xs font-bold border border-accent/20"
                   >
                     {isPreviewLoading ? <Loader2 className="animate-spin" size={14} /> : <Camera size={14} />}
@@ -1842,8 +1851,8 @@ ${videoSEO.keywords || ''}`;
                 {/* Left Column: Preview Display + CTR + Variants */}
                 <div className="lg:col-span-5 flex flex-col items-center gap-3">
                   <div className="w-full flex justify-center">
-                    <YouTubeCardPreview 
-                      title={videoSEO?.title || selectedIdea || ""}
+                    <CardPreviewComponent 
+                      title={videoSEO?.title || activeTopic || ""}
                       channelName={selectedBranding?.name || brandName || "Ваш Канал"}
                       thumbnail={previewThumbnail}
                       borderColor={previewBorderColor}

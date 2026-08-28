@@ -284,7 +284,35 @@ ${baseSystemInstruction}`;
     }
 
     try {
-      const response = await ai.models.generateContent(params);
+      let response: any;
+      if (ai && ai.models) {
+        try {
+          response = await ai.models.generateContent(params);
+        } catch (directErr) {
+          logger.warn("Direct client Gemini call failed, trying server proxy route:", directErr);
+          const res = await fetch("/api/gemini/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(params)
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `Server Gemini call failed with status ${res.status}`);
+          }
+          response = await res.json();
+        }
+      } else {
+        const res = await fetch("/api/gemini/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params)
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Server Gemini call failed with status ${res.status}`);
+        }
+        response = await res.json();
+      }
       
       const usageMeta = response?.usageMetadata;
       const totalTokens = usageMeta?.totalTokenCount || 1000;

@@ -321,7 +321,12 @@ ${longFormScript}
 
   // Helper: estimate duration from word count (approx. 150 wpm -> ~2.5 words/sec)
   const estimateDurationFromWords = (text: string) => {
-    const words = String(text || "").split(/\s+/).filter(Boolean).length;
+    const cleanText = String(text || "")
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const words = cleanText.split(/\s+/).filter(Boolean).length;
     return Math.max(0, Math.round(words / 2.5));
   };
 
@@ -642,7 +647,8 @@ export async function generateShortsVisualsAndMusic(
   const customInst = getCustomInstructions(options, true);
   const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : '';
   const voiceoverScriptText = scriptText
-    .replace(/\[(?:КАДР|ЗВУК|ПАУЗА)(?=[\s:\]])[^\]]*\]/giu, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -736,13 +742,30 @@ ${instructionsContext}
   const WORDS_PER_SECOND = 2.6;
 
   const estimateDuration = (text: string) => {
-    const voiceoverText = text
-      .replace(/\[(?:КАДР|ЗВУК|ПАУЗА)(?=[\s:\]])[^\]]*\]/giu, " ")
+    const voiceoverText = (text || "")
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
       .replace(/\s+/g, " ")
       .trim();
     const words = voiceoverText.split(/\s+/).filter(Boolean).length;
     return Math.max(0.1, words / WORDS_PER_SECOND);
   };
+
+  // Pre-clean scenes from Gemini to remove bracket tags and filter out zero-speech scenes
+  parsedResult.visuals = (parsedResult.visuals || [])
+    .map(v => ({
+      ...v,
+      text: (v.text || "")
+        .replace(/\[[^\]]*\]/g, " ")
+        .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    }))
+    .filter(v => v.text.length > 0);
+
+  if (parsedResult.visuals.length === 0) {
+    throw new Error("Не удалось извлечь текст диктора из сценария.");
+  }
 
   const normalizedVisuals: typeof parsedResult.visuals = [];
   for (const visual of parsedResult.visuals) {

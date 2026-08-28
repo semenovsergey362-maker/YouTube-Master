@@ -10,10 +10,11 @@ coverage/
 *.pem
 *.p12
 .env
-dist/
 bun.lock
 bun.lockb
 .antigravity/
 .agents/
 .vscode/
 
+
+.server_data.json

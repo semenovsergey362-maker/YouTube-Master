@@ -37,7 +37,8 @@ export interface UseShortsGenerationProps {
 
 const cleanShortsVoiceoverText = (text: string) =>
   text
-    .replace(/\[(?:КАДР|ЗВУК|ПАУЗА)(?=[\s:\]])[^\]]*\]/giu, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 

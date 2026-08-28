@@ -154,19 +154,24 @@ export const IdeaSnapshotsModal: React.FC<IdeaSnapshotsModalProps> = ({
   };
 
   const handleDeleteSnapshot = async (snapshotId: string, name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm(`Вы действительно хотите удалить снимок "${name}"?`)) return;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
     try {
-      const docRef = doc(db, "idea_snapshots", snapshotId);
-      await deleteDoc(docRef);
-      toast.success(`Снимок "${name}" удален`);
+      // Optimistically remove from local state
+      setSnapshots(prev => prev.filter(s => s.id !== snapshotId));
       if (previewSnapshot?.id === snapshotId) {
         setPreviewSnapshot(null);
       }
+
+      const docRef = doc(db, "idea_snapshots", snapshotId);
+      await deleteDoc(docRef);
+      toast.success(`Снимок "${name || 'версии'}" успешно удален`);
     } catch (err) {
       logger.error("Delete snapshot error:", err);
-      toast.error("Не удалось удалить снимок");
+      toast.error("Не удалось удалить снимок из облака");
     }
   };
 
@@ -375,10 +380,10 @@ export const IdeaSnapshotsModal: React.FC<IdeaSnapshotsModalProps> = ({
                     </span>
                     {previewSnapshot.ideas && previewSnapshot.ideas.length > 0 ? (
                       previewSnapshot.ideas.map((item: any, idx: number) => {
-                        const itemTitle = typeof item === "string" ? item : item.title;
+                        const itemTitle = typeof item === "string" ? item : (item?.title || item?.name || "Идея без заголовка");
                         return (
                           <div
-                            key={`snapshot-idea-preview-${itemTitle}-${idx}`}
+                            key={`snapshot-idea-preview-${idx}-${String(itemTitle).slice(0, 20)}`}
                             className="p-2.5 bg-neutral-900 border border-neutral-800/80 rounded-lg text-xs text-neutral-200 flex items-start gap-2"
                           >
                             <span className="text-neutral-500 font-mono text-[10px] mt-0.5">{idx + 1}.</span>

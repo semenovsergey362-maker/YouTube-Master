@@ -576,7 +576,7 @@ setInterval(async () => {
 // Vite middleware for development
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   // Middleware
   app.use(cors());
@@ -607,19 +607,45 @@ async function startServer() {
 
   app.post("/api/settings/youtube", (req, res) => {
     try {
-      const { client_id, client_secret, app_url } = req.body;
+      const { client_id, client_secret, app_url, clientId, clientSecret, appUrl } = req.body;
       const dbData = readDb();
       dbData.youtube_oauth = dbData.youtube_oauth || {};
       
-      if (client_id !== undefined) dbData.youtube_oauth.client_id = client_id;
-      if (client_secret !== undefined && client_secret !== "") dbData.youtube_oauth.client_secret = client_secret;
-      if (app_url !== undefined) dbData.youtube_oauth.app_url = app_url;
+      const cId = client_id || clientId;
+      const cSec = client_secret || clientSecret;
+      const aUrl = app_url || appUrl;
+
+      if (cId !== undefined) dbData.youtube_oauth.client_id = cId;
+      if (cSec !== undefined && cSec !== "") dbData.youtube_oauth.client_secret = cSec;
+      if (aUrl !== undefined) dbData.youtube_oauth.app_url = aUrl;
       
       writeDb(dbData);
       res.json({ success: true });
     } catch (error) {
       console.error("Error saving YouTube settings:", error);
       res.status(500).json({ error: "Failed to save settings" });
+    }
+  });
+
+  app.get("/api/settings/app-url", (req, res) => {
+    const dbData = readDb();
+    const dbOAuth = dbData.youtube_oauth || {};
+    const appUrl = process.env.APP_URL || process.env.VITE_APP_URL || dbOAuth.app_url || "";
+    res.json({ appUrl });
+  });
+
+  app.post("/api/settings/app-url", (req, res) => {
+    try {
+      const { app_url, appUrl } = req.body;
+      const aUrl = app_url || appUrl;
+      const dbData = readDb();
+      dbData.youtube_oauth = dbData.youtube_oauth || {};
+      if (aUrl !== undefined) dbData.youtube_oauth.app_url = aUrl;
+      writeDb(dbData);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error saving app-url:", error);
+      res.status(500).json({ error: "Failed to save app-url" });
     }
   });
 
@@ -1384,6 +1410,23 @@ Input: "${cleanQuery}"`
     } catch (error: any) {
       console.error("Reference style analysis error:", error);
       res.status(500).json({ error: error.message || "Failed to analyze reference style" });
+    }
+  });
+
+  app.post("/api/gemini/generate", async (req, res) => {
+    try {
+      const { model, contents, config } = req.body;
+      const ai = getGeminiClient();
+      const targetModel = model || "gemini-2.5-flash";
+      const response = await ai.models.generateContent({
+        model: targetModel,
+        contents: contents || "",
+        config: config || {}
+      });
+      res.json(response);
+    } catch (error: any) {
+      console.error("[Gemini Server Route Error]:", error);
+      res.status(500).json({ error: error.message || "Gemini API error" });
     }
   });
 

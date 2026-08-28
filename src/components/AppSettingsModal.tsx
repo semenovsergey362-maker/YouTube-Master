@@ -220,21 +220,19 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   };
 
   const handleClearCache = () => {
-    if (window.confirm("Вы уверены, что хотите сбросить сохраненный кэш приложения? Данные текущей сессии будут очищены.")) {
-      try {
-        const keysToKeep = ["yt_client_id", "yt_client_secret", "yt_app_url"];
-        const backup: Record<string, string> = {};
-        keysToKeep.forEach((k) => {
-          const v = localStorage.getItem(k);
-          if (v) backup[k] = v;
-        });
-        localStorage.clear();
-        Object.entries(backup).forEach(([k, v]) => localStorage.setItem(k, v));
-        toast.success("Кэш очищен. Страница перезагрузится.");
-        setTimeout(() => window.location.reload(), 1000);
-      } catch {
-        toast.error("Не удалось очистить кэш");
-      }
+    try {
+      const keysToKeep = ["yt_client_id", "yt_client_secret", "yt_app_url"];
+      const backup: Record<string, string> = {};
+      keysToKeep.forEach((k) => {
+        const v = localStorage.getItem(k);
+        if (v) backup[k] = v;
+      });
+      localStorage.clear();
+      Object.entries(backup).forEach(([k, v]) => localStorage.setItem(k, v));
+      toast.success("Кэш очищен. Перезагрузка страницы...");
+      setTimeout(() => window.location.reload(), 1000);
+    } catch {
+      toast.error("Не удалось очистить кэш");
     }
   };
 

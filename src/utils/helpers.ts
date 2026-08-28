@@ -707,7 +707,14 @@ export const getUnifiedScriptScenes = (
   scriptStructure?: any[]
 ): any[] => {
   if (scriptBreakdown && scriptBreakdown.length > 0) {
-    const totalScenes = scriptBreakdown.length;
+    const validBreakdown = scriptBreakdown.filter((sc) => {
+      const rawText = (sc.text || sc.voiceover?.text || sc.voiceover || '').toString();
+      const clean = rawText.replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '').trim();
+      return clean.length > 0;
+    });
+
+    const activeBreakdown = validBreakdown.length > 0 ? validBreakdown : scriptBreakdown;
+    const totalScenes = activeBreakdown.length;
     
     const orderedIndices = generatedBlocks
       ? Object.keys(generatedBlocks).map(Number).sort((a, b) => a - b)
@@ -748,7 +755,7 @@ export const getUnifiedScriptScenes = (
       return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
-    return scriptBreakdown.map((sc, idx) => {
+    return activeBreakdown.map((sc, idx) => {
       let bIdx = -1;
       let bTitle = '';
 
@@ -798,9 +805,11 @@ export const getUnifiedScriptScenes = (
 
       const visText = getSceneVisualText(sc) || 'Визуальный ряд кадра';
       const searchQuery = (typeof sc.visuals === 'object' && sc.visuals?.searchQuery) || sc.searchQuery || 'cinematic background';
+      const cleanedText = (sc.text || sc.voiceover?.text || '').toString().replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
 
       return {
         ...sc,
+        text: cleanedText || sc.text,
         id: `sc-break-${bIdx}-${idx}`,
         description: visText,
         visual: visText,

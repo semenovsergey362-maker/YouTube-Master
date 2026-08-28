@@ -17,7 +17,7 @@ import {
 } from "recharts";
 import { generateCompetitorResearch, CompetitorResearchResult, CompetitorChannel, generateTrendingQueries, generateChannelStrategy } from "../../services/geminiService";
 import { useApp } from "../../context/AppContext";
-import { logout } from "../../firebase";
+import { logout, refreshAuthSession } from "../../firebase";
 import { safeStorage } from "../../lib/storage";
 import { toast } from "sonner";
 import { handleAppError } from "../../utils/helpers";
@@ -347,10 +347,11 @@ export const YouTubeTab = ({
         );
 
         // Listen for successful login message
-        const messageListener = (event: MessageEvent) => {
+        const messageListener = async (event: MessageEvent) => {
           if (event.data?.type === "OAUTH_AUTH_SUCCESS") {
             setStatusMsg({ type: "success", text: "Канал успешно подключен к системе!" });
             safeStorage.setItem("yt_connected", "true");
+            await refreshAuthSession();
             fetchSettingsAndStats();
             window.removeEventListener("message", messageListener);
           }
@@ -358,9 +359,10 @@ export const YouTubeTab = ({
         window.addEventListener("message", messageListener);
 
         // Fallback: poll stats after window closes
-        const checkClosed = setInterval(() => {
+        const checkClosed = setInterval(async () => {
           if (popup?.closed) {
             clearInterval(checkClosed);
+            await refreshAuthSession();
             fetchSettingsAndStats();
           }
         }, 1000);

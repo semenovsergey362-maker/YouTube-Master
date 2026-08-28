@@ -54,6 +54,7 @@ import { ErrorBoundary } from '../../main';
 export const PromptingTab = ({
   nicheData,
   selectedIdea,
+  scriptTopic,
   promptImageStyle,
   promptAnimationType,
   promptMusicMood,
@@ -122,7 +123,8 @@ export const PromptingTab = ({
     }
     
     const fullScript = scenesToRender.map((s: any) => `${s.scene || ''}\n${s.text || ''}`).join("\n\n");
-    const currentTopic = nicheData?.title || selectedIdea?.title || "Без темы";
+    const topicTitle = typeof selectedIdea === "string" ? selectedIdea : selectedIdea?.title;
+    const currentTopic = scriptTopic || topicTitle || nicheData?.title || "Без темы";
 
     setIsGeneratingMasterMusic(true);
     try {

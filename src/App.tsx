@@ -1,4 +1,6 @@
-﻿import { logger } from "./config/logger";
+import { DEMO_DATA, COMPETITORS, NICHE_POTENTIAL, NICHE_IDEAS, POPULAR_IDEAS, getScoreData, getIdeas, getPopularIdeas, getScriptTemplate, getEditingTips, getSEOData, getAnalytics, parseSubs, generateBrandingVariants, IMAGE_STYLES, ANIMATION_TYPES, MUSIC_MOODS, REGIONS, fontStyleMap, TREND_DATA, type CustomTemplateItem } from "./data/constants";
+import { NICHES, NICHE_METRICS } from "./data/niches";
+import { logger } from "./config/logger";
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -156,7 +158,9 @@ import {
   MessageSquare,
   Hash,
   Terminal} from "lucide-react";
+import { YouTubeCardPreview } from "./components/YouTubeCardPreview";
 import { ScriptDiffModal } from "./components/ScriptDiffModal";
+import { Sidebar } from "./components/Sidebar";
 import { useHooksGeneration } from "./hooks/useHooksGeneration";
 import { useSeoGeneration } from "./hooks/useSeoGeneration";
 import { useShortsGeneration } from "./hooks/useShortsGeneration";
@@ -195,6 +199,7 @@ import {
   signInWithGoogle,
   logout,
   onAuthStateChanged,
+  refreshAuthSession,
   type User,
   collection,
   doc,
@@ -428,78 +433,6 @@ const SyncPromptEditor = ({ en, ru, onUpdate }: any) => {
   );
 };
 
-const NICHES = [
-  "Технологии",
-  "Игры",
-  "Образование",
-  "Лайфстайл",
-  "Бизнес",
-  "Финансы",
-  "Путешествия",
-  "Кулинария",
-  "Фитнес",
-  "DIY",
-  "Красота",
-  "Мода",
-  "Автомобили",
-  "Музыка",
-  "Кино",
-  "Психология",
-  "Животные",
-  "Новости",
-  "Юмор",
-  "Недвижимость",
-  "Здоровье",
-  "Искусство",
-  "Спорт",
-  "Наука",
-  "Аниме",
-  "Криптовалюта",
-  "Родительство",
-  "Книги",
-  "Мотивация",
-  "Обзоры",
-  "История",
-  "Свой вариант",
-];
-
-const NICHE_METRICS: Record<
-  string,
-  { potential: string; competition: string; trend: "up" | "down" | "stable" }
-> = {
-  Технологии: { potential: "92%", competition: "Высокая", trend: "up" },
-  Игры: { potential: "98%", competition: "Очень высокая", trend: "stable" },
-  Образование: { potential: "85%", competition: "Средняя", trend: "up" },
-  Лайфстайл: { potential: "78%", competition: "Высокая", trend: "stable" },
-  Бизнес: { potential: "88%", competition: "Средняя", trend: "up" },
-  Финансы: { potential: "95%", competition: "Средняя", trend: "up" },
-  Путешествия: { potential: "82%", competition: "Высокая", trend: "stable" },
-  Кулинария: { potential: "80%", competition: "Высокая", trend: "stable" },
-  Фитнес: { potential: "84%", competition: "Высокая", trend: "up" },
-  DIY: { potential: "75%", competition: "Средняя", trend: "stable" },
-  Красота: { potential: "81%", competition: "Высокая", trend: "stable" },
-  Мода: { potential: "79%", competition: "Высокая", trend: "stable" },
-  Автомобили: { potential: "87%", competition: "Средняя", trend: "up" },
-  Музыка: { potential: "90%", competition: "Очень высокая", trend: "stable" },
-  Кино: { potential: "86%", competition: "Средняя", trend: "up" },
-  Психология: { potential: "83%", competition: "Средняя", trend: "up" },
-  Животные: { potential: "77%", competition: "Средняя", trend: "stable" },
-  Новости: { potential: "89%", competition: "Высокая", trend: "up" },
-  Юмор: { potential: "94%", competition: "Очень высокая", trend: "stable" },
-  Недвижимость: { potential: "91%", competition: "Средняя", trend: "up" },
-  Здоровье: { potential: "88%", competition: "Средняя", trend: "up" },
-  Искусство: { potential: "76%", competition: "Средняя", trend: "stable" },
-  Спорт: { potential: "85%", competition: "Высокая", trend: "up" },
-  Наука: { potential: "82%", competition: "Средняя", trend: "up" },
-  Аниме: { potential: "93%", competition: "Высокая", trend: "up" },
-  Криптовалюта: { potential: "96%", competition: "Высокая", trend: "up" },
-  Родительство: { potential: "80%", competition: "Средняя", trend: "stable" },
-  Книги: { potential: "74%", competition: "Низкая", trend: "stable" },
-  Мотивация: { potential: "87%", competition: "Средняя", trend: "up" },
-  Обзоры: { potential: "84%", competition: "Средняя", trend: "stable" },
-  История: { potential: "81%", competition: "Средняя", trend: "up" },
-};
-
 const NICHE_ICONS: Record<string, any> = {
   Технологии: Search,
   Игры: Gamepad2,
@@ -557,3235 +490,6 @@ const VOICE_GUIDE = [
     desc: "Мягкий, воздушный, нежный. Для ASMR, релаксации, поэзии.",
   },
 ];
-
-const DEMO_DATA: Record<string, { name: string; value: number }[]> = {
-  Технологии: [
-    { name: "18-24", value: 450 },
-    { name: "25-34", value: 350 },
-    { name: "35-44", value: 150 },
-    { name: "45+", value: 50 },
-  ],
-  Игры: [
-    { name: "13-17", value: 300 },
-    { name: "18-24", value: 500 },
-    { name: "25-34", value: 150 },
-    { name: "35+", value: 50 },
-  ],
-  Образование: [
-    { name: "18-24", value: 200 },
-    { name: "25-34", value: 400 },
-    { name: "35-44", value: 300 },
-    { name: "45+", value: 100 },
-  ],
-  Лайфстайл: [
-    { name: "18-24", value: 400 },
-    { name: "25-34", value: 300 },
-    { name: "35-44", value: 200 },
-    { name: "45+", value: 100 },
-  ],
-  Бизнес: [
-    { name: "25-34", value: 500 },
-    { name: "35-44", value: 300 },
-    { name: "45-54", value: 150 },
-    { name: "55+", value: 50 },
-  ],
-  Финансы: [
-    { name: "25-34", value: 450 },
-    { name: "35-44", value: 350 },
-    { name: "45-54", value: 150 },
-    { name: "55+", value: 50 },
-  ],
-  Путешествия: [
-    { name: "18-24", value: 250 },
-    { name: "25-34", value: 400 },
-    { name: "35-44", value: 250 },
-    { name: "45+", value: 100 },
-  ],
-  Кулинария: [
-    { name: "18-24", value: 150 },
-    { name: "25-34", value: 350 },
-    { name: "35-44", value: 300 },
-    { name: "45+", value: 200 },
-  ],
-  Фитнес: [
-    { name: "18-24", value: 350 },
-    { name: "25-34", value: 400 },
-    { name: "35-44", value: 200 },
-    { name: "45+", value: 50 },
-  ],
-  DIY: [
-    { name: "18-24", value: 200 },
-    { name: "25-34", value: 300 },
-    { name: "35-44", value: 350 },
-    { name: "45+", value: 150 },
-  ],
-  Красота: [
-    { name: "13-17", value: 250 },
-    { name: "18-24", value: 450 },
-    { name: "25-34", value: 200 },
-    { name: "35+", value: 100 },
-  ],
-  Автомобили: [
-    { name: "18-24", value: 200 },
-    { name: "25-34", value: 400 },
-    { name: "35-44", value: 300 },
-    { name: "45+", value: 100 },
-  ],
-  Психология: [
-    { name: "18-24", value: 150 },
-    { name: "25-34", value: 450 },
-    { name: "35-44", value: 300 },
-    { name: "45+", value: 100 },
-  ],
-  Криптовалюта: [
-    { name: "18-24", value: 300 },
-    { name: "25-34", value: 500 },
-    { name: "35-44", value: 150 },
-    { name: "45+", value: 50 },
-  ],
-  История: [
-    { name: "18-24", value: 200 },
-    { name: "25-34", value: 350 },
-    { name: "35-44", value: 300 },
-    { name: "45+", value: 150 },
-  ],
-  "Свой вариант": [
-    { name: "18-24", value: 250 },
-    { name: "25-34", value: 250 },
-    { name: "35-44", value: 250 },
-    { name: "45+", value: 250 },
-  ],
-};
-
-export const TREND_DATA: Record<string, { name: string; views: number }[]> = {
-  Технологии: [
-    { name: "Янв", views: 4000 },
-    { name: "Фев", views: 3500 },
-    { name: "Мар", views: 5500 },
-    { name: "Апр", views: 4500 },
-    { name: "Май", views: 7000 },
-  ],
-  Игры: [
-    { name: "Янв", views: 8000 },
-    { name: "Фев", views: 7500 },
-    { name: "Мар", views: 9000 },
-    { name: "Апр", views: 8500 },
-    { name: "Май", views: 10000 },
-  ],
-  Образование: [
-    { name: "Янв", views: 2000 },
-    { name: "Фев", views: 4500 },
-    { name: "Мар", views: 5000 },
-    { name: "Апр", views: 3500 },
-    { name: "Май", views: 4000 },
-  ],
-  Лайфстайл: [
-    { name: "Янв", views: 5000 },
-    { name: "Фев", views: 5200 },
-    { name: "Мар", views: 5100 },
-    { name: "Апр", views: 5300 },
-    { name: "Май", views: 5500 },
-  ],
-  Бизнес: [
-    { name: "Янв", views: 3000 },
-    { name: "Фев", views: 3200 },
-    { name: "Мар", views: 3500 },
-    { name: "Апр", views: 3800 },
-    { name: "Май", views: 4200 },
-  ],
-  Финансы: [
-    { name: "Янв", views: 2500 },
-    { name: "Фев", views: 2800 },
-    { name: "Мар", views: 3200 },
-    { name: "Апр", views: 3500 },
-    { name: "Май", views: 4000 },
-  ],
-  Путешествия: [
-    { name: "Янв", views: 1500 },
-    { name: "Фев", views: 1200 },
-    { name: "Мар", views: 2500 },
-    { name: "Апр", views: 4000 },
-    { name: "Май", views: 6000 },
-  ],
-  Кулинария: [
-    { name: "Янв", views: 3500 },
-    { name: "Фев", views: 3800 },
-    { name: "Мар", views: 4200 },
-    { name: "Апр", views: 4000 },
-    { name: "Май", views: 4500 },
-  ],
-  Фитнес: [
-    { name: "Янв", views: 6000 },
-    { name: "Фев", views: 5500 },
-    { name: "Мар", views: 5000 },
-    { name: "Апр", views: 4500 },
-    { name: "Май", views: 4000 },
-  ],
-  DIY: [
-    { name: "Янв", views: 2000 },
-    { name: "Фев", views: 2200 },
-    { name: "Мар", views: 2500 },
-    { name: "Апр", views: 2800 },
-    { name: "Май", views: 3200 },
-  ],
-  Красота: [
-    { name: "Янв", views: 5000 },
-    { name: "Фев", views: 5500 },
-    { name: "Мар", views: 6000 },
-    { name: "Апр", views: 7000 },
-    { name: "Май", views: 8500 },
-  ],
-  Автомобили: [
-    { name: "Янв", views: 3000 },
-    { name: "Фев", views: 3500 },
-    { name: "Мар", views: 4000 },
-    { name: "Апр", views: 4500 },
-    { name: "Май", views: 5000 },
-  ],
-  Криптовалюта: [
-    { name: "Янв", views: 10000 },
-    { name: "Фев", views: 15000 },
-    { name: "Мар", views: 8000 },
-    { name: "Апр", views: 12000 },
-    { name: "Май", views: 20000 },
-  ],
-  История: [
-    { name: "Янв", views: 3000 },
-    { name: "Фев", views: 3200 },
-    { name: "Мар", views: 4500 },
-    { name: "Апр", views: 5000 },
-    { name: "Май", views: 5500 },
-  ],
-  "Свой вариант": [
-    { name: "Янв", views: 1000 },
-    { name: "Фев", views: 1000 },
-    { name: "Мар", views: 1000 },
-    { name: "Апр", views: 1000 },
-    { name: "Май", views: 1000 },
-  ],
-};
-
-const COMPETITORS: Record<
-  string,
-  {
-    name: string;
-    subs: string;
-    desc: string;
-    weakness: string;
-    strategy: string;
-    engagement: number;
-  }[]
-> = {
-  Технологии: [
-    {
-      name: "TechCrunch",
-      subs: "1.5M",
-      desc: "Новости технологий и стартапов.",
-      weakness: "Слишком формальный стиль.",
-      strategy: "Добавьте личное мнение и юмор в обзоры.",
-      engagement: 2.1,
-    },
-    {
-      name: "MKBHD",
-      subs: "18M",
-      desc: "Обзоры гаджетов.",
-      weakness: "Редко делает глубокие технические разборы.",
-      strategy:
-        "Делайте упор на технические детали и тесты производительности.",
-      engagement: 5.4,
-    },
-    {
-      name: "Verge",
-      subs: "4M",
-      desc: "Технологии и культура.",
-      weakness: "Фокус на широкую аудиторию, мало деталей.",
-      strategy: "Сфокусируйтесь на узких, профессиональных темах.",
-      engagement: 3.2,
-    },
-    {
-      name: "Linus Tech Tips",
-      subs: "15M",
-      desc: "Компьютерное железо.",
-      weakness: "Часто перегружено рекламой.",
-      strategy: "Делайте честные обзоры без навязчивой рекламы.",
-      engagement: 4.8,
-    },
-    {
-      name: "Unbox Therapy",
-      subs: "20M",
-      desc: "Распаковки гаджетов.",
-      weakness: "Мало аналитики, только поверхностный взгляд.",
-      strategy: "Добавляйте глубокий анализ использования после месяца тестов.",
-      engagement: 3.9,
-    },
-  ],
-  Игры: [
-    {
-      name: "IGN",
-      subs: "17M",
-      desc: "Игровые новости и обзоры.",
-      weakness: "Часто предвзятые оценки.",
-      strategy: "Будьте максимально объективны и слушайте сообщество.",
-      engagement: 2.5,
-    },
-    {
-      name: "GameSpot",
-      subs: "10M",
-      desc: "Игровые новости и обзоры.",
-      weakness: "Слишком длинные видео.",
-      strategy: "Делайте короткие, емкие выжимки самого важного.",
-      engagement: 2.8,
-    },
-    {
-      name: "PewDiePie",
-      subs: "111M",
-      desc: "Летсплеи и развлечения.",
-      weakness: "Контент стал менее структурированным.",
-      strategy: "Вернитесь к формату структурированных прохождений с сюжетом.",
-      engagement: 6.1,
-    },
-    {
-      name: "Jacksepticeye",
-      subs: "30M",
-      desc: "Летсплеи и развлечения.",
-      weakness: "Слишком шумный стиль для некоторых.",
-      strategy: "Используйте более спокойный, ламповый стиль общения.",
-      engagement: 5.5,
-    },
-    {
-      name: "Markiplier",
-      subs: "35M",
-      desc: "Летсплеи и развлечения.",
-      weakness: "Фокус на эмоциях, а не на игре.",
-      strategy: "Больше внимания уделяйте лору и механике игры.",
-      engagement: 5.8,
-    },
-  ],
-  Образование: [
-    {
-      name: "Khan Academy",
-      subs: "8M",
-      desc: "Бесплатное образование.",
-      weakness: "Скучная подача материала.",
-      strategy: "Используйте сторителлинг и яркую анимацию.",
-      engagement: 1.5,
-    },
-    {
-      name: "TED-Ed",
-      subs: "19M",
-      desc: "Короткие образовательные видео.",
-      weakness: "Недостаточно глубокое погружение.",
-      strategy: "Делайте серии видео, глубоко раскрывающие одну тему.",
-      engagement: 3.2,
-    },
-    {
-      name: "Veritasium",
-      subs: "15M",
-      desc: "Наука и образование.",
-      weakness: "Редкие выпуски.",
-      strategy: "Выпускайте контент чаще, используя более простой продакшн.",
-      engagement: 4.5,
-    },
-    {
-      name: "Kurzgesagt",
-      subs: "22M",
-      desc: "Наука и анимация.",
-      weakness: "Сложно адаптировать стиль.",
-      strategy: "Найдите свой уникальный, более простой визуальный стиль.",
-      engagement: 5.2,
-    },
-    {
-      name: "CrashCourse",
-      subs: "15M",
-      desc: "Образовательные курсы.",
-      weakness: "Слишком быстрый темп речи.",
-      strategy: "Говорите в умеренном темпе, делайте паузы для осмысления.",
-      engagement: 3.8,
-    },
-  ],
-  Лайфстайл: [
-    {
-      name: "Emma Chamberlain",
-      subs: "12M",
-      desc: "Влоги и лайфстайл.",
-      weakness: "Отсутствие четкой темы.",
-      strategy: "Выберите 2-3 ключевые темы и придерживайтесь их.",
-      engagement: 6.5,
-    },
-    {
-      name: "Casey Neistat",
-      subs: "12M",
-      desc: "Влоги и кинопроизводство.",
-      weakness: "Высокая планка качества, сложно повторить.",
-      strategy: 'Покажите "грязный" процесс без прикрас, будьте ближе к людям.',
-      engagement: 5.8,
-    },
-    {
-      name: "David Dobrik",
-      subs: "18M",
-      desc: "Влоги и развлечения.",
-      weakness: "Специфический юмор.",
-      strategy: "Используйте более универсальный, добрый юмор.",
-      engagement: 7.2,
-    },
-    {
-      name: "Zoella",
-      subs: "10M",
-      desc: "Лайфстайл и красота.",
-      weakness: "Устаревший формат.",
-      strategy: "Перейдите на формат Shorts и более динамичный монтаж.",
-      engagement: 2.1,
-    },
-    {
-      name: "Alisha Marie",
-      subs: "8M",
-      desc: "Лайфстайл и влоги.",
-      weakness: "Повторяющийся контент.",
-      strategy: "Экспериментируйте с новыми форматами каждую неделю.",
-      engagement: 3.4,
-    },
-  ],
-  Бизнес: [
-    {
-      name: "GaryVee",
-      subs: "4M",
-      desc: "Бизнес и мотивация.",
-      weakness: "Много воды, мало конкретики.",
-      strategy: "Давайте пошаговые инструкции и реальные кейсы.",
-      engagement: 4.2,
-    },
-    {
-      name: "Graham Stephan",
-      subs: "4M",
-      desc: "Финансы и инвестиции.",
-      weakness: "Фокус только на США.",
-      strategy: "Делайте обзоры глобальных рынков и других стран.",
-      engagement: 3.9,
-    },
-    {
-      name: "Ali Abdaal",
-      subs: "5M",
-      desc: "Продуктивность и бизнес.",
-      weakness: "Слишком идеализированный подход.",
-      strategy: "Рассказывайте о провалах и трудностях без прикрас.",
-      engagement: 4.8,
-    },
-    {
-      name: "Meet Kevin",
-      subs: "2M",
-      desc: "Финансы и бизнес.",
-      weakness: "Слишком частые, но поверхностные видео.",
-      strategy: "Делайте одно глубокое видео в неделю вместо пяти коротких.",
-      engagement: 3.5,
-    },
-    {
-      name: "Andrei Jikh",
-      subs: "2M",
-      desc: "Финансы и инвестиции.",
-      weakness: "Фокус на хайповых темах.",
-      strategy: "Разбирайте фундаментальные основы инвестирования.",
-      engagement: 3.7,
-    },
-  ],
-  Финансы: [
-    {
-      name: "Investopedia",
-      subs: "1M",
-      desc: "Финансовое образование.",
-      weakness: "Слишком академично.",
-      strategy: "Объясняйте сложные термины на простых примерах из жизни.",
-      engagement: 1.2,
-    },
-    {
-      name: "The Financial Diet",
-      subs: "1M",
-      desc: "Личные финансы.",
-      weakness: "Узкая аудитория.",
-      strategy: "Расширьте темы на разные возрастные группы.",
-      engagement: 2.8,
-    },
-    {
-      name: "MoneyWeek",
-      subs: "500K",
-      desc: "Инвестиции.",
-      weakness: "Скучный визуальный ряд.",
-      strategy: "Добавьте динамичную графику и живые примеры.",
-      engagement: 1.5,
-    },
-    {
-      name: "Bloomberg",
-      subs: "2M",
-      desc: "Финансовые новости.",
-      weakness: "Сложно для новичков.",
-      strategy: 'Делайте рубрику "Финансы для чайников".',
-      engagement: 1.8,
-    },
-    {
-      name: "CNBC",
-      subs: "5M",
-      desc: "Финансы и бизнес.",
-      weakness: "Слишком корпоративный стиль.",
-      strategy: "Будьте более неформальными и открытыми к аудитории.",
-      engagement: 2.0,
-    },
-  ],
-  Путешествия: [
-    {
-      name: "Expedia",
-      subs: "500K",
-      desc: "Путешествия.",
-      weakness: "Слишком рекламный характер.",
-      strategy: "Делайте честные обзоры отелей и мест без прикрас.",
-      engagement: 1.0,
-    },
-    {
-      name: "Lonely Planet",
-      subs: "300K",
-      desc: "Гайды по странам.",
-      weakness: "Отсутствие личного опыта.",
-      strategy: "Делитесь личными историями и факапами из поездок.",
-      engagement: 1.2,
-    },
-    {
-      name: "Mark Wiens",
-      subs: "10M",
-      desc: "Еда и путешествия.",
-      weakness: "Фокус только на еде.",
-      strategy: "Показывайте культуру и быт людей, а не только тарелки.",
-      engagement: 4.5,
-    },
-    {
-      name: "Kara and Nate",
-      subs: "4M",
-      desc: "Влоги о путешествиях.",
-      weakness: "Слишком много семейного контента.",
-      strategy: "Больше полезных советов по логистике и экономии.",
-      engagement: 5.2,
-    },
-    {
-      name: "Lost LeBlanc",
-      subs: "2M",
-      desc: "Кинематографичные путешествия.",
-      weakness: "Сложно повторить бюджет.",
-      strategy: "Показывайте бюджетные варианты тех же локаций.",
-      engagement: 4.8,
-    },
-  ],
-  Кулинария: [
-    {
-      name: "Gordon Ramsay",
-      subs: "20M",
-      desc: "Кулинарные мастер-классы.",
-      weakness: "Слишком агрессивная подача.",
-      strategy: "Будьте более терпеливым учителем, объясняйте нюансы.",
-      engagement: 5.5,
-    },
-    {
-      name: "Tasty",
-      subs: "20M",
-      desc: "Быстрые рецепты.",
-      weakness: "Отсутствие детальных инструкций.",
-      strategy: "Добавьте точные граммовки и время приготовления.",
-      engagement: 3.2,
-    },
-    {
-      name: "Binging with Babish",
-      subs: "10M",
-      desc: "Еда из кино.",
-      weakness: "Сложные рецепты.",
-      strategy: "Предлагайте упрощенные альтернативы дорогим ингредиентам.",
-      engagement: 4.8,
-    },
-    {
-      name: "Joshua Weissman",
-      subs: "8M",
-      desc: "Кулинария.",
-      weakness: "Слишком много монтажных склеек.",
-      strategy: 'Сделайте формат "одним кадром" для простых блюд.',
-      engagement: 5.2,
-    },
-    {
-      name: "Bon Appétit",
-      subs: "6M",
-      desc: "Кулинария.",
-      weakness: "Сложно для домашней кухни.",
-      strategy: "Адаптируйте рецепты под обычную кухонную технику.",
-      engagement: 3.8,
-    },
-  ],
-  Фитнес: [
-    {
-      name: "Athlean-X",
-      subs: "13M",
-      desc: "Научный подход к фитнесу.",
-      weakness: "Сложная терминология.",
-      strategy: "Переводите научный язык на понятный обывателю.",
-      engagement: 4.2,
-    },
-    {
-      name: "Jeff Nippard",
-      subs: "5M",
-      desc: "Научный подход к тренировкам.",
-      weakness: "Слишком много теории.",
-      strategy: "Давайте больше готовых программ тренировок.",
-      engagement: 4.8,
-    },
-    {
-      name: "Chris Heria",
-      subs: "7M",
-      desc: "Калистеника.",
-      weakness: "Высокий порог входа.",
-      strategy: 'Сделайте курс "Калистеника с нуля для полных новичков".',
-      engagement: 5.1,
-    },
-    {
-      name: "Yoga with Adriene",
-      subs: "12M",
-      desc: "Йога.",
-      weakness: "Слишком медленный темп.",
-      strategy: "Добавьте интенсивные 15-минутные тренировки.",
-      engagement: 3.5,
-    },
-    {
-      name: "Blogilates",
-      subs: "6M",
-      desc: "Пилатес.",
-      weakness: "Фокус на эстетике, а не на здоровье.",
-      strategy: "Делайте упор на функциональность и здоровье спины.",
-      engagement: 3.8,
-    },
-  ],
-  DIY: [
-    {
-      name: "5-Minute Crafts",
-      subs: "80M",
-      desc: "Лайфхаки.",
-      weakness: "Много нерабочих идей.",
-      strategy: "Проверяйте лайфхаки и разоблачайте фейки.",
-      engagement: 2.5,
-    },
-    {
-      name: "Troom Troom",
-      subs: "25M",
-      desc: "DIY и лайфхаки.",
-      weakness: "Слишком нереалистично.",
-      strategy: "Делайте полезные вещи для реальной жизни.",
-      engagement: 2.2,
-    },
-    {
-      name: "The King of Random",
-      subs: "12M",
-      desc: "Эксперименты.",
-      weakness: "Опасные эксперименты.",
-      strategy: "Показывайте безопасные опыты для всей семьи.",
-      engagement: 3.8,
-    },
-    {
-      name: "I Like To Make Stuff",
-      subs: "3M",
-      desc: "Мастерская.",
-      weakness: "Требует дорогого инструмента.",
-      strategy: "Показывайте, как сделать то же самое ручным инструментом.",
-      engagement: 4.1,
-    },
-    {
-      name: "DIY Perks",
-      subs: "4M",
-      desc: "Технический DIY.",
-      weakness: "Слишком сложно для новичков.",
-      strategy: "Делайте подробные гайды для начинающих электронщиков.",
-      engagement: 4.5,
-    },
-  ],
-  История: [
-    {
-      name: "OverSimplified",
-      subs: "7M",
-      desc: "История в юмористической анимации.",
-      weakness: "Очень редкие выпуски.",
-      strategy: "Выпускайте контент чаще, используя более простую графику.",
-      engagement: 8.5,
-    },
-    {
-      name: "The Infographics Show",
-      subs: "12M",
-      desc: "Факты и история.",
-      weakness: "Иногда поверхностный анализ.",
-      strategy: "Привлекайте экспертов-историков для глубокого разбора.",
-      engagement: 3.2,
-    },
-    {
-      name: "History Channel",
-      subs: "10M",
-      desc: "Документальные фильмы.",
-      weakness: "Слишком телевизионный формат.",
-      strategy: "Адаптируйте формат под быстрый темп YouTube.",
-      engagement: 2.1,
-    },
-    {
-      name: "Kings and Generals",
-      subs: "3M",
-      desc: "Военная история.",
-      weakness: "Узкая специализация.",
-      strategy:
-        "Рассказывайте о быте и культуре тех времен, а не только о битвах.",
-      engagement: 4.8,
-    },
-    {
-      name: "Timeline",
-      subs: "4M",
-      desc: "Мировая история.",
-      weakness: "Длинные видео, сложно для Shorts.",
-      strategy: "Делайте нарезки самых интересных фактов для Shorts.",
-      engagement: 3.5,
-    },
-  ],
-  "Свой вариант": [
-    {
-      name: "Конкурент 1",
-      subs: "N/A",
-      desc: "Описание конкурента.",
-      weakness: "N/A",
-      strategy: "N/A",
-      engagement: 0,
-    },
-    {
-      name: "Конкурент 2",
-      subs: "N/A",
-      desc: "Описание конкурента.",
-      weakness: "N/A",
-      strategy: "N/A",
-      engagement: 0,
-    },
-    {
-      name: "Конкурент 3",
-      subs: "N/A",
-      desc: "Описание конкурента.",
-      weakness: "N/A",
-      strategy: "N/A",
-      engagement: 0,
-    },
-    {
-      name: "Конкурент 4",
-      subs: "N/A",
-      desc: "Описание конкурента.",
-      weakness: "N/A",
-      strategy: "N/A",
-      engagement: 0,
-    },
-    {
-      name: "Конкурент 5",
-      subs: "N/A",
-      desc: "Описание конкурента.",
-      weakness: "N/A",
-      strategy: "N/A",
-      engagement: 0,
-    },
-  ],
-};
-
-const NICHE_POTENTIAL: Record<
-  string,
-  {
-    score: number;
-    summary: string;
-    demand: number;
-    competition: number;
-    monetization: number;
-  }
-> = {
-  Технологии: {
-    score: 85,
-    summary: "Высокий спрос, но большая конкуренция. Нужен уникальный подход.",
-    demand: 90,
-    competition: 80,
-    monetization: 85,
-  },
-  Игры: {
-    score: 70,
-    summary: "Огромная аудитория, но сложно выделиться без харизмы.",
-    demand: 95,
-    competition: 90,
-    monetization: 60,
-  },
-  Образование: {
-    score: 90,
-    summary: "Стабильный рост, высокая лояльность аудитории.",
-    demand: 85,
-    competition: 40,
-    monetization: 75,
-  },
-  Лайфстайл: {
-    score: 75,
-    summary: "Высокая конкуренция, успех зависит от личного бренда.",
-    demand: 80,
-    competition: 85,
-    monetization: 70,
-  },
-  Бизнес: {
-    score: 80,
-    summary: "Высокая монетизация, но требует глубокой экспертизы.",
-    demand: 75,
-    competition: 50,
-    monetization: 95,
-  },
-  Финансы: {
-    score: 95,
-    summary: "Очень высокая монетизация и стабильный интерес.",
-    demand: 85,
-    competition: 45,
-    monetization: 100,
-  },
-  Путешествия: {
-    score: 65,
-    summary: "Зависимость от бюджета и сезонности.",
-    demand: 70,
-    competition: 60,
-    monetization: 55,
-  },
-  Кулинария: {
-    score: 85,
-    summary: "Визуально привлекательный контент, легко масштабировать.",
-    demand: 90,
-    competition: 70,
-    monetization: 80,
-  },
-  Фитнес: {
-    score: 80,
-    summary: "Всегда актуально, высокая конкуренция.",
-    demand: 85,
-    competition: 75,
-    monetization: 80,
-  },
-  DIY: {
-    score: 75,
-    summary: "Хороший потенциал, если контент реально полезен.",
-    demand: 75,
-    competition: 55,
-    monetization: 65,
-  },
-  Красота: {
-    score: 88,
-    summary: "Огромный рынок рекламы, высокая лояльность к брендам.",
-    demand: 92,
-    competition: 85,
-    monetization: 90,
-  },
-  Мода: {
-    score: 82,
-    summary: "Трендовая ниша, требует чувства стиля и качества картинки.",
-    demand: 85,
-    competition: 70,
-    monetization: 85,
-  },
-  Автомобили: {
-    score: 78,
-    summary: "Дорогая реклама, мужская аудитория, высокий чек.",
-    demand: 80,
-    competition: 65,
-    monetization: 90,
-  },
-  Музыка: {
-    score: 72,
-    summary: "Сложная монетизация из-за авторских прав, но виральный охват.",
-    demand: 95,
-    competition: 80,
-    monetization: 40,
-  },
-  Кино: {
-    score: 84,
-    summary: "Постоянный поток инфоповодов, широкая аудитория.",
-    demand: 88,
-    competition: 60,
-    monetization: 75,
-  },
-  Психология: {
-    score: 92,
-    summary: "Тренд на ментальное здоровье, высокая глубина просмотра.",
-    demand: 90,
-    competition: 45,
-    monetization: 85,
-  },
-  Животные: {
-    score: 80,
-    summary: "Мировой охват, высокая виральность в Shorts.",
-    demand: 95,
-    competition: 70,
-    monetization: 50,
-  },
-  Новости: {
-    score: 75,
-    summary: "Высокий трафик, но короткий жизненный цикл видео.",
-    demand: 90,
-    competition: 80,
-    monetization: 60,
-  },
-  Юмор: {
-    score: 85,
-    summary: "Максимальный охват, сложность в стабильном качестве.",
-    demand: 98,
-    competition: 90,
-    monetization: 70,
-  },
-  Недвижимость: {
-    score: 90,
-    summary: "Самый высокий CPM, работа на узкую, но богатую аудиторию.",
-    demand: 60,
-    competition: 30,
-    monetization: 100,
-  },
-  Здоровье: {
-    score: 86,
-    summary: "Вечнозеленый контент, высокая ответственность за информацию.",
-    demand: 85,
-    competition: 55,
-    monetization: 80,
-  },
-  Искусство: {
-    score: 74,
-    summary: "Нишевая аудитория, эстетическое удовольствие.",
-    demand: 65,
-    competition: 40,
-    monetization: 60,
-  },
-  Спорт: {
-    score: 81,
-    summary: "Эмоциональный контент, привязка к событиям.",
-    demand: 90,
-    competition: 75,
-    monetization: 75,
-  },
-  Наука: {
-    score: 89,
-    summary: "Интеллектуальная аудитория, сложность в производстве.",
-    demand: 80,
-    competition: 35,
-    monetization: 70,
-  },
-  Аниме: {
-    score: 77,
-    summary: "Преданное фанатское сообщество, рост популярности.",
-    demand: 85,
-    competition: 65,
-    monetization: 55,
-  },
-  Криптовалюта: {
-    score: 94,
-    summary: "Экстремально высокая монетизация, риск волатильности.",
-    demand: 80,
-    competition: 60,
-    monetization: 100,
-  },
-  Родительство: {
-    score: 83,
-    summary: "Очень лояльная аудитория, спрос на обучающий контент.",
-    demand: 85,
-    competition: 60,
-    monetization: 85,
-  }
-};
-
-
-const NICHE_IDEAS: Record<string, string[]> = {};
-const POPULAR_IDEAS: Record<string, string[]> = {};
-const getScoreData = (niche: string) => {
-  const data: any = NICHE_POTENTIAL[niche] || { score: 50, summary: "Недостаточно данных для этой ниши." };
-
-  return {
-    ...data,
-    demand: data.demand || 50,
-    competition: data.competition || 50,
-    monetization: data.monetization || 50,
-  };
-};
-
-const getIdeas = (niche: string) => {
-  if (NICHE_IDEAS[niche]) return NICHE_IDEAS[niche];
-  if (!niche) return ["Сначала выберите нишу"];
-  return [
-    `Топ 5 трендов в сфере ${niche}`,
-    `Как начать свой путь в ${niche}`,
-    `Ошибки новичков в ${niche}`,
-    `Секреты успеха в ${niche}`,
-    `Будущее ${niche}: что нас ждет?`,
-  ];
-};
-
-const getPopularIdeas = (niche: string) => {
-  if (POPULAR_IDEAS[niche]) return POPULAR_IDEAS[niche];
-  if (!niche) return [];
-  return [
-    `Тренды в ${niche} 2026`,
-    `Секреты успеха в ${niche}`,
-    `Как набрать первые 1000 подписчиков в ${niche}`,
-  ];
-};
-
-const getScriptTemplate = (niche: string) => {
-  const n = niche || "вашей нише";
-  return [
-    {
-      title: "Вступление (Крючок)",
-      content: `Зацепите зрителя актуальной проблемой в ${n}.`,
-    },
-    {
-      title: "Основная часть",
-      content: `Разберите 3 ключевых момента, важных для аудитории ${n}.`,
-    },
-    {
-      title: "Заключение (Призыв)",
-      content: `Призовите подписаться на канал о ${n}.`,
-    },
-  ];
-};
-
-const getEditingTips = (niche: string) => {
-  if (niche === "Игры")
-    return ["Быстрые склейки", "Эффекты зума", "Звуки из игр"];
-  if (niche === "Образование")
-    return ["Инфографика", "Спокойная музыка", "Текстовые пояснения"];
-  return ["Динамичный монтаж", "Цветокоррекция", "Качественный звук"];
-};
-
-const getSEOData = (niche: string) => {
-  const n = niche || "вашей нише";
-
-  return {
-    keywords: [
-      `${n} 2026`,
-      `как сделать ${n}`,
-      `лучшие советы по ${n}`,
-      `${n} для новичков`,
-      `тренды ${n}`,
-    ],
-    titles: [
-      `Вся правда о ${n}: что скрывают эксперты?`,
-      `Как я заработал на ${n} за 30 дней`,
-      `Секретный метод продвижения в ${n}`,
-      `${n}: пошаговое руководство для чайников`,
-    ],
-  };
-};
-
-const getAnalytics = (niche: string) => {
-  return [
-    { name: "Кликбейт", value: "8.4%", status: "high" },
-    { name: "Удержание", value: "45%", status: "medium" },
-    { name: "Репосты", value: "1.2k", status: "high" },
-    { name: "Комментарии", value: "850", status: "medium" },
-  ];
-};
-
-const parseSubs = (subs: string) => {
-  if (subs === "N/A") return 0;
-  const multiplier = subs.endsWith("M")
-    ? 1000000
-    : subs.endsWith("K")
-      ? 1000
-      : 1;
-  return parseFloat(subs) * multiplier;
-};
-
-const generateBrandingVariants = (niche: string) => {
-  if (!niche) return [];
-
-  const prefixes = [
-    "Мир",
-    "Про",
-    "Элита",
-    "Дневник",
-    "Глобал",
-    "Смарт",
-    "Чистый",
-    "Яркий",
-    "Некст",
-    "Мастер",
-    "Ультра",
-    "Прайм",
-    "Мега",
-    "Гипер",
-    "Супер",
-  ];
-  const suffixes = [
-    "Хаб",
-    "Зона",
-    "Сфера",
-    "Пульс",
-    "Взгляд",
-    "Инсайт",
-    "Лаб",
-    "Поток",
-    "Вайб",
-    "Дейли",
-    "Центр",
-    "Сеть",
-    "Коннект",
-    "Станция",
-    "Мир",
-  ];
-
-  const nicheKeywords: Record<string, string[]> = {
-    Технологии: [
-      "Техно",
-      "Диджитал",
-      "Кибер",
-      "Инно",
-      "Код",
-      "Гаджет",
-      "Кремний",
-      "Будущее",
-      "Нано",
-      "ИИ",
-      "Робо",
-      "Данные",
-    ],
-    Игры: [
-      "Гейм",
-      "Пиксель",
-      "Уровень",
-      "Квест",
-      "Киберспорт",
-      "Ретро",
-      "Босс",
-      "Джойстик",
-      "ВР",
-      "Плей",
-      "Аркада",
-      "Стрим",
-    ],
-    Образование: [
-      "Эду",
-      "Навык",
-      "Мозг",
-      "Учеба",
-      "Наука",
-      "Разум",
-      "Академия",
-      "Студия",
-      "Курс",
-      "Знания",
-      "Тьютор",
-      "Школа",
-    ],
-    Лайфстайл: [
-      "Жизнь",
-      "Вайб",
-      "Урбан",
-      "Душа",
-      "Тренд",
-      "Дом",
-      "Тревел",
-      "Здоровье",
-      "Сияние",
-      "Стиль",
-      "Быт",
-      "Дневник",
-    ],
-    Бизнес: [
-      "Биз",
-      "Стартап",
-      "Маркет",
-      "Богатство",
-      "Лидер",
-      "Инвест",
-      "Продажи",
-      "Бренд",
-      "Успех",
-      "Эко",
-      "Профит",
-      "Венчур",
-    ],
-    Финансы: [
-      "Деньги",
-      "Инвест",
-      "Кэш",
-      "Капитал",
-      "Банк",
-      "Крипто",
-      "Акции",
-      "Форекс",
-      "Богатство",
-      "Сбережения",
-      "Доход",
-      "Бюджет",
-    ],
-    Путешествия: [
-      "Тревел",
-      "Мир",
-      "Вояж",
-      "Тур",
-      "Путь",
-      "Земля",
-      "Карта",
-      "Рюкзак",
-      "Полет",
-      "Круиз",
-      "Горизонт",
-      "Атлас",
-    ],
-    Кулинария: [
-      "Шеф",
-      "Вкус",
-      "Еда",
-      "Кухня",
-      "Рецепт",
-      "Гурман",
-      "Фуд",
-      "Блюдо",
-      "Специи",
-      "Гриль",
-      "Пекарня",
-      "Гастро",
-    ],
-    Фитнес: [
-      "Спорт",
-      "Тело",
-      "Сила",
-      "Фит",
-      "Здоровье",
-      "Актив",
-      "Энергия",
-      "Тренинг",
-      "Мышцы",
-      "Йога",
-      "Кросс",
-      "Атлет",
-    ],
-    DIY: [
-      "Сам",
-      "Крафт",
-      "Хендмейд",
-      "Мастер",
-      "Декор",
-      "Ремонт",
-      "Идея",
-      "Творчество",
-    ],
-    Новости: [
-      "Инфо",
-      "События",
-      "Факты",
-      "Вести",
-      "Репорт",
-      "Репортаж",
-      "Правда",
-      "Эфир",
-    ],
-    Юмор: [
-      "Смех",
-      "Шоу",
-      "Прикол",
-      "Мем",
-      "Комедия",
-      "Фан",
-      "Стендап",
-      "Позитив",
-      "Улыбка",
-      "Шутка",
-      "Лол",
-      "Хихи",
-    ],
-    Недвижимость: [
-      "Дом",
-      "Квартира",
-      "Сити",
-      "Метр",
-      "Инвест",
-      "Жилье",
-      "Риэлтор",
-      "Объект",
-      "Сделка",
-      "Аренда",
-      "Продажа",
-      "Уют",
-    ],
-    Здоровье: [
-      "Мед",
-      "Доктор",
-      "Тело",
-      "Вита",
-      "Зож",
-      "Клиника",
-      "Иммунитет",
-      "Профилактика",
-      "Организм",
-      "Сила",
-      "Тонус",
-      "Жизнь",
-    ],
-    Искусство: [
-      "Арт",
-      "Холст",
-      "Краски",
-      "Музей",
-      "Галерея",
-      "Творец",
-      "Эскиз",
-      "Дизайн",
-      "Стиль",
-      "Графика",
-      "Шедевр",
-      "Креатив",
-    ],
-    Спорт: [
-      "Гол",
-      "Матч",
-      "Арена",
-      "Победа",
-      "Команда",
-      "Лига",
-      "Чемпион",
-      "Игра",
-      "Стадион",
-      "Фан",
-      "Результат",
-      "Рекорд",
-    ],
-    Наука: [
-      "Лаб",
-      "Теория",
-      "Космос",
-      "Атом",
-      "Ген",
-      "Физика",
-      "Химия",
-      "Био",
-      "Исследование",
-      "Ученый",
-      "Открытие",
-      "Мир",
-    ],
-    Аниме: [
-      "Отаку",
-      "Манга",
-      "Япония",
-      "Кавай",
-      "Сенэн",
-      "Тян",
-      "Кун",
-      "Косплей",
-      "Фандом",
-      "Мир",
-      "Герой",
-      "Стори",
-    ],
-    Криптовалюта: [
-      "Биткоин",
-      "Эфир",
-      "Блокчейн",
-      "Токен",
-      "Майнинг",
-      "Крипто",
-      "Биржа",
-      "Альткоин",
-      "НФТ",
-      "Веб3",
-      "Дефи",
-      "Ходл",
-    ],
-    Родительство: [
-      "Мама",
-      "Папа",
-      "Дети",
-      "Семья",
-      "Малыш",
-      "Воспитание",
-      "Дом",
-      "Радость",
-      "Советы",
-      "Школа",
-      "Садик",
-      "Игра",
-    ],
-    Книги: [
-      "Том",
-      "Лист",
-      "Автор",
-      "Чтение",
-      "Роман",
-      "Сюжет",
-      "Библиотека",
-      "Слово",
-      "Лит",
-      "Текст",
-      "Глава",
-      "Мир",
-    ],
-    Мотивация: [
-      "Цель",
-      "Успех",
-      "Рост",
-      "Сила",
-      "Воля",
-      "Победа",
-      "Мечта",
-      "Действуй",
-      "Лидер",
-      "Энергия",
-      "Путь",
-      "Вперед",
-    ],
-    Обзоры: [
-      "Тест",
-      "Мнение",
-      "Честно",
-      "Выбор",
-      "Топ",
-      "Рейтинг",
-      "Гид",
-      "Совет",
-      "Вердикт",
-      "Плюсы",
-      "Минусы",
-      "Распаковка",
-    ],
-    История: [
-      "Прошлое",
-      "Архив",
-      "Эпоха",
-      "Дата",
-      "Факт",
-      "Мир",
-      "Время",
-      "Событие",
-      "Герой",
-      "Хроника",
-      "Легенда",
-      "Музей",
-    ],
-  };
-
-  const keywords = nicheKeywords[niche] || [
-    niche,
-    "Канал",
-    "Мир",
-    "Про",
-    "Хаб",
-    "Лаб",
-    "Инсайт",
-    "Дейли",
-    "Мастер",
-    "Вайб",
-  ];
-
-  const variants = [];
-  const sloganPrefixes = [
-    "Твой путь в",
-    "Мир",
-    "Все о",
-    "Лучший контент про",
-    "Исследуй",
-    "Прокачай",
-    "Открой для себя",
-    "Будь в курсе",
-    "Мастерство в",
-    "Твой гид в",
-    "Погружение в",
-    "Секреты",
-  ];
-  const sloganSuffixes = [
-    "каждый день.",
-    "для каждого.",
-    "в деталях.",
-    "с нами.",
-    "уже здесь.",
-    "по-новому.",
-    "без границ.",
-    "на максимуме.",
-    "вместе с нами.",
-    "прямо сейчас.",
-    "для профи.",
-    "с нуля.",
-  ];
-
-  for (let i = 0; i < 10; i++) {
-    const keyword = keywords[Math.floor(Math.random() * keywords.length)];
-    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-
-    const pattern = Math.floor(Math.random() * 4);
-    let name = "";
-    if (pattern === 0) name = `${prefix}${keyword}`;
-    else if (pattern === 1) name = `${keyword}${suffix}`;
-    else if (pattern === 2) name = `${prefix} ${keyword}`;
-    else name = `${keyword} ${suffix}`;
-
-    const slogan = `${sloganPrefixes[Math.floor(Math.random() * sloganPrefixes.length)]} ${niche} ${sloganSuffixes[Math.floor(Math.random() * sloganSuffixes.length)]}`;
-
-    variants.push({ name, slogan });
-  }
-  return variants;
-};
-
-
-const IMAGE_STYLES = [
-  {
-    id: "realistic",
-    name: "Реалистичный",
-    icon: Camera,
-    desc: "Фотореалистичные изображения",
-  },
-  {
-    id: "neon",
-    name: "Неон",
-    icon: Flame,
-    desc: "Яркие неоновые цвета и свечение",
-  },
-  {
-    id: "retro",
-    name: "Винтаж",
-    icon: Clock,
-    desc: "Ретро стиль и старая пленка",
-  },
-  { id: "anime", name: "Аниме", icon: Sparkles, desc: "Японская анимация" },
-  {
-    id: "pixelart",
-    name: "Пиксель-арт",
-    icon: Grid,
-    desc: "8-битная ретро графика",
-  },
-  {
-    id: "cartoon",
-    name: "Мультяшный",
-    icon: Palette,
-    desc: "Яркий анимационный стиль",
-  },
-  { id: "3d", name: "3D Рендер", icon: Box, desc: "Объемная 3D графика" },
-  { id: "cyberpunk", name: "Киберпанк", icon: Zap, desc: "Кибер-реальность" },
-  {
-    id: "minimalist",
-    name: "Минимализм",
-    icon: Square,
-    desc: "Чистые линии и формы",
-  },
-  {
-    id: "watercolor",
-    name: "Акварель",
-    icon: Droplets,
-    desc: "Мягкие переходы красок",
-  },
-  { id: "sketch", name: "Скетч", icon: Pencil, desc: "Карандашный набросок" },
-  {
-    id: "oil",
-    name: "Масло",
-    icon: Paintbrush,
-    desc: "Классическая масляная живопись",
-  },
-  {
-    id: "comic",
-    name: "Комикс",
-    icon: BookOpen,
-    desc: "Стиль графических романов",
-  },
-  {
-    id: "vector",
-    name: "Векторная графика",
-    icon: PenTool,
-    desc: "Плоские иллюстрации",
-  },
-  {
-    id: "fantasy",
-    name: "Фэнтези",
-    icon: Wand2,
-    desc: "Магия и мифические миры",
-  },
-  {
-    id: "retrowave",
-    name: "Ретровейв",
-    icon: Radio,
-    desc: "Стиль 80-х, неон и сетки",
-  },
-  {
-    id: "steampunk",
-    name: "Стимпанк",
-    icon: Cog,
-    desc: "Паровые машины и шестеренки",
-  },
-  {
-    id: "popart",
-    name: "Поп-арт",
-    icon: Star,
-    desc: "Яркие цвета и контрасты",
-  },
-  {
-    id: "gothic",
-    name: "Готика",
-    icon: Moon,
-    desc: "Мрачная и темная эстетика",
-  },
-  {
-    id: "noir",
-    name: "Нуар",
-    icon: Eye,
-    desc: "Черно-белый детективный стиль",
-  },
-  {
-    id: "surrealism",
-    name: "Сюрреализм",
-    icon: Cloud,
-    desc: "Сны и искаженная реальность",
-  },
-  {
-    id: "lowpoly",
-    name: "Лоу-поли",
-    icon: Triangle,
-    desc: "Низкополигональная 3D графика",
-  },
-  {
-    id: "isometric",
-    name: "Изометрия",
-    icon: Hexagon,
-    desc: "Изометрическая проекция",
-  },
-];
-
-const ANIMATION_TYPES = [
-  { id: "2d", name: "2D Анимация", desc: "Классическая плоская анимация" },
-  { id: "3d", name: "3D Анимация", desc: "Трехмерная компьютерная графика" },
-  {
-    id: "stop-motion",
-    name: "Stop-Motion",
-    desc: "Покадровая кукольная анимация",
-  },
-  {
-    id: "motion-graphics",
-    name: "Motion Graphics",
-    desc: "Анимация текста и графики",
-  },
-  { id: "whiteboard", name: "Whiteboard", desc: "Рисование маркером на доске" },
-  {
-    id: "cinematic",
-    name: "Кинематографичная",
-    desc: "Плавные пролеты камеры",
-  },
-  { id: "timelapse", name: "Таймлапс", desc: "Ускоренная съемка времени" },
-  { id: "slideshow", name: "Слайд-шоу", desc: "Плавная смена изображений" },
-  { id: "glitch", name: "Глитч", desc: "Цифровые помехи и искажения" },
-  { id: "morphing", name: "Морфинг", desc: "Плавное перетекание объектов" },
-  { id: "parallax", name: "Параллакс", desc: "Эффект глубины при движении" },
-  {
-    id: "loop",
-    name: "Зацикленная (Loop)",
-    desc: "Бесконечно повторяющаяся анимация",
-  },
-  {
-    id: "kinetic-typography",
-    name: "Кинетическая типографика",
-    desc: "Анимация текста",
-  },
-  {
-    id: "traditional",
-    name: "Традиционная",
-    desc: "Покадровая ручная рисовка",
-  },
-  {
-    id: "rotoscoping",
-    name: "Ротоскопирование",
-    desc: "Обрисовка поверх видео",
-  },
-];
-
-const MUSIC_MOODS = [
-  { id: "chill", name: "Расслабленное", icon: Coffee },
-  { id: "energetic", name: "Энергичное", icon: Zap },
-  { id: "epic", name: "Эпичное", icon: Trophy },
-  { id: "sad", name: "Грустное", icon: Droplets },
-  { id: "happy", name: "Веселое", icon: Sun },
-  { id: "mysterious", name: "Загадочное", icon: Moon },
-  { id: "corporate", name: "Корпоративное", icon: Briefcase },
-  { id: "dramatic", name: "Драматичное", icon: Flame },
-  { id: "anxious", name: "Тревожное", icon: Wind },
-  { id: "romantic", name: "Романтичное", icon: Heart },
-  { id: "lofi", name: "Lo-Fi", icon: Headphones },
-  { id: "comedy", name: "Комедийное", icon: Laugh },
-  { id: "aggressive", name: "Агрессивное", icon: Target },
-  { id: "melancholic", name: "Меланхоличное", icon: Cloud },
-  { id: "inspiring", name: "Вдохновляющее", icon: Sparkles },
-  { id: "retro", name: "Ретро (Synthwave)", icon: Radio },
-  { id: "dance", name: "Танцевальное", icon: Music },
-];
-
-const REGIONS = [
-  { id: "global", name: "Global", flag: "🌍" },
-  { id: "us", name: "USA", flag: "🇺🇸" },
-  { id: "ru", name: "Russia", flag: "🇷🇺" },
-  { id: "eu", name: "Europe", flag: "🇪🇺" },
-  { id: "br", name: "Brazil", flag: "🇧🇷" },
-  { id: "in", name: "India", flag: "🇮🇳" },
-];
-
-export const fontStyleMap: Record<string, { id: string; name: string; icon: string; className: string; desc: string }> = {
-  default: {
-    id: 'default',
-    name: 'Стандартный',
-    icon: '🔤',
-    className: 'font-sans font-bold text-white leading-snug',
-    desc: 'Стандартный гротеск по умолчанию'
-  },
-  bold: {
-    id: 'bold',
-    name: 'Жирный Heavy',
-    icon: '💥',
-    className: 'font-sans font-black uppercase tracking-tight text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] leading-tight',
-    desc: 'Ультражирный капс для акцента'
-  },
-  cinematic: {
-    id: 'cinematic',
-    name: 'Кинематографичный',
-    icon: '🎬',
-    className: 'font-serif font-bold uppercase tracking-widest text-amber-100 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)] leading-snug',
-    desc: 'Элегантный заголовок с засечками'
-  },
-  minimal: {
-    id: 'minimal',
-    name: 'Минимализм',
-    icon: '✨',
-    className: 'font-mono font-medium tracking-normal text-neutral-200 leading-snug',
-    desc: 'Лаконичный моноширинный стиль'
-  },
-  neon: {
-    id: 'neon',
-    name: 'Неоновый',
-    icon: '⚡',
-    className: 'font-sans font-extrabold uppercase tracking-wide text-cyan-300 drop-shadow-[0_0_10px_rgba(6,182,212,0.9)] leading-tight',
-    desc: 'Яркое киберпанк свечение'
-  },
-  retro: {
-    id: 'retro',
-    name: 'Ретро Винтаж',
-    icon: '📻',
-    className: 'font-serif italic font-bold tracking-wide text-amber-200 drop-shadow-[2px_2px_0px_rgba(0,0,0,0.9)] leading-snug',
-    desc: 'Классический винтажный курсив'
-  }
-};
-
-export interface CustomTemplateItem {
-  id: string;
-  name: string;
-  date?: string;
-  layoutId?: string;
-  bgDim?: number;
-  gridMode?: string;
-  fontStyle?: string;
-}
-
-const YouTubeCardPreview = ({
-  id,
-  title,
-  channelName,
-  thumbnail,
-  views = "123K",
-  timeAgo = "2 дня назад",
-  borderColor = "#262626", // Default neutral-800
-  channelColor = "#a3a3a3", // Default neutral-400
-  thumbnailOverlay,
-  onTitleChange,
-  onOptimizeTitle,
-  onApplyLayoutTemplate,
-  activeLayoutTemplate,
-  bgDim: externalBgDim,
-  onBgDimChange,
-  fontStyle: externalFontStyle,
-  onFontStyleChange,
-  onBorderColorChange,
-  onChannelColorChange,
-  onSaveCustomTemplate,
-  customTemplates: externalCustomTemplates,
-  onDeleteCustomTemplate,
-  onApplyCustomTemplate,
-}: {
-  id?: string;
-  title: string;
-  channelName: string;
-  thumbnail: string;
-  views?: string;
-  timeAgo?: string;
-  borderColor?: string;
-  channelColor?: string;
-  thumbnailOverlay?: React.ReactNode;
-  onTitleChange?: (newTitle: string) => void;
-  onOptimizeTitle?: (currentTitle: string) => Promise<string>;
-  onApplyLayoutTemplate?: (templateId: string) => void;
-  activeLayoutTemplate?: string;
-  bgDim?: number;
-  onBgDimChange?: (val: number) => void;
-  fontStyle?: string;
-  onFontStyleChange?: (styleId: string) => void;
-  onBorderColorChange?: (color: string) => void;
-  onChannelColorChange?: (color: string) => void;
-  onSaveCustomTemplate?: (template: CustomTemplateItem) => void;
-  customTemplates?: CustomTemplateItem[];
-  onDeleteCustomTemplate?: (id: string) => void;
-  onApplyCustomTemplate?: (template: CustomTemplateItem) => void;
-}) => {
-  const [copied, setCopied] = useState(false);
-  const [copiedStyle, setCopiedStyle] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isEditingLocal, setIsEditingLocal] = useState(false);
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [localTitle, setLocalTitle] = useState(title);
-
-  const [gridMode, setGridMode] = useState<'none' | 'thirds' | 'golden' | 'diagonals' | 'safe_zone'>('none');
-  const [showGridMenu, setShowGridMenu] = useState(false);
-  const [showLayoutMenu, setShowLayoutMenu] = useState(false);
-
-  // Font Style state
-  const [fontStyle, setFontStyle] = useState<string>(externalFontStyle || 'default');
-  const [showFontMenu, setShowFontMenu] = useState(false);
-
-  // Background Dimming state
-  const [bgDim, setBgDim] = useState<number>(externalBgDim ?? 20);
-  const [showDimMenu, setShowDimMenu] = useState(false);
-
-  // Save Template state
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [saveNameInput, setSaveNameInput] = useState('');
-
-  // AI Emotion Analysis state
-  const [isAnalyzingEmotions, setIsAnalyzingEmotions] = useState(false);
-  const [emotionAnalysis, setEmotionAnalysis] = useState<ThumbnailEmotionAnalysis | null>(null);
-  const [showEmotionModal, setShowEmotionModal] = useState(false);
-
-  // Title Overlay state
-  const [showTitleOverlay, setShowTitleOverlay] = useState(false);
-  const [overlayText, setOverlayText] = useState(title || "");
-  const [overlayFontSize, setOverlayFontSize] = useState<number>(20);
-  const [overlayAlign, setOverlayAlign] = useState<'left' | 'center' | 'right'>('center');
-  const [overlayVPos, setOverlayVPos] = useState<number>(76); // percentage from top (10% to 90%)
-  const [overlayStyle, setOverlayStyle] = useState<'dark_plate' | 'accent_plate' | 'glow_stroke' | 'gradient_banner' | 'clean'>('dark_plate');
-  const [overlayTextColor, setOverlayTextColor] = useState<string>('#ffffff');
-  const [showOverlayMenu, setShowOverlayMenu] = useState(false);
-
-  // LocalStorage style clipboard indicator
-  const [hasSavedStyle, setHasSavedStyle] = useState<boolean>(() => {
-    try {
-      return !!localStorage.getItem('yt_card_style_clipboard');
-    } catch {
-      return false;
-    }
-  });
-
-  const [customTemplates, setCustomTemplates] = useState<CustomTemplateItem[]>(() => {
-    if (externalCustomTemplates && externalCustomTemplates.length > 0) return externalCustomTemplates;
-    try {
-      const saved = localStorage.getItem('yt_card_custom_templates');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    setLocalTitle(title);
-    if (!overlayText || overlayText === title) {
-      setOverlayText(title);
-    }
-  }, [title]);
-
-  useEffect(() => {
-    if (externalBgDim !== undefined) {
-      setBgDim(externalBgDim);
-    }
-  }, [externalBgDim]);
-
-  useEffect(() => {
-    if (externalFontStyle) {
-      setFontStyle(externalFontStyle);
-    }
-  }, [externalFontStyle]);
-
-  useEffect(() => {
-    if (externalCustomTemplates) {
-      setCustomTemplates(externalCustomTemplates);
-    }
-  }, [externalCustomTemplates]);
-
-  const handleDimChange = (val: number) => {
-    setBgDim(val);
-    onBgDimChange?.(val);
-  };
-
-  const handleFontStyleChange = (styleId: string) => {
-    setFontStyle(styleId);
-    onFontStyleChange?.(styleId);
-  };
-
-  const handleRunEmotionAnalysis = async (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (isAnalyzingEmotions) return;
-    setIsAnalyzingEmotions(true);
-    try {
-      const result = await analyzeThumbnailEmotions(
-        thumbnail,
-        localTitle || title,
-        "YouTube"
-      );
-      setEmotionAnalysis(result);
-      setShowEmotionModal(true);
-      toast.success("Анализ эмоционального воздействия превью готов!");
-    } catch (err) {
-      logger.error("Emotion analysis failed:", err);
-      toast.error("Не удалось завершить анализ эмоций");
-    } finally {
-      setIsAnalyzingEmotions(false);
-    }
-  };
-
-  const handleOptimize = async (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (isOptimizing) return;
-    setIsOptimizing(true);
-    try {
-      const current = localTitle || title || "Заголовок видео";
-      let result = "";
-      if (onOptimizeTitle) {
-        result = await onOptimizeTitle(current);
-      } else {
-        result = await optimizeTitle(current);
-      }
-      if (result) {
-        setLocalTitle(result);
-        onTitleChange?.(result);
-        toast.success("Заголовок успешно оптимизирован AI!");
-      }
-    } catch (err) {
-      logger.error("Optimize title error:", err);
-      toast.error("Не удалось оптимизировать заголовок");
-    } finally {
-      setIsOptimizing(false);
-    }
-  };
-
-  const handleSaveTemplate = () => {
-    const name = saveNameInput.trim() || `Шаблон ${customTemplates.length + 1}`;
-    const newTmpl: CustomTemplateItem = {
-      id: `tmpl_${Date.now()}`,
-      name,
-      date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-      layoutId: activeLayoutTemplate || 'center',
-      bgDim,
-      gridMode,
-      fontStyle,
-    };
-
-    const updated = [newTmpl, ...customTemplates];
-    setCustomTemplates(updated);
-    try {
-      localStorage.setItem('yt_card_custom_templates', JSON.stringify(updated));
-    } catch (err) {
-      logger.error('Failed to save template to localStorage', err);
-    }
-
-    onSaveCustomTemplate?.(newTmpl);
-    toast.success(`Шаблон "${name}" сохранен!`);
-    setShowSaveModal(false);
-    setSaveNameInput('');
-  };
-
-  const handleDeleteTemplate = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const updated = customTemplates.filter(t => t.id !== id);
-    setCustomTemplates(updated);
-    try {
-      localStorage.setItem('yt_card_custom_templates', JSON.stringify(updated));
-    } catch (err) {
-      logger.error(err);
-    }
-    onDeleteCustomTemplate?.(id);
-    toast.success('Шаблон удален');
-  };
-
-  const handleApplyTemplate = (tmpl: CustomTemplateItem) => {
-    if (tmpl.layoutId && onApplyLayoutTemplate) {
-      onApplyLayoutTemplate(tmpl.layoutId);
-    }
-    if (tmpl.bgDim !== undefined) {
-      handleDimChange(tmpl.bgDim);
-    }
-    if (tmpl.gridMode) {
-      setGridMode(tmpl.gridMode as any);
-    }
-    if (tmpl.fontStyle) {
-      handleFontStyleChange(tmpl.fontStyle);
-    }
-    onApplyCustomTemplate?.(tmpl);
-    toast.success(`Применен шаблон "${tmpl.name}"`);
-    setShowLayoutMenu(false);
-  };
-
-  const handleCopyPrompt = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    
-    const plainTextTitle = title || "Ваш заголовок видео появится здесь";
-    const promptText = `Premium YouTube thumbnail for video about "${plainTextTitle}". Include large, bold, perfectly spelled Russian Cyrillic text "${plainTextTitle.replace(/"/g, '')}" as a central graphical element. Style: high-contrast YouTube saturated colors, dynamic background, professional graphic design, extremely sharp focus on text, zero spelling errors. IMPORTANT: The text is in Russian (Cyrillic alphabet). You MUST write the text exactly as "${plainTextTitle.replace(/"/g, '')}" using Russian Cyrillic letters. DO NOT translate the text into English, DO NOT use Latin/English letters under any circumstances. Keep the letters strictly Cyrillic.`;
-
-    const fullExport = `--- ЭКСПОРТ ПРЕВЬЮ YOUTUBE ---
-Заголовок: ${plainTextTitle}
-Цвет рамки: ${borderColor}
-Цвет названия канала: ${channelColor}
-Название канала: ${channelName || "Ваш Канал"}
-
-ПРОМПТ ДЛЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЯ (Midjourney / DALL-E / Gemini):
-${promptText}
-
-${thumbnail ? `Ссылка на изображение: ${thumbnail}` : ""}`;
-
-    try {
-      await copyTextToClipboard(fullExport);
-      setCopied(true);
-      toast.success("Промпт и параметры скопированы в буфер обмена!");
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      toast.error("Не удалось скопировать");
-    }
-  };
-
-  const handleCopyStyle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    const styleData = {
-      fontStyle: fontStyle || 'default',
-      bgDim: bgDim ?? 20,
-      borderColor: borderColor || '#3f3f46',
-      channelColor: channelColor || '#a1a1aa',
-      activeLayoutTemplate: activeLayoutTemplate || 'left',
-      savedAt: new Date().toISOString(),
-    };
-
-    try {
-      localStorage.setItem('yt_card_style_clipboard', JSON.stringify(styleData));
-      setCopiedStyle(true);
-      setHasSavedStyle(true);
-      toast.success("Стили превью скопированы в память!");
-      setTimeout(() => setCopiedStyle(false), 2000);
-    } catch (err) {
-      logger.error(err);
-      toast.error("Не удалось сохранить стили в LocalStorage");
-    }
-  };
-
-  const handlePasteStyle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    try {
-      const raw = localStorage.getItem('yt_card_style_clipboard');
-      if (!raw) {
-        toast.error("В буфере нет сохраненных стилей превью");
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (parsed.bgDim !== undefined) {
-        handleDimChange(parsed.bgDim);
-      }
-      if (parsed.fontStyle) {
-        handleFontStyleChange(parsed.fontStyle);
-      }
-      if (parsed.borderColor && onBorderColorChange) {
-        onBorderColorChange(parsed.borderColor);
-      }
-      if (parsed.channelColor && onChannelColorChange) {
-        onChannelColorChange(parsed.channelColor);
-      }
-      if (parsed.activeLayoutTemplate && onApplyLayoutTemplate) {
-        onApplyLayoutTemplate(parsed.activeLayoutTemplate);
-      }
-      toast.success("Стили превью успешно применены!");
-    } catch (err) {
-      logger.error(err);
-      toast.error("Ошибка при чтении стилей из LocalStorage");
-    }
-  };
-
-  const layoutTemplatesList = [
-    { id: 'left', name: 'Слева', icon: '⬅️', desc: 'Текст слева в столбик' },
-    { id: 'center', name: 'По центру', icon: '🎯', desc: 'По центру по вертикали' },
-    { id: 'right', name: 'Справа', icon: '➡️', desc: 'Текст справа в столбик' },
-    { id: 'top', name: 'Сверху', icon: '⬆️', desc: 'Верхний баннер с заголовком' },
-    { id: 'bottom', name: 'Снизу', icon: '⬇️', desc: 'Нижняя плашка / подпись' },
-    { id: 'diagonal', name: 'Диагональ', icon: '🔀', desc: 'Динамическая лесенка' },
-    { id: 'corners', name: 'Два края', icon: '🔲', desc: 'Разнесенный акцент по углам' },
-  ];
-
-  const gridModesList = [
-    { id: 'none', label: 'Скрыть сетку', icon: '⭕' },
-    { id: 'thirds', label: 'Правило третей (3x3)', icon: '📏' },
-    { id: 'golden', label: 'Золотое сечение (Phi)', icon: '🌟' },
-    { id: 'diagonals', label: 'Диагонали (Симметрия)', icon: '✕' },
-    { id: 'safe_zone', label: 'Безопасные зоны UI', icon: '🛡️' },
-  ];
-
-  const charCount = localTitle.length;
-  const isOverLimit = charCount > 100;
-
-  return (
-    <div
-      id={id || "youtube-card-preview"}
-      className="w-full max-w-sm bg-neutral-950 rounded-xl overflow-hidden shadow-2xl group transition-all cursor-pointer select-none"
-      style={{ border: `1px solid ${borderColor}` }}
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      {/* --- TOOLBAR HEADER (Placed outside thumbnail preview canvas) --- */}
-      <div 
-        className="bg-neutral-900 border-b border-neutral-800 px-2.5 py-2 flex items-center justify-between gap-1.5 flex-wrap z-30 relative"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-          {/* AI Optimization Button */}
-          <button
-            onClick={handleOptimize}
-            disabled={isOptimizing}
-            className="px-2.5 py-1 bg-gradient-to-r from-indigo-600/30 to-purple-600/30 hover:from-indigo-600/50 hover:to-purple-600/50 text-[10px] font-bold text-indigo-200 rounded flex items-center gap-1 transition-all border border-indigo-500/40 shadow-md cursor-pointer disabled:opacity-50"
-            title="Автоматически улучшить заголовок с помощью AI"
-          >
-            {isOptimizing ? (
-              <Loader2 size={10} className="animate-spin text-indigo-400" />
-            ) : (
-              <Sparkles size={10} className="text-indigo-400" />
-            )}
-            <span>{isOptimizing ? 'Оптимизация...' : 'AI Оптимизация'}</span>
-          </button>
-
-          {/* Copy Prompt Button */}
-          <button
-            onClick={handleCopyPrompt}
-            className="px-2 py-1 bg-black/80 hover:bg-black text-[10px] font-bold text-neutral-300 hover:text-white rounded flex items-center gap-1 transition-all border border-neutral-800 shadow-md cursor-pointer"
-            title="Копировать промпт и параметры превью"
-          >
-            {copied ? (
-              <>
-                <Check size={10} className="text-emerald-400" />
-                <span>Скопировано</span>
-              </>
-            ) : (
-              <>
-                <Copy size={10} className="text-neutral-400" />
-                <span>Промпт</span>
-              </>
-            )}
-          </button>
-
-          {/* AI Emotion Analysis Button */}
-          <button
-            onClick={handleRunEmotionAnalysis}
-            disabled={isAnalyzingEmotions}
-            className={`px-2.5 py-1 text-[10px] font-bold rounded flex items-center gap-1 transition-all border shadow-md cursor-pointer disabled:opacity-50 ${
-              emotionAnalysis
-                ? 'bg-gradient-to-r from-emerald-600/30 to-teal-600/30 text-emerald-200 border-emerald-500/50 hover:from-emerald-600/40 hover:to-teal-600/40'
-                : 'bg-gradient-to-r from-pink-600/25 via-rose-600/25 to-purple-600/25 hover:from-pink-600/40 hover:to-purple-600/40 text-pink-200 border-pink-500/40'
-            }`}
-            title="AI Анализ Эмоций Превью (радость, тревога, любопытство) и прогноз CTR"
-          >
-            {isAnalyzingEmotions ? (
-              <Loader2 size={10} className="animate-spin text-pink-400" />
-            ) : (
-              <Smile size={10} className={emotionAnalysis ? "text-emerald-400" : "text-pink-400"} />
-            )}
-            <span>{isAnalyzingEmotions ? 'Анализ эмоций...' : (emotionAnalysis ? `Эмоции: ${emotionAnalysis.overallCTRScore}%` : 'AI Эмоции')}</span>
-          </button>
-
-          {/* Copy Thumbnail Styles Button */}
-          <button
-            onClick={handleCopyStyle}
-            className={`px-2 py-1 text-[10px] font-bold rounded flex items-center gap-1 transition-all border shadow-md cursor-pointer ${
-              copiedStyle
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                : 'bg-black/80 hover:bg-black text-neutral-300 hover:text-white border-neutral-800'
-            }`}
-            title="Копировать стили превью (шрифт, затемнение, границы) в LocalStorage"
-          >
-            {copiedStyle ? (
-              <>
-                <Check size={10} className="text-emerald-400" />
-                <span>Стиль сохранен</span>
-              </>
-            ) : (
-              <>
-                <Palette size={10} className="text-pink-400" />
-                <span>Копировать стиль</span>
-              </>
-            )}
-          </button>
-
-          {/* Paste/Apply Thumbnail Styles Button */}
-          {hasSavedStyle && (
-            <button
-              onClick={handlePasteStyle}
-              className="px-2 py-1 bg-pink-500/10 hover:bg-pink-500/25 text-[10px] font-bold text-pink-300 hover:text-pink-200 rounded flex items-center gap-1 transition-all border border-pink-500/30 shadow-md cursor-pointer"
-              title="Применить сохраненные стили из буфера (LocalStorage) к этой карточке"
-            >
-              <Wand2 size={10} className="text-pink-400" />
-              <span>Вставить стиль</span>
-            </button>
-          )}
-
-          {/* Quick Edit Title Button */}
-          {onTitleChange && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsEditingLocal(!isEditingLocal);
-              }}
-              className={`px-2 py-1 text-[10px] font-bold rounded flex items-center gap-1 transition-all border shadow-md cursor-pointer ${
-                isEditingLocal 
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' 
-                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border-neutral-700'
-              }`}
-              title="Быстро изменить заголовок"
-            >
-              <Edit2 size={10} className="text-neutral-400" />
-              <span>Редактировать</span>
-            </button>
-          )}
-        </div>
-
-        {/* View & Style Dropdowns Group */}
-        <div className="flex items-center gap-1 flex-wrap ml-auto">
-          {/* Layout Templates Selector Dropdown */}
-          {onApplyLayoutTemplate && (
-            <div className="relative">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowLayoutMenu(!showLayoutMenu);
-                  setShowGridMenu(false);
-                  setShowFontMenu(false);
-                  setShowDimMenu(false);
-                }}
-                className={`px-2 py-1 bg-black/80 hover:bg-black text-[10px] font-bold rounded flex items-center gap-1 transition-all border border-neutral-800 shadow-md cursor-pointer ${
-                  activeLayoutTemplate ? 'text-amber-400 border-amber-500/50' : 'text-neutral-300'
-                }`}
-                title="Выбрать макет компоновки элементов"
-              >
-                <LayoutTemplate size={10} className="text-amber-400" />
-                <span>Макет</span>
-                <ChevronDown size={8} className="text-neutral-400" />
-              </button>
-
-              {showLayoutMenu && (
-                <div
-                  className="absolute top-full right-0 mt-1 w-52 bg-neutral-900/98 backdrop-blur-md border border-neutral-700 rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5 max-h-72 overflow-y-auto"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="text-[9px] font-bold text-neutral-400 uppercase px-2 py-1 border-b border-neutral-800 mb-0.5">
-                    Предустановленные макеты
-                  </div>
-                  {layoutTemplatesList.map((tmpl, idx) => (
-                    <button
-                      key={`layout-tmpl-${tmpl.id}-${idx}`}
-                      onClick={() => {
-                        onApplyLayoutTemplate(tmpl.id);
-                        setShowLayoutMenu(false);
-                      }}
-                      className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 hover:bg-neutral-800 transition-colors text-xs ${
-                        activeLayoutTemplate === tmpl.id ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-neutral-200'
-                      }`}
-                    >
-                      <span>{tmpl.icon}</span>
-                      <div className="flex flex-col min-w-0">
-                        <span className="leading-none">{tmpl.name}</span>
-                        <span className="text-[9px] text-neutral-400 truncate">{tmpl.desc}</span>
-                      </div>
-                    </button>
-                  ))}
-
-                  {/* Custom Saved Templates Section */}
-                  {customTemplates.length > 0 && (
-                    <>
-                      <div className="text-[9px] font-bold text-amber-400 uppercase px-2 py-1 border-b border-neutral-800 mt-1 mb-0.5 flex items-center justify-between">
-                        <span>⭐ Мои шаблоны</span>
-                        <span className="text-[8px] text-neutral-500">{customTemplates.length}</span>
-                      </div>
-                      {customTemplates.map((tmpl, idx) => (
-                        <div
-                          key={`cust-tmpl-${tmpl.id ?? 't'}-${idx}`}
-                          onClick={() => handleApplyTemplate(tmpl)}
-                          className="w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-neutral-800 transition-colors text-xs cursor-pointer group/tmpl"
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <BookmarkPlus size={12} className="text-amber-400 flex-shrink-0" />
-                            <div className="flex flex-col min-w-0">
-                              <span className="leading-none text-neutral-200 group-hover/tmpl:text-amber-300 font-medium truncate">{tmpl.name}</span>
-                              <span className="text-[8px] text-neutral-400">{tmpl.date || 'Сохранен'} {tmpl.bgDim !== undefined ? `• 🌙${tmpl.bgDim}%` : ''}</span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={(e) => handleDeleteTemplate(e, tmpl.id)}
-                            className="p-1 hover:text-red-400 text-neutral-500 rounded transition-colors"
-                            title="Удалить шаблон"
-                          >
-                            <Trash2 size={10} />
-                          </button>
-                        </div>
-                      ))}
-                    </>
-                  )}
-
-                  <div className="border-t border-neutral-800 pt-1 mt-1">
-                    <button
-                      onClick={() => {
-                        setShowLayoutMenu(false);
-                        setShowSaveModal(true);
-                      }}
-                      className="w-full text-center px-2 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-xs font-bold flex items-center justify-center gap-1 transition-colors"
-                    >
-                      <BookmarkPlus size={11} />
-                      Сохранить как шаблон
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Grid Mode Selector Dropdown */}
-          <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowGridMenu(!showGridMenu);
-                setShowLayoutMenu(false);
-                setShowFontMenu(false);
-                setShowDimMenu(false);
-              }}
-              className={`px-2 py-1 bg-black/80 hover:bg-black text-[10px] font-bold rounded flex items-center gap-1 transition-all border border-neutral-800 shadow-md cursor-pointer ${
-                gridMode !== 'none' ? 'text-cyan-400 border-cyan-500/50' : 'text-neutral-300'
-              }`}
-              title="Переключение типов направляющих сетки"
-            >
-              <Split size={10} className={gridMode !== 'none' ? 'text-cyan-400' : 'text-neutral-400'} />
-              <span>Сетка</span>
-              <ChevronDown size={8} className="text-neutral-400" />
-            </button>
-
-            {showGridMenu && (
-              <div
-                className="absolute top-full right-0 mt-1 w-48 bg-neutral-900/98 backdrop-blur-md border border-neutral-700 rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="text-[9px] font-bold text-neutral-400 uppercase px-2 py-1 border-b border-neutral-800 mb-0.5">
-                  Направляющие сетки
-                </div>
-                {gridModesList.map((mode, idx) => (
-                  <button
-                    key={`grid-mode-${mode.id}-${idx}`}
-                    onClick={() => {
-                      setGridMode(mode.id as any);
-                      setShowGridMenu(false);
-                    }}
-                    className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 hover:bg-neutral-800 transition-colors text-xs ${
-                      gridMode === mode.id ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-neutral-200'
-                    }`}
-                  >
-                    <span>{mode.icon}</span>
-                    <span>{mode.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Font Style Selector Dropdown */}
-          <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowFontMenu(!showFontMenu);
-                setShowLayoutMenu(false);
-                setShowGridMenu(false);
-                setShowDimMenu(false);
-              }}
-              className={`px-2 py-1 bg-black/80 hover:bg-black text-[10px] font-bold rounded flex items-center gap-1 transition-all border border-neutral-800 shadow-md cursor-pointer ${
-                fontStyle !== 'default' ? 'text-purple-400 border-purple-500/50' : 'text-neutral-300'
-              }`}
-              title="Выбрать стиль шрифта для заголовка"
-            >
-              <Type size={10} className={fontStyle !== 'default' ? 'text-purple-400' : 'text-neutral-400'} />
-              <span>Шрифт</span>
-              <ChevronDown size={8} className="text-neutral-400" />
-            </button>
-
-            {showFontMenu && (
-              <div
-                className="absolute top-full right-0 mt-1 w-52 bg-neutral-900/98 backdrop-blur-md border border-neutral-700 rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="text-[9px] font-bold text-neutral-400 uppercase px-2 py-1 border-b border-neutral-800 mb-0.5">
-                  Стили шрифтов заголовка
-                </div>
-                {Object.values(fontStyleMap).map((fStyle, idx) => (
-                  <button
-                    key={`font-style-${fStyle.id}-${idx}`}
-                    onClick={() => {
-                      handleFontStyleChange(fStyle.id);
-                      setShowFontMenu(false);
-                    }}
-                    className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 hover:bg-neutral-800 transition-colors text-xs ${
-                      fontStyle === fStyle.id ? 'bg-purple-500/20 text-purple-300 font-bold' : 'text-neutral-200'
-                    }`}
-                  >
-                    <span>{fStyle.icon}</span>
-                    <div className="flex flex-col min-w-0">
-                      <span className="leading-none">{fStyle.name}</span>
-                      <span className="text-[9px] text-neutral-400 truncate">{fStyle.desc}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Background Dimming Selector Dropdown */}
-          <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowDimMenu(!showDimMenu);
-                setShowLayoutMenu(false);
-                setShowGridMenu(false);
-                setShowFontMenu(false);
-              }}
-              className={`px-2 py-1 bg-black/80 hover:bg-black text-[10px] font-bold rounded flex items-center gap-1 transition-all border border-neutral-800 shadow-md cursor-pointer ${
-                bgDim > 0 ? 'text-indigo-400 border-indigo-500/50' : 'text-neutral-300'
-              }`}
-              title="Затемнение подложки для повышения контраста текста"
-            >
-              <Moon size={10} className={bgDim > 0 ? 'text-indigo-400' : 'text-neutral-400'} />
-              <span>Тень</span>
-              <ChevronDown size={8} className="text-neutral-400" />
-            </button>
-
-            {showDimMenu && (
-              <div
-                className="absolute top-full right-0 mt-1 w-52 bg-neutral-900/98 backdrop-blur-md border border-neutral-700 rounded-lg shadow-2xl p-2 z-50 flex flex-col gap-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-1">
-                  <span className="text-[9px] font-bold text-neutral-300 uppercase flex items-center gap-1">
-                    <Moon size={10} className="text-indigo-400" />
-                    Затемнение фона ({bgDim}%)
-                  </span>
-                  <button
-                    onClick={() => handleDimChange(bgDim > 0 ? 0 : 30)}
-                    className="text-[9px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer font-medium"
-                  >
-                    {bgDim > 0 ? 'Выключить' : 'Включить'}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min="0"
-                    max="90"
-                    step="5"
-                    value={bgDim}
-                    onChange={(e) => handleDimChange(Number(e.target.value))}
-                    className="w-full accent-indigo-500 h-1.5 bg-neutral-800 rounded-lg cursor-pointer"
-                  />
-                </div>
-
-                <div className="grid grid-cols-4 gap-1">
-                  {[0, 25, 50, 75].map((val, vIdx) => (
-                    <button
-                      key={`dim-val-${val}-${vIdx}`}
-                      onClick={() => handleDimChange(val)}
-                      className={`py-1 text-[9px] font-bold rounded border transition-colors ${
-                        bgDim === val
-                          ? 'bg-indigo-600 text-white border-indigo-400'
-                          : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700'
-                      }`}
-                    >
-                      {val === 0 ? '0%' : `${val}%`}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[8px] text-neutral-400 leading-tight">
-                  Накладывает затемнение на фон, чтобы текст и плашки контрастно выделялись.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Title Overlay Controls Dropdown */}
-          <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowOverlayMenu(!showOverlayMenu);
-                setShowLayoutMenu(false);
-                setShowGridMenu(false);
-                setShowFontMenu(false);
-                setShowDimMenu(false);
-              }}
-              className={`px-2 py-1 bg-black/80 hover:bg-black text-[10px] font-bold rounded flex items-center gap-1 transition-all border border-neutral-800 shadow-md cursor-pointer ${
-                showTitleOverlay ? 'text-amber-400 border-amber-500/50' : 'text-neutral-300'
-              }`}
-              title="Живой предпросмотр наложения текста (Title Overlay) с настройкой размера и выравнивания"
-            >
-              <Type size={10} className={showTitleOverlay ? 'text-amber-400' : 'text-neutral-400'} />
-              <span>Оверлей</span>
-              <ChevronDown size={8} className="text-neutral-400" />
-            </button>
-
-            {showOverlayMenu && (
-              <div
-                className="absolute top-full right-0 mt-1 w-64 bg-neutral-900/98 backdrop-blur-md border border-neutral-700 rounded-xl shadow-2xl p-2.5 z-50 flex flex-col gap-2.5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Header & Toggle */}
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
-                  <span className="text-[10px] font-bold text-amber-300 uppercase flex items-center gap-1">
-                    <Type size={12} className="text-amber-400" />
-                    Наложение текста (Title Overlay)
-                  </span>
-                  <button
-                    onClick={() => setShowTitleOverlay(!showTitleOverlay)}
-                    className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
-                      showTitleOverlay 
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' 
-                        : 'bg-neutral-800 text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    {showTitleOverlay ? 'ВКЛ' : 'ВЫКЛ'}
-                  </button>
-                </div>
-
-                {/* Text Content Input */}
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between text-[9px] text-neutral-400">
-                    <span>Текст на превью:</span>
-                    <button
-                      onClick={() => setOverlayText(localTitle || title)}
-                      className="text-amber-400 hover:text-amber-300 underline cursor-pointer text-[8px]"
-                    >
-                      Вставить заголовок
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={overlayText}
-                    onChange={(e) => {
-                      setOverlayText(e.target.value);
-                      if (!showTitleOverlay) setShowTitleOverlay(true);
-                    }}
-                    placeholder="Введите текст для превью..."
-                    className="w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                {/* Alignment Selection */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-400 font-medium">Выравнивание текста:</span>
-                  <div className="grid grid-cols-3 gap-1">
-                    <button
-                      onClick={() => {
-                        setOverlayAlign('left');
-                        if (!showTitleOverlay) setShowTitleOverlay(true);
-                      }}
-                      className={`py-1 px-1.5 text-[9px] font-bold rounded flex items-center justify-center gap-1 border transition-colors cursor-pointer ${
-                        overlayAlign === 'left'
-                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                          : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:bg-neutral-700'
-                      }`}
-                    >
-                      <AlignLeft size={11} />
-                      <span>Слева</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setOverlayAlign('center');
-                        if (!showTitleOverlay) setShowTitleOverlay(true);
-                      }}
-                      className={`py-1 px-1.5 text-[9px] font-bold rounded flex items-center justify-center gap-1 border transition-colors cursor-pointer ${
-                        overlayAlign === 'center'
-                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                          : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:bg-neutral-700'
-                      }`}
-                    >
-                      <AlignCenter size={11} />
-                      <span>Центр</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setOverlayAlign('right');
-                        if (!showTitleOverlay) setShowTitleOverlay(true);
-                      }}
-                      className={`py-1 px-1.5 text-[9px] font-bold rounded flex items-center justify-center gap-1 border transition-colors cursor-pointer ${
-                        overlayAlign === 'right'
-                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                          : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:bg-neutral-700'
-                      }`}
-                    >
-                      <AlignRight size={11} />
-                      <span>Справа</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Font Size Slider */}
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between text-[9px]">
-                    <span className="text-neutral-400 font-medium">Размер текста:</span>
-                    <span className="text-amber-400 font-mono font-bold">{overlayFontSize}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="12"
-                    max="38"
-                    step="1"
-                    value={overlayFontSize}
-                    onChange={(e) => {
-                      setOverlayFontSize(Number(e.target.value));
-                      if (!showTitleOverlay) setShowTitleOverlay(true);
-                    }}
-                    className="w-full accent-amber-500 h-1.5 bg-neutral-800 rounded-lg cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[8px] text-neutral-500 font-mono">
-                    <span>12px</span>
-                    <span>20px (Стандарт)</span>
-                    <span>38px</span>
-                  </div>
-                </div>
-
-                {/* Vertical Position Slider */}
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between text-[9px]">
-                    <span className="text-neutral-400 font-medium">Положение по высоте (Y):</span>
-                    <span className="text-amber-400 font-mono font-bold">{overlayVPos}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="15"
-                    max="88"
-                    step="1"
-                    value={overlayVPos}
-                    onChange={(e) => {
-                      setOverlayVPos(Number(e.target.value));
-                      if (!showTitleOverlay) setShowTitleOverlay(true);
-                    }}
-                    className="w-full accent-amber-500 h-1.5 bg-neutral-800 rounded-lg cursor-pointer"
-                  />
-                  <div className="grid grid-cols-3 gap-1 mt-0.5">
-                    {[
-                      { label: 'Сверху', val: 20 },
-                      { label: 'Центр', val: 50 },
-                      { label: 'Снизу', val: 76 }
-                    ].map((preset, pIdx) => (
-                      <button
-                        key={`overlay-preset-${preset.label}-${pIdx}`}
-                        onClick={() => {
-                          setOverlayVPos(preset.val);
-                          if (!showTitleOverlay) setShowTitleOverlay(true);
-                        }}
-                        className={`py-0.5 text-[8px] font-bold rounded border transition-colors ${
-                          overlayVPos === preset.val
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Style Presets */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-400 font-medium">Стиль подложки:</span>
-                  <div className="grid grid-cols-2 gap-1 text-[8px]">
-                    {[
-                      { id: 'dark_plate', label: '⬛ Тёмная плашка' },
-                      { id: 'accent_plate', label: '🟨 Жёлтый акцент' },
-                      { id: 'glow_stroke', label: '✨ Неоновое свечение' },
-                      { id: 'gradient_banner', label: '🏁 Градиент-полоса' },
-                      { id: 'clean', label: '🏷️ Чистый текст' }
-                    ].map((st, stIdx) => (
-                      <button
-                        key={`overlay-st-${st.id}-${stIdx}`}
-                        onClick={() => {
-                          setOverlayStyle(st.id as any);
-                          if (!showTitleOverlay) setShowTitleOverlay(true);
-                        }}
-                        className={`p-1 rounded text-left font-medium border transition-colors truncate ${
-                          overlayStyle === st.id
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
-                            : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Text Color Picker */}
-                {overlayStyle !== 'accent_plate' && (
-                  <div className="flex items-center justify-between pt-1 border-t border-neutral-800">
-                    <span className="text-[9px] text-neutral-400">Цвет текста:</span>
-                    <div className="flex items-center gap-1.5">
-                      {[
-                        { color: '#ffffff', title: 'Белый' },
-                        { color: '#facc15', title: 'Желтый' },
-                        { color: '#ef4444', title: 'Красный' },
-                        { color: '#22d3ee', title: 'Голубой' },
-                        { color: '#a855f7', title: 'Фиолетовый' },
-                      ].map((c, cIdx) => (
-                        <button
-                          key={`overlay-tc-${c.color}-${cIdx}`}
-                          onClick={() => {
-                            setOverlayTextColor(c.color);
-                            if (!showTitleOverlay) setShowTitleOverlay(true);
-                          }}
-                          className={`w-4 h-4 rounded-full border transition-transform ${
-                            overlayTextColor === c.color ? 'scale-125 border-white shadow-sm' : 'border-neutral-700 hover:scale-110'
-                          }`}
-                          style={{ backgroundColor: c.color }}
-                          title={c.title}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-        {/* --- THUMBNAIL CANVAS (100% CLEAN & UNCLUTTERED PREVIEW) --- */}
-        <div className="relative aspect-video bg-neutral-900 overflow-hidden" id="youtube-preview-image-container">
-          {/* --- SAVE AS TEMPLATE MODAL / POPUP OVERLAY --- */}
-          {showSaveModal && (
-            <div
-              className="absolute inset-0 z-50 bg-black/85 backdrop-blur-sm p-4 flex flex-col justify-center items-center gap-3 animate-in fade-in duration-150"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="w-full max-w-[280px] bg-neutral-900 border border-neutral-700 rounded-xl p-3 shadow-2xl flex flex-col gap-2.5">
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
-                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                    <BookmarkPlus size={14} className="text-amber-400" />
-                    Сохранить как шаблон
-                  </span>
-                  <button
-                    onClick={() => setShowSaveModal(false)}
-                    className="p-1 text-neutral-400 hover:text-white rounded"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-neutral-400 font-medium">Название шаблона:</label>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={saveNameInput}
-                    onChange={(e) => setSaveNameInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveTemplate();
-                    }}
-                    placeholder={`Мой шаблон ${customTemplates.length + 1}`}
-                    className="w-full bg-neutral-950 border border-neutral-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div className="bg-neutral-950/80 p-2 rounded border border-neutral-800/80 text-[9px] text-neutral-400 flex flex-col gap-1">
-                  <div className="font-bold text-neutral-300 mb-0.5">Сохраняемые параметры:</div>
-                  <div className="flex flex-wrap items-center justify-between gap-1">
-                    <span>Макет компоновки:</span>
-                    <span className="text-amber-300 font-mono">{activeLayoutTemplate || 'По центру'}</span>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-1">
-                    <span>Затемнение фона:</span>
-                    <span className="text-indigo-300 font-mono">{bgDim}%</span>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-1">
-                    <span>Режим сетки:</span>
-                    <span className="text-cyan-300 font-mono">{gridMode}</span>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-1">
-                    <span>Стиль шрифта:</span>
-                    <span className="text-purple-300 font-mono">{fontStyleMap[fontStyle]?.name || 'Стандартный'}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    onClick={() => setShowSaveModal(false)}
-                    className="flex-1 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs font-medium transition-colors"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    onClick={handleSaveTemplate}
-                    className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded text-xs transition-colors flex items-center justify-center gap-1 shadow"
-                  >
-                    <Save size={12} />
-                    Сохранить
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-        {/* --- GRID OVERLAY MODES --- */}
-        {gridMode === 'thirds' && (
-          <div className="absolute inset-0 pointer-events-none z-10 opacity-80 mix-blend-difference">
-            <div className="absolute w-full h-px bg-white/80 top-1/3" />
-            <div className="absolute w-full h-px bg-white/80 top-2/3" />
-            <div className="absolute h-full w-px bg-white/80 left-1/3" />
-            <div className="absolute h-full w-px bg-white/80 left-2/3" />
-            <div className="absolute w-full h-px bg-red-400/60 top-1/2 border-t border-dashed border-red-400" />
-            <div className="absolute h-full w-px bg-red-400/60 left-1/2 border-l border-dashed border-red-400" />
-            {[[1/3, 1/3], [2/3, 1/3], [1/3, 2/3], [2/3, 2/3]].map(([xRatio, yRatio], idx) => (
-              <div
-                key={`grid-thirds-point-${idx}`}
-                className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-amber-400 bg-amber-400/30 flex items-center justify-center animate-pulse"
-                style={{ left: `${xRatio * 100}%`, top: `${yRatio * 100}%` }}
-              >
-                <div className="w-1 h-1 bg-amber-400 rounded-full" />
-              </div>
-            ))}
-            <div className="absolute bottom-1 left-2 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-mono text-amber-300 pointer-events-none border border-amber-500/30">
-              Правило третей (3x3)
-            </div>
-          </div>
-        )}
-
-        {gridMode === 'golden' && (
-          <div className="absolute inset-0 pointer-events-none z-10 opacity-80">
-            <div className="absolute w-full h-px bg-amber-400/70 top-[38.2%]" />
-            <div className="absolute w-full h-px bg-amber-400/70 top-[61.8%]" />
-            <div className="absolute h-full w-px bg-amber-400/70 left-[38.2%]" />
-            <div className="absolute h-full w-px bg-amber-400/70 left-[61.8%]" />
-            
-            {[[38.2, 38.2], [61.8, 38.2], [38.2, 61.8], [61.8, 61.8]].map(([x, y], idx) => (
-              <div
-                key={`grid-golden-point-${idx}`}
-                className="absolute -translate-x-1/2 -translate-y-1/2 bg-amber-500 text-black font-extrabold text-[8px] w-4 h-4 rounded-full flex items-center justify-center shadow-md border border-white"
-                style={{ left: `${x}%`, top: `${y}%` }}
-              >
-                Φ
-              </div>
-            ))}
-
-            <svg className="absolute inset-0 w-full h-full text-amber-400/40" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <path d="M 0 100 A 61.8 61.8 0 0 1 61.8 38.2 A 38.2 38.2 0 0 1 100 76.4" fill="none" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2 1" />
-            </svg>
-
-            <div className="absolute bottom-1 left-2 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-mono text-amber-300 pointer-events-none border border-amber-500/30">
-              Золотое сечение (Phi 1:1.618)
-            </div>
-          </div>
-        )}
-
-        {gridMode === 'diagonals' && (
-          <div className="absolute inset-0 pointer-events-none z-10 opacity-80">
-            <svg className="absolute inset-0 w-full h-full text-cyan-400" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <line x1="0" y1="0" x2="100" y2="100" stroke="currentColor" strokeWidth="0.6" />
-              <line x1="100" y1="0" x2="0" y2="100" stroke="currentColor" strokeWidth="0.6" />
-              <line x1="0" y1="100" x2="50" y2="0" stroke="currentColor" strokeWidth="0.4" strokeDasharray="1 1" />
-              <line x1="100" y1="100" x2="50" y2="0" stroke="currentColor" strokeWidth="0.4" strokeDasharray="1 1" />
-              <line x1="0" y1="0" x2="50" y2="100" stroke="currentColor" strokeWidth="0.4" strokeDasharray="1 1" />
-              <line x1="100" y1="0" x2="50" y2="100" stroke="currentColor" strokeWidth="0.4" strokeDasharray="1 1" />
-              <line x1="50" y1="0" x2="50" y2="100" stroke="currentColor" strokeWidth="0.3" opacity="0.5" />
-              <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" strokeWidth="0.3" opacity="0.5" />
-            </svg>
-
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 border border-cyan-400/80 rotate-45 flex items-center justify-center pointer-events-none">
-              <div className="w-1 h-1 bg-cyan-400 rounded-full" />
-            </div>
-
-            <div className="absolute bottom-1 left-2 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-mono text-cyan-300 pointer-events-none border border-cyan-500/30">
-              Динамические диагонали
-            </div>
-          </div>
-        )}
-
-        {gridMode === 'safe_zone' && (
-          <div className="absolute inset-0 pointer-events-none z-10 border-2 border-emerald-500/40">
-            <div className="absolute inset-[5%] border border-dashed border-emerald-400/60 flex items-start justify-between p-1 text-[8px] text-emerald-400 font-mono">
-              <span>5% MARGIN</span>
-            </div>
-
-            <div className="absolute bottom-1 right-1 w-[70px] h-[24px] bg-red-500/30 border border-red-500 text-red-200 text-[8px] font-mono flex items-center justify-center text-center rounded">
-              Таймкод UI
-            </div>
-
-            <div className="absolute bottom-1 left-2 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-mono text-emerald-300 pointer-events-none border border-emerald-500/30">
-              Безопасные зоны YouTube UI
-            </div>
-          </div>
-        )}
-
-        {/* Background Image */}
-        <img
-          src={thumbnail || "https://picsum.photos/seed/youtube/640/360"}
-          alt="Thumbnail"
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          referrerPolicy="no-referrer"
-          id="youtube-preview-image"
-        />
-
-        {/* --- BACKGROUND DIMMING OVERLAY --- */}
-        {bgDim > 0 && (
-          <div
-            className="absolute inset-0 bg-black pointer-events-none z-[5] transition-opacity duration-200"
-            style={{ opacity: bgDim / 100 }}
-          />
-        )}
-
-        {/* --- LIVE TITLE OVERLAY PREVIEW --- */}
-        {showTitleOverlay && overlayText && (
-          <div
-            className={`absolute inset-x-2.5 pointer-events-none z-20 transition-all flex ${
-              overlayAlign === 'left' ? 'justify-start text-left' :
-              overlayAlign === 'right' ? 'justify-end text-right' :
-              'justify-center text-center'
-            }`}
-            style={{
-              top: `${overlayVPos}%`,
-              transform: 'translateY(-50%)',
-            }}
-          >
-            <div
-              className={`max-w-[95%] font-extrabold uppercase tracking-tight transition-all select-none ${
-                overlayStyle === 'dark_plate'
-                  ? 'bg-black/85 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/20 shadow-2xl'
-                  : overlayStyle === 'accent_plate'
-                  ? 'bg-amber-400 text-black px-2.5 py-1 rounded-lg border-2 border-white shadow-2xl font-black'
-                  : overlayStyle === 'glow_stroke'
-                  ? 'px-2 py-0.5 drop-shadow-[0_0_10px_rgba(234,179,8,0.9)]'
-                  : overlayStyle === 'gradient_banner'
-                  ? 'w-full bg-gradient-to-r from-black/90 via-black/75 to-black/90 py-1 px-2.5 border-y border-white/20'
-                  : 'px-2 py-0.5'
-              }`}
-              style={{
-                fontSize: `${overlayFontSize}px`,
-                lineHeight: 1.15,
-                color: overlayStyle === 'accent_plate' ? '#000000' : overlayTextColor,
-                textShadow: overlayStyle === 'clean' || overlayStyle === 'glow_stroke'
-                  ? '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 3px 6px rgba(0,0,0,0.9)'
-                  : '1px 1px 2px rgba(0,0,0,0.8)',
-              }}
-            >
-              {overlayText}
-            </div>
-          </div>
-        )}
-
-        {/* --- AI EMOTION ANALYSIS MODAL OVERLAY --- */}
-        {showEmotionModal && emotionAnalysis && (
-          <div
-            className="absolute inset-0 z-50 bg-black/92 backdrop-blur-md p-3 overflow-y-auto flex flex-col justify-start animate-in fade-in duration-200 text-left"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-full bg-neutral-900 border border-neutral-700 rounded-xl p-3 shadow-2xl flex flex-col gap-2.5 my-auto">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <div className="w-6 h-6 rounded-full bg-pink-500/20 text-pink-400 flex items-center justify-center flex-shrink-0">
-                    <Smile size={14} />
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-bold text-white leading-tight truncate">AI Анализ Эмоций Превью</span>
-                    <span className="text-[8px] text-pink-300">Оценка психологического воздействия & CTR</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowEmotionModal(false)}
-                  className="p-1 text-neutral-400 hover:text-white rounded transition-colors"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-
-              {/* CTR & Main Emotion Highlight */}
-              <div className="grid grid-cols-2 gap-2">
-                {/* Score */}
-                <div className="bg-neutral-950/80 border border-neutral-800 rounded-lg p-2 flex flex-col items-center justify-center text-center">
-                  <span className="text-[9px] font-bold text-neutral-400 uppercase">Потенциал CTR</span>
-                  <div className="flex items-baseline gap-1 my-0.5">
-                    <span className={`text-2xl font-black ${
-                      emotionAnalysis.overallCTRScore >= 80 ? 'text-emerald-400' :
-                      emotionAnalysis.overallCTRScore >= 60 ? 'text-amber-400' : 'text-rose-400'
-                    }`}>
-                      {emotionAnalysis.overallCTRScore}
-                    </span>
-                    <span className="text-xs text-neutral-500 font-bold">/100</span>
-                  </div>
-                  <span className="text-[8px] font-mono text-neutral-400">
-                    Прогноз: {emotionAnalysis.estimatedCTRRange}
-                  </span>
-                </div>
-
-                {/* Primary Emotion Trigger */}
-                <div className="bg-neutral-950/80 border border-neutral-800 rounded-lg p-2 flex flex-col items-center justify-center text-center">
-                  <span className="text-[9px] font-bold text-neutral-400 uppercase">Главный триггер</span>
-                  <span className="text-xs font-black text-pink-300 mt-1 line-clamp-1">
-                    {emotionAnalysis.primaryEmotion}
-                  </span>
-                  <span className="text-[8px] text-neutral-400 mt-0.5 line-clamp-1">
-                    Эмоциональный фокус
-                  </span>
-                </div>
-              </div>
-
-              {/* Emotions Breakdown Bars */}
-              <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-lg p-2 flex flex-col gap-1.5">
-                <span className="text-[9px] font-bold text-neutral-300 uppercase flex items-center justify-between">
-                  <span>Шкала эмоций</span>
-                  <span className="text-[8px] text-neutral-500 font-normal">Воздействие на зрителя</span>
-                </span>
-
-                {[
-                  { label: '😃 Радость / Позитив', val: emotionAnalysis.emotionBreakdown?.joy ?? 0, color: 'bg-emerald-500' },
-                  { label: '⚡ Тревога / Срочность (FOMO)', val: emotionAnalysis.emotionBreakdown?.urgency ?? 0, color: 'bg-amber-500' },
-                  { label: '🔍 Любопытство / Интрига', val: emotionAnalysis.emotionBreakdown?.curiosity ?? 0, color: 'bg-purple-500' },
-                  { label: '😲 Удивление / Шок', val: emotionAnalysis.emotionBreakdown?.surprise ?? 0, color: 'bg-rose-500' },
-                  { label: '🛡️ Доверие / Авторитет', val: emotionAnalysis.emotionBreakdown?.trust ?? 0, color: 'bg-cyan-500' },
-                ].map((emo, idx) => (
-                  <div key={`emo-bar-${idx}-${emo.label.slice(0, 5)}`} className="flex flex-col gap-0.5">
-                    <div className="flex justify-between text-[8px] text-neutral-300 font-medium">
-                      <span>{emo.label}</span>
-                      <span className="font-mono font-bold">{emo.val}%</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${emo.color} rounded-full transition-all duration-500`}
-                        style={{ width: `${Math.min(100, Math.max(0, emo.val))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Psychological Verdict */}
-              {emotionAnalysis.emotionalImpactVerdict && (
-                <div className="bg-purple-950/20 border border-purple-800/30 rounded-lg p-2 flex flex-col gap-0.5">
-                  <span className="text-[9px] font-bold text-purple-300 uppercase">Психологический вердикт:</span>
-                  <p className="text-[9px] text-neutral-200 leading-snug">
-                    {emotionAnalysis.emotionalImpactVerdict}
-                  </p>
-                </div>
-              )}
-
-              {/* Actionable Tips */}
-              {emotionAnalysis.ctrActionableTips && emotionAnalysis.ctrActionableTips.length > 0 && (
-                <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-lg p-2 flex flex-col gap-1">
-                  <span className="text-[9px] font-bold text-amber-300 uppercase">Советы для роста CTR:</span>
-                  <ul className="flex flex-col gap-1 text-[8px] text-neutral-300">
-                    {emotionAnalysis.ctrActionableTips.map((tip, idx) => (
-                      <li key={`emo-tip-${idx}`} className="flex items-start gap-1">
-                        <span className="text-amber-400 font-bold flex-shrink-0">•</span>
-                        <span>{tip}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Actions Footer */}
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={handleRunEmotionAnalysis}
-                  disabled={isAnalyzingEmotions}
-                  className="flex-1 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw size={11} className={isAnalyzingEmotions ? "animate-spin" : ""} />
-                  <span>{isAnalyzingEmotions ? 'Анализирую...' : 'Повторить'}</span>
-                </button>
-                <button
-                  onClick={() => setShowEmotionModal(false)}
-                  className="flex-1 py-1.5 bg-pink-600 hover:bg-pink-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1 shadow cursor-pointer"
-                >
-                  Закрыть
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {thumbnailOverlay}
-        <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/80 text-[10px] font-bold text-white rounded pointer-events-none z-10">
-          12:34
-        </div>
-      </div>
-      <div className="p-3 flex gap-3">
-        <div className="w-9 h-9 rounded-full bg-neutral-800 flex-shrink-0 flex items-center justify-center text-neutral-500 font-bold text-xs border border-neutral-700">
-          {channelName?.charAt(0) || "Y"}
-        </div>
-        <div className="flex-1 min-w-0">
-          {isEditingLocal ? (
-            <div className="flex flex-col gap-2" onClick={e => e.stopPropagation()}>
-              <div className="relative">
-                <input
-                  autoFocus
-                  type="text"
-                  value={localTitle}
-                  onChange={(e) => setLocalTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      onTitleChange?.(localTitle);
-                      setIsEditingLocal(false);
-                    }
-                    if (e.key === 'Escape') {
-                      setLocalTitle(title);
-                      setIsEditingLocal(false);
-                    }
-                  }}
-                  className={`w-full bg-neutral-900 border ${isOverLimit ? 'border-red-500/50' : 'border-accent/50'} rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent transition-colors pr-14`}
-                  placeholder="Заголовок видео..."
-                />
-                <div className={`absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono ${isOverLimit ? 'text-red-500 font-bold' : 'text-neutral-500'}`}>
-                  {charCount}/100
-                </div>
-              </div>
-
-              {isOverLimit && (
-                <p className="text-[9px] text-red-500 font-medium -mt-1 ml-1">
-                  Рекомендуется до 100 символов для лучшего SEO
-                </p>
-              )}
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                {onOptimizeTitle && (
-                  <button
-                    onClick={handleOptimize}
-                    disabled={isOptimizing}
-                    className="flex items-center gap-1 px-2 py-1 rounded bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20 transition-all text-[9px] font-bold disabled:opacity-50"
-                  >
-                    {isOptimizing ? (
-                      <Loader2 size={10} className="animate-spin" />
-                    ) : (
-                      <Sparkles size={10} />
-                    )}
-                    {isOptimizing ? "Ждем..." : "Улучшить (AI)"}
-                  </button>
-                )}
-                
-                <div className="flex gap-2 ml-auto">
-                  <button
-                    onClick={() => {
-                      setLocalTitle(title);
-                      setIsEditingLocal(false);
-                    }}
-                    className="text-[10px] font-bold text-neutral-500 hover:text-white transition-colors"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    onClick={() => {
-                      onTitleChange?.(localTitle);
-                      setIsEditingLocal(false);
-                    }}
-                    className="text-[10px] font-bold text-accent hover:text-emerald-400 transition-colors"
-                  >
-                    Сохранить
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <h3 className={`text-sm line-clamp-2 transition-all ${fontStyleMap[fontStyle]?.className || fontStyleMap.default.className}`}>
-              {title || "Ваш заголовок видео появится здесь"}
-            </h3>
-          )}
-          <div className="mt-1 flex flex-col">
-            <span
-              className="text-[12px] transition-colors"
-              style={{ color: channelColor }}
-            >
-              {channelName || "Ваш Канал"}
-            </span>
-            <div className="flex items-center gap-1 text-[12px] text-neutral-500">
-              <span>{views} просмотров</span>
-              <span className="w-0.5 h-0.5 rounded-full bg-neutral-600" />
-              <span>{timeAgo}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            key="idea-card-expanded-content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="border-t border-neutral-900 bg-neutral-900/30 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-3 space-y-4">
-              {/* Stats Section */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Опубликовано</span>
-                  <p className="text-xs text-neutral-300 font-medium">{timeAgo}</p>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Категория</span>
-                  <p className="text-xs text-neutral-300 font-medium">Образование</p>
-                </div>
-              </div>
-
-              {/* Description Snippet */}
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Описание</span>
-                <p className="text-xs text-neutral-400 leading-relaxed line-clamp-3">
-                  В этом видео мы подробно разберем, как создавать захватывающие превью для YouTube, которые увеличивают CTR. 
-                  Узнайте секреты композиции, выбора цвета и использования шрифтов для привлечения внимания аудитории.
-                </p>
-              </div>
-
-              {/* Tags Section */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Теги</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {["#дизайн", "#youtube", "#превью", "#обучение", "#туториал"].map((tag, idx) => (
-                    <span key={`tag-${tag}-${idx}`} className="px-1.5 py-0.5 bg-neutral-800 rounded text-[10px] text-neutral-400 border border-neutral-700">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Engagement Mockup */}
-              <div className="pt-2 flex items-center justify-between border-t border-neutral-800/50">
-                <div className="flex gap-4">
-                   <div className="flex items-center gap-1.5 text-neutral-400">
-                      <Heart size={12} className="text-neutral-500" />
-                      <span className="text-[11px] font-medium">4.8K</span>
-                   </div>
-                   <div className="flex items-center gap-1.5 text-neutral-400">
-                      <Users size={12} className="text-neutral-500" />
-                      <span className="text-[11px] font-medium">12K</span>
-                   </div>
-                </div>
-                <span className="text-[10px] text-neutral-600 font-mono tracking-tighter">ID: YT-PX721-SEO</span>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="flex justify-center py-1.5 bg-neutral-900/50 border-t border-neutral-900 group/indicator">
-        <motion.div
-          animate={{ rotate: isExpanded ? 180 : 0 }}
-          transition={{ duration: 0.3 }}
-          className="text-neutral-600 group-hover/indicator:text-neutral-400"
-        >
-          <ChevronDown size={14} />
-        </motion.div>
-      </div>
-    </div>
-  );
-};
 
 const VoiceButton: React.FC<{
   onTranscript: (text: string) => void;
@@ -3894,8 +598,13 @@ export default function App() {
   // Helper to estimate reading duration (17.5 chars per second)
   const estimateDuration = (text: string) => {
     if (!text) return 0;
+    const cleanText = text
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     // 17.5 characters per second is a common average for voiceover
-    return Math.round(text.length / 17.5);
+    return Math.round(cleanText.length / 17.5);
   };
 
   const {
@@ -4094,7 +803,14 @@ export default function App() {
 
     if (snapshot.ideas && snapshot.ideas.length > 0) {
       setNicheData((prev: any) => ({
-        ...prev,
+        ...(prev || {
+          potential: { demand: 75, competition: 50, monetization: 80, score: 70, summary: "Снимок контент-плана" },
+          subNiches: [],
+          branding: { names: [], colors: [], fonts: [] },
+          popularIdeas: [],
+          scriptTemplate: "",
+          editingTips: ""
+        }),
         ideas: snapshot.ideas,
       }));
     }
@@ -4198,6 +914,7 @@ export default function App() {
       clearTimeout(t4);
     };
   }, [activePage]);
+  const [ideasSearchQuery, setIdeasSearchQuery] = useState("");
   const [ideasFilterViral, setIdeasFilterViral] = useState("all");
   const [ideasFilterDuration, setIdeasFilterDuration] = useState("all");
   const [ideasFilterTone, setIdeasFilterTone] = useState("all");
@@ -4273,10 +990,9 @@ export default function App() {
   });
 
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
-  const [selectedTagFilter, setSelectedTagFilter] = useState("all");
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>(() => {
+  const [selectedStatusTagFilter, setSelectedStatusTagFilter] = useState<string>(() => {
     try {
-      return safeStorage.getItem("yt_selected_status_filter") || "all";
+      return safeStorage.getItem("yt_selected_status_tag_filter") || "all";
     } catch {
       return "all";
     }
@@ -4464,8 +1180,10 @@ export default function App() {
   };
 
   const handleDeletePlaylist = (playlistName: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    if (!confirm(`Удалить плейлист "${playlistName}"?`)) return;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     setIdeaPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(p => p !== playlistName));
     setIdeaAssignments(prev => {
       const next = { ...prev };
@@ -4717,9 +1435,9 @@ export default function App() {
   }, [ideasSortOrder]);
 
   useEffect(() => {
-    safeStorage.setItem("yt_selected_status_filter", selectedStatusFilter);
-    set("yt_selected_status_filter", selectedStatusFilter).catch(() => {});
-  }, [selectedStatusFilter]);
+    safeStorage.setItem("yt_selected_status_tag_filter", selectedStatusTagFilter);
+    set("yt_selected_status_tag_filter", selectedStatusTagFilter).catch(() => {});
+  }, [selectedStatusTagFilter]);
 
   useEffect(() => {
     // Hydrate state from IndexedDB if available
@@ -4737,8 +1455,8 @@ export default function App() {
       if (val) setIdeasSortOrder(val as any);
     }).catch(() => {});
 
-    get("yt_selected_status_filter").then((val) => {
-      if (val) setSelectedStatusFilter(val as string);
+    get("yt_selected_status_tag_filter").then((val) => {
+      if (val) setSelectedStatusTagFilter(val as string);
     }).catch(() => {});
   }, []);
   const [thumbnailStyleSuggestions, setThumbnailStyleSuggestions] = useState<any[]>([]);
@@ -5460,39 +2178,35 @@ export default function App() {
     return nicheData.ideas.filter((idea: any) => {
       const title = typeof idea === "string" ? idea : idea.title;
       const isDetailed = typeof idea === "object";
-      const duration = isDetailed ? idea.duration || "" : "";
-      const tone = isDetailed ? idea.tone || "" : "";
 
-      // Seed fallback viral_potential if missing from old saved data
-      let viral = isDetailed ? idea.viral_potential || "" : "";
-      if (!viral && isDetailed) {
-        const idx = (title || "").length % 3;
-        viral =
-          idx === 0
-            ? "Высокий (92%)"
-            : idx === 1
-              ? "Очень высокий (97%)"
-              : "Средний (81%)";
-      }
-
-      // Folder Assignment Filter
-      const assignment = ideaAssignments[title] || {};
-      if (selectedFolderFilter !== "all") {
-        const assignedFolder = assignment.folder || "Без папки";
-        if (selectedFolderFilter === "none") {
-          if (assignedFolder !== "Без папки" && assignedFolder !== "none") return false;
-        } else {
-          if (assignedFolder !== selectedFolderFilter) return false;
+      // 1. Search Query Filter
+      if (ideasSearchQuery.trim()) {
+        const q = ideasSearchQuery.toLowerCase().trim();
+        const desc = isDetailed ? (idea.description || "") : "";
+        if (!title.toLowerCase().includes(q) && !desc.toLowerCase().includes(q)) {
+          return false;
         }
       }
 
-      // Tag Assignment Filter
-      if (selectedTagFilter !== "all") {
-        const assignedTags = assignment.tags || [];
-        if (!assignedTags.includes(selectedTagFilter)) return false;
+      const assignment = ideaAssignments[title] || {};
+
+      // 2. Combined Status & Tag Filter
+      if (selectedStatusTagFilter !== "all") {
+        if (selectedStatusTagFilter.startsWith("status:")) {
+          const targetStatus = selectedStatusTagFilter.replace("status:", "");
+          const assignedStatus = assignment.status || "Идея";
+          if (assignedStatus !== targetStatus) return false;
+        } else if (selectedStatusTagFilter.startsWith("tag:")) {
+          const targetTagId = selectedStatusTagFilter.replace("tag:", "");
+          const assignedTags = assignment.tags || [];
+          if (!assignedTags.includes(targetTagId)) return false;
+        } else if (selectedStatusTagFilter === "no_tags") {
+          const assignedTags = assignment.tags || [];
+          if (assignedTags.length > 0) return false;
+        }
       }
 
-      // Playlist Assignment Filter
+      // 3. Playlist Assignment Filter
       if (selectedPlaylistFilter !== "all") {
         const assignedPlaylist = assignment.playlist || "Без плейлиста";
         if (selectedPlaylistFilter === "none") {
@@ -5502,63 +2216,28 @@ export default function App() {
         }
       }
 
-      // Status Assignment Filter
-      if (selectedStatusFilter !== "all") {
-        const assignedStatus = assignment.status || "Идея";
-        if (assignedStatus !== selectedStatusFilter) return false;
-      } else if (hidePublished) {
+      // 4. Status Filter for Hide Published
+      if (hidePublished && !selectedStatusTagFilter.includes("Опубликовано")) {
         const assignedStatus = assignment.status || "Идея";
         if (assignedStatus === "Опубликовано") return false;
       }
 
-      // Filter out existing videos from the channel list
+      // 5. Filter out existing videos from the channel list
       if (hideExistingInChannel && isIdeaOnChannel(title, isDetailed ? idea.description : undefined)) {
         return false;
       }
-
-      // 1. Viral Potential Filter
-      if (ideasFilterViral !== "all") {
-        const v = viral.toLowerCase();
-        if (ideasFilterViral === "high_plus") {
-          const isHigh =
-            v.includes("высок") || v.includes("экстрем") || v.includes("очень");
-          if (!isHigh) return false;
-        } else if (ideasFilterViral === "very_high") {
-          const isVeryHigh = v.includes("очень") || v.includes("экстрем");
-          if (!isVeryHigh) return false;
-        } else if (ideasFilterViral === "medium") {
-          const isMedium =
-            v.includes("средн") ||
-            (!v.includes("высок") && !v.includes("экстрем") && !v.includes("очень"));
-          if (!isMedium) return false;
-        }
-      }
-
-      // 2. Duration Filter
-      if (ideasFilterDuration !== "all") {
-        const isShort = isShortDuration(duration);
-        if (ideasFilterDuration === "short" && !isShort) return false;
-        if (ideasFilterDuration === "long" && isShort) return false;
-      }
-
-      // 3. Tone Filter
-      if (ideasFilterTone !== "all" && tone !== ideasFilterTone) return false;
 
       return true;
     });
   }, [
     nicheData,
+    ideasSearchQuery,
     ideaAssignments,
-    selectedFolderFilter,
-    selectedTagFilter,
+    selectedStatusTagFilter,
     selectedPlaylistFilter,
-    selectedStatusFilter,
     hidePublished,
     hideExistingInChannel,
-    isIdeaOnChannel,
-    ideasFilterViral,
-    ideasFilterDuration,
-    ideasFilterTone
+    isIdeaOnChannel
   ]);
 
   const sortedIdeas = useMemo(() => {
@@ -7184,6 +3863,16 @@ export default function App() {
     };
     initSession();
 
+    const handleAuthEvent = async (event: MessageEvent) => {
+      if (event.data?.type === "OAUTH_AUTH_SUCCESS") {
+        const u = await refreshAuthSession();
+        if (u) {
+          setUser(u);
+        }
+      }
+    };
+    window.addEventListener("message", handleAuthEvent);
+
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setIsAuthReady(true);
@@ -7206,7 +3895,10 @@ export default function App() {
         }
       }
     });
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener("message", handleAuthEvent);
+      unsubscribe();
+    };
   }, []);
 
   const handleImageUpload = (
@@ -8146,15 +4838,8 @@ export default function App() {
           };
         });
 
-        // Prompt the user for mode
-        let shouldReplace = true;
-        try {
-          shouldReplace = window.confirm(
-            `Найдено ${formattedIdeas.length} идей. Заменить текущий проект импортированными данными? (Нажмите ОК для полной замены, нажмите Отмена для объединения)`
-          );
-        } catch (confirmError) {
-          shouldReplace = true; // Fallback to replace on error/block
-        }
+        // Safe mode selection (default replace)
+        const shouldReplace = true;
 
         setNicheData((prev: any) => {
           const current = prev || {
@@ -10069,7 +6754,7 @@ export default function App() {
     if (niche === "Свой вариант") {
       setIsCustomNiche(true);
       // Pre-fill if current niche is already custom
-      const isPredefined = NICHES.slice(0, -1).includes(selectedNiche);
+      const isPredefined = NICHES.slice(0, -1).some((n: any) => (typeof n === "string" ? n : n.name) === selectedNiche);
       if (!isPredefined && selectedNiche) {
         setCustomNiche(selectedNiche);
       } else {
@@ -10123,9 +6808,6 @@ export default function App() {
       }
       
       if (isScriptInWork) {
-        if (!window.confirm("Изменение темы приведет к сбросу текущей структуры сценария. Продолжить?")) {
-          return;
-        }
         setScriptStructure([]);
         setGeneratedBlocks({});
         setBlockRefinements({});
@@ -10205,19 +6887,15 @@ export default function App() {
             <button
               onClick={() => {
                 if (isScriptInWork) {
-                  if (window.confirm("Внимание! У вас есть активный сценарий в работе. Разблокировка и смена темы приведет к сбросу текущей структуры сценария и всех сгенерированных блоков. Продолжить?")) {
-                    setScriptStructure([]);
-                    setGeneratedBlocks({});
-                    setBlockRefinements({});
-                    setScriptBreakdown([]);
-                    setIsScriptTopicLocked(false);
-                    toast.success("Работа сброшена, тема разблокирована.");
-                  }
+                  setScriptStructure([]);
+                  setGeneratedBlocks({});
+                  setBlockRefinements({});
+                  setScriptBreakdown([]);
+                  setIsScriptTopicLocked(false);
+                  toast.success("Работа сброшена, тема разблокирована.");
                 } else {
-                  if (window.confirm("Вы действительно хотите разблокировать тему? Это позволит автоматически изменять тему при выборе других карточек.")) {
-                    setIsScriptTopicLocked(false);
-                    toast.success("Фиксация темы снята.");
-                  }
+                  setIsScriptTopicLocked(false);
+                  toast.success("Фиксация темы снята.");
                 }
               }}
               className="text-[10px] font-bold bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 px-3 py-1.5 rounded-lg transition-all"
@@ -10644,7 +7322,7 @@ export default function App() {
       );
     }
 
-    const importantPages = ["YouTube", "Идеи", "Сценарий", "Промтинг", "SEO", "Шортс", "История"];
+    const importantPages: string[] = [];
     if (!user && importantPages.includes(activePage)) {
       return (
         <div className="flex flex-col items-center justify-center min-h-[500px] text-center p-8 bg-neutral-950/40 rounded-2xl border border-neutral-800/60 max-w-2xl mx-auto my-12 shadow-2xl relative overflow-hidden backdrop-blur-md">
@@ -10966,90 +7644,23 @@ export default function App() {
                 )}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-950/60 p-1.5">
-                  <button
-                    onClick={() => handleExportIdeasToCSV(sortedIdeas)}
-                    disabled={!sortedIdeas || sortedIdeas.length === 0}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
-                    title="Скачать текущий контент-план в формате CSV (Excel, Google Таблицы)"
-                  >
-                    <FileSpreadsheet size={12} className="text-emerald-400" />
-                    <span>CSV</span>
-                  </button>
-                  <button
-                    onClick={() => handleExportIdeasToJSON(sortedIdeas)}
-                    disabled={!sortedIdeas || sortedIdeas.length === 0}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
-                    title="Скачать текущий контент-план в формате JSON (резервная копия)"
-                  >
-                    <Download size={12} className="text-blue-400" />
-                    <span>JSON</span>
-                  </button>
-                  <label className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer">
-                    <Upload size={12} className="text-purple-400" />
-                    <span>Импорт</span>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleImportIdeasFromJSON}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-950/60 p-1.5">
-                  <button
-                    onClick={() => setShowManageFoldersTags(prev => !prev)}
-                    className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      showManageFoldersTags 
-                        ? "bg-accent/20 border-accent text-accent" 
-                        : "bg-surface border-border hover:border-accent/50 text-neutral-300"
-                    }`}
-                  >
-                    <Tag size={12} />
-                    Метки
-                  </button>
-                  <button
-                    onClick={() => {
-                      setCustomIdeaModalTab("manual");
-                      setShowCustomIdeasModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/15 hover:bg-accent/25 text-accent border border-accent/20 rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer"
-                    title="Добавить свою собственную идею вручную"
-                  >
-                    <Plus size={12} />
-                    <span>Своя</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setCustomIdeaModalTab("ai");
-                      setShowCustomIdeasModal(true);
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-accent text-white rounded-lg text-[10px] font-bold hover:bg-accent/90 transition-all shadow-md shadow-accent/20 cursor-pointer"
-                    title="Сгенерировать подборку идей через ИИ Gemini"
-                  >
-                    <Sparkles size={12} />
-                    <span>ИИ</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-950/60 p-1.5">
+                <div className="flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-950/60 p-1.5 shadow-sm">
                   <button
                     onClick={handleDeleteAllIdeas}
                     disabled={(!nicheData?.ideas || nicheData.ideas.length === 0) && trendingIdeas.length === 0}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
                     title="Удалить все идеи из основного списка и трендов"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={13} />
                     <span>Очистить</span>
                   </button>
                   <button
                     onClick={handleRemoveDuplicateIdeas}
                     disabled={(!nicheData?.ideas || nicheData.ideas.length === 0) && trendingIdeas.length === 0 && userCustomIdeas.length === 0}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
                     title="Найти и удалить одинаковые/повторяющиеся идеи из списка"
                   >
-                    <CopyX size={12} />
+                    <CopyX size={13} />
                     <span>Дубликаты</span>
                   </button>
                 </div>
@@ -11217,119 +7828,85 @@ export default function App() {
             )}
 
             {/* Фильтры и поиск */}
-            <div className="bg-surface border border-border p-2.5 rounded-2xl space-y-2.5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8 gap-2">
-                {/* 1. Рубрика */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Рубрика</span>
+            <div className="bg-surface/90 border border-border p-3.5 rounded-2xl space-y-3 shadow-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                {/* 1. Поиск по идеям */}
+                <div className="sm:col-span-2 lg:col-span-5 flex flex-col gap-1">
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider font-sans flex items-center gap-1">
+                    <Search size={12} className="text-accent" />
+                    Поиск по идеям
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={ideasSearchQuery}
+                      onChange={(e) => setIdeasSearchQuery(e.target.value)}
+                      placeholder="Поиск по названию или теме..."
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl text-xs py-2 pl-3.5 pr-8 text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-accent transition-all font-sans"
+                    />
+                    {ideasSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setIdeasSearchQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-0.5 cursor-pointer"
+                        title="Очистить поиск"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Объединенный фильтр: Статус и Метки */}
+                <div className="sm:col-span-1 lg:col-span-4 flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider font-sans flex items-center gap-1">
+                      <Tag size={12} className="text-accent" />
+                      Статус и метки
+                    </span>
+                    {selectedStatusTagFilter !== "all" && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStatusTagFilter("all")}
+                        className="text-[9px] text-accent hover:underline cursor-pointer"
+                      >
+                        Сбросить
+                      </button>
+                    )}
+                  </div>
                   <select
-                    value={selectedFolderFilter}
-                    onChange={(e) => setSelectedFolderFilter(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
+                    value={selectedStatusTagFilter}
+                    onChange={(e) => setSelectedStatusTagFilter(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl text-xs py-2 px-3 text-neutral-200 focus:outline-none focus:border-accent cursor-pointer font-sans transition-all"
                   >
-                    <option value="all">📁 Все рубрики</option>
-                    <option value="none">📁 Без рубрики</option>
-                    {ideaFolders.map((folder, idx) => (
-                      <option key={`opt-fld-${folder}-${idx}`} value={folder}>{folder}</option>
-                    ))}
+                    <option value="all">⚡ Все статусы и метки</option>
+                    
+                    <optgroup label="📌 Статусы задач">
+                      {IDEA_STATUSES.map((s, idx) => (
+                        <option key={`opt-st-fltr-${s.id}-${idx}`} value={`status:${s.id}`}>
+                          {s.id === "Опубликовано" ? `🚀 Опубликовано / Архив (${publishedIdeasCount})` : s.label}
+                        </option>
+                      ))}
+                    </optgroup>
+
+                    <optgroup label="🏷️ Метки">
+                      {ideaTags.length === 0 ? (
+                        <option value="" disabled className="text-neutral-500">Нет меток (создайте ниже)</option>
+                      ) : (
+                        ideaTags.map((tag, idx) => (
+                          <option key={`opt-tag-${tag.id ?? "item"}-${idx}`} value={`tag:${tag.id}`}>
+                            🏷️ {tag.name}
+                          </option>
+                        ))
+                      )}
+                      <option value="no_tags">🏷️ Без меток</option>
+                    </optgroup>
                   </select>
                 </div>
 
-                {/* 2. Метка */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Метка</span>
-                  <select
-                    value={selectedTagFilter}
-                    onChange={(e) => setSelectedTagFilter(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
-                  >
-                    <option value="all">🏷️ Все метки</option>
-                    {ideaTags.map((tag, idx) => (
-                      <option key={`opt-tag-${tag.id ?? 'item'}-${idx}`} value={tag.id}>{tag.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 3. Плейлист */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Плейлист</span>
-                  <select
-                    value={selectedPlaylistFilter}
-                    onChange={(e) => setSelectedPlaylistFilter(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
-                  >
-                    <option value="all">🎬 Все плейлисты</option>
-                    <option value="none">🎬 Без плейлиста</option>
-                    {ideaPlaylists.map((playlist, idx) => (
-                      <option key={`opt-pl-${playlist}-${idx}`} value={playlist}>{playlist}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 4. Статус */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Статус</span>
-                  <select
-                    value={selectedStatusFilter}
-                    onChange={(e) => setSelectedStatusFilter(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
-                  >
-                    <option value="all">⚡ Все статусы</option>
-                    {IDEA_STATUSES.map((s, idx) => (
-                      <option key={`opt-st-fltr-${s.id}-${idx}`} value={s.id}>
-                        {s.id === "Опубликовано" ? `🚀 Опубликовано / Архив (${publishedIdeasCount})` : s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 5. Потенциал */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Потенциал</span>
-                  <select
-                    value={ideasFilterViral}
-                    onChange={(e) => setIdeasFilterViral(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
-                  >
-                    <option value="all">⚡ Весь потенциал</option>
-                    <option value="high_plus">⚡ Высокий и выше</option>
-                    <option value="very_high">⚡ Очень высокий</option>
-                    <option value="medium">⚡ Средний</option>
-                  </select>
-                </div>
-
-                {/* 6. Длительность */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Длительность</span>
-                  <select
-                    value={ideasFilterDuration}
-                    onChange={(e) => setIdeasFilterDuration(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
-                  >
-                    <option value="all">⏳ Любая</option>
-                    <option value="short">⏳ Shorts (&lt; 60с)</option>
-                    <option value="long">⏳ Длинные (&gt; 60с)</option>
-                  </select>
-                </div>
-
-                {/* 7. Тон */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Тон</span>
-                  <select
-                    value={ideasFilterTone}
-                    onChange={(e) => setIdeasFilterTone(e.target.value)}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 text-neutral-300 focus:outline-none focus:border-accent cursor-pointer font-sans"
-                  >
-                    <option value="all">🎭 Любой тон</option>
-                    {uniqueTones.map((tone, idx) => (
-                      <option key={`filter-tone-${idx}-${tone}`} value={tone}>{tone}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 8. Сортировка */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider font-sans">Сортировка</span>
+                {/* 3. Сортировка */}
+                <div className="sm:col-span-1 lg:col-span-3 flex flex-col gap-1">
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider font-sans">Сортировка</span>
                   <select
                     value={`${ideasSortField}_${ideasSortOrder}`}
                     onChange={(e) => {
@@ -11340,18 +7917,95 @@ export default function App() {
                       else if (val === "duration_desc") { setIdeasSortField("duration"); setIdeasSortOrder("desc"); }
                       else if (val === "duration_asc") { setIdeasSortField("duration"); setIdeasSortOrder("asc"); }
                     }}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg text-[11px] py-1.5 px-2 font-semibold text-accent focus:outline-none focus:border-accent cursor-pointer font-sans"
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl text-xs py-2 px-3 font-semibold text-accent focus:outline-none focus:border-accent cursor-pointer font-sans transition-all"
                   >
-                    <option value="date_desc">🆕 Новые</option>
-                    <option value="date_asc">⏳ Старые</option>
-                    <option value="viral_desc">🔥 Вирус</option>
-                    <option value="duration_desc">⏱️ Длинные</option>
-                    <option value="duration_asc">⏱️ Короткие</option>
+                    <option value="date_desc">🆕 Сначала новые</option>
+                    <option value="date_asc">⏳ Сначала старые</option>
+                    <option value="viral_desc">🔥 По вирусному потенциалу</option>
+                    <option value="duration_desc">⏱️ Сначала длинные</option>
+                    <option value="duration_asc">⏱️ Сначала короткие</option>
                   </select>
                 </div>
               </div>
 
-              {/* Плейлисты - Быстрый выбор и создание собственного плейлиста */}
+              {/* Активные фильтры (быстрый сброс и индикация) */}
+              {(selectedStatusTagFilter !== "all" || ideasSearchQuery) && (
+                <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-border/40 text-xs">
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase font-sans">Активно:</span>
+                  
+                  {ideasSearchQuery && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-accent/15 text-accent border border-accent/30">
+                      🔍 "{ideasSearchQuery}"
+                      <button 
+                        type="button" 
+                        onClick={() => setIdeasSearchQuery("")} 
+                        className="hover:text-white ml-0.5 cursor-pointer"
+                        title="Убрать поиск"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )}
+
+                  {selectedStatusTagFilter.startsWith("status:") && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                      📌 Статус: {selectedStatusTagFilter.replace("status:", "")}
+                      <button 
+                        type="button" 
+                        onClick={() => setSelectedStatusTagFilter("all")} 
+                        className="hover:text-white ml-0.5 cursor-pointer"
+                        title="Сбросить фильтр по статусу"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )}
+
+                  {selectedStatusTagFilter.startsWith("tag:") && (() => {
+                    const tagId = selectedStatusTagFilter.replace("tag:", "");
+                    const foundTag = ideaTags.find(t => t.id === tagId);
+                    return (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                        🏷️ Метка: {foundTag ? foundTag.name : tagId}
+                        <button 
+                          type="button" 
+                          onClick={() => setSelectedStatusTagFilter("all")} 
+                          className="hover:text-white ml-0.5 cursor-pointer"
+                          title="Сбросить фильтр по метке"
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    );
+                  })()}
+
+                  {selectedStatusTagFilter === "no_tags" && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700">
+                      🏷️ Без меток
+                      <button 
+                        type="button" 
+                        onClick={() => setSelectedStatusTagFilter("all")} 
+                        className="hover:text-white ml-0.5 cursor-pointer"
+                        title="Сбросить фильтр"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdeasSearchQuery("");
+                      setSelectedStatusTagFilter("all");
+                    }}
+                    className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer ml-auto"
+                  >
+                    Сбросить все
+                  </button>
+                </div>
+              )}
+            {/* Плейлисты - Быстрый выбор и создание собственного плейлиста */}
               <div className="pt-4 border-t border-border/40 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -11434,7 +8088,7 @@ export default function App() {
                   {ideaPlaylists.map((playlist, idx) => (
                     <div
                       key={`playlist-${playlist}-${idx}`}
-                      className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all border ${
+                      className={`group flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all border ${
                         selectedPlaylistFilter === playlist 
                           ? "bg-accent/20 border-accent text-accent" 
                           : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:border-neutral-700"
@@ -11443,17 +8097,21 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setSelectedPlaylistFilter(playlist)}
-                        className="flex items-center gap-1.5 cursor-pointer"
+                        className="flex items-center gap-1.5 cursor-pointer hover:text-neutral-200"
                       >
-                        <Film size={10} /> {playlist}
+                        <Film size={11} className={selectedPlaylistFilter === playlist ? "text-accent" : "text-neutral-400"} /> {playlist}
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => handleDeletePlaylist(playlist, e)}
-                        className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-red-400 transition-opacity ml-1 cursor-pointer p-0.5 rounded hover:bg-neutral-800"
-                        title="Удалить плейлист"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDeletePlaylist(playlist, e);
+                        }}
+                        className="opacity-70 group-hover:opacity-100 text-neutral-400 hover:text-red-400 transition-all ml-1 cursor-pointer p-1 rounded hover:bg-red-500/15"
+                        title={`Удалить плейлист "${playlist}"`}
                       >
-                        <X size={10} />
+                        <X size={11} />
                       </button>
                     </div>
                   ))}
@@ -11695,13 +8353,9 @@ export default function App() {
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
                   <button
                     onClick={() => {
-                      setSelectedFolderFilter("all");
-                      setSelectedTagFilter("all");
+                      setIdeasSearchQuery("");
+                      setSelectedStatusTagFilter("all");
                       setSelectedPlaylistFilter("all");
-                      setSelectedStatusFilter("all");
-                      setIdeasFilterViral("all");
-                      setIdeasFilterDuration("all");
-                      setIdeasFilterTone("all");
                       setHidePublished(false);
                       setHideExistingInChannel(false);
                       setIsGroupedView(true);
@@ -11737,12 +8391,9 @@ export default function App() {
         layout
         onClick={() => {
           setSelectedIdea(title);
-          const isScriptInWork = (scriptStructure && scriptStructure.length > 0) || Object.keys(generatedBlocks || {}).length > 0;
-          if (isScriptInWork || isScriptTopicLocked) {
-            if (scriptTopic && scriptTopic !== title) {
-              toast.info(`Выбрана новая идея для просмотра. Активная тема сценария в работе заблокирована: "${scriptTopic}". Чтобы переключить рабочий сценарий на новую тему, перейдите в раздел "Сценарий" и нажмите "Применить".`);
-            } else if (!scriptTopic) {
-              setScriptTopic(title);
+          if (scriptTopic && scriptTopic.trim() !== "") {
+            if (scriptTopic !== title) {
+              toast.info(`Выбрана идея для просмотра: "${title}". Активная рабочая тема: "${scriptTopic}". Нажмите "Взять в работу" на карточке, чтобы сделать её рабочей темой.`);
             }
           } else {
             setScriptTopic(title);
@@ -11800,31 +8451,102 @@ export default function App() {
                 </p>
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <select
-                    value={assignment.status || "Идея"}
+                    value={`status:${assignment.status || "Идея"}`}
                     onChange={(e) => {
                       e.stopPropagation();
-                      const newStatus = e.target.value;
-                      setIdeaAssignments(prev => ({
-                        ...prev,
-                        [title]: {
-                          ...prev[title],
-                          status: newStatus
+                      const val = e.target.value;
+                      if (!val) return;
+
+                      if (val.startsWith("status:")) {
+                        const newStatus = val.replace("status:", "");
+                        setIdeaAssignments(prev => ({
+                          ...prev,
+                          [title]: {
+                            ...prev[title],
+                            status: newStatus
+                          }
+                        }));
+
+                        const isFilteredOutByStatus = selectedStatusTagFilter.startsWith("status:") && selectedStatusTagFilter !== `status:${newStatus}`;
+                        const isFilteredOutByArchive = newStatus === "Опубликовано" && hidePublished && !selectedStatusTagFilter.includes("Опубликовано");
+
+                        if (isFilteredOutByArchive) {
+                          toast.success(`Статус изменен на "Опубликовано". Идея перемещена в архив 🚀📦`);
+                        } else if (isFilteredOutByStatus) {
+                          const activeFilterName = selectedStatusTagFilter.replace("status:", "");
+                          toast.success(`Статус изменен на "${newStatus}". Карточка скрыта из фильтра "${activeFilterName}".`);
+                        } else {
+                          toast.success(`Статус изменен на "${newStatus}"`);
                         }
-                      }));
-                      if (newStatus === "Опубликовано" && hidePublished) {
-                        toast.success(`Статус изменен на "Опубликовано". Идея перемещена в архив 🚀📦`);
-                      } else {
-                        toast.success(`Статус изменен на "${newStatus}"`);
+                      } else if (val.startsWith("tag_add:")) {
+                        const tagId = val.replace("tag_add:", "");
+                        const currentAssigned = assignment.tags || [];
+                        if (!currentAssigned.includes(tagId)) {
+                          setIdeaAssignments(prev => ({
+                            ...prev,
+                            [title]: {
+                              ...prev[title],
+                              tags: [...(prev[title]?.tags || []), tagId]
+                            }
+                          }));
+                          const tag = ideaTags.find(t => t.id === tagId);
+                          toast.success(`Метка "${tag ? tag.name : tagId}" добавлена`);
+                        }
+                      } else if (val.startsWith("tag_remove:")) {
+                        const tagId = val.replace("tag_remove:", "");
+                        setIdeaAssignments(prev => ({
+                          ...prev,
+                          [title]: {
+                            ...prev[title],
+                            tags: (prev[title]?.tags || []).filter(id => id !== tagId)
+                          }
+                        }));
+                        const tag = ideaTags.find(t => t.id === tagId);
+                        toast.success(`Метка "${tag ? tag.name : tagId}" удалена`);
+                      } else if (val === "__new_tag__" || val === "__manage_tags__") {
+                        setShowManageFoldersTags(true);
+                        toast.info("Панель создания и управления метками открыта сверху");
+                      } else if (val === "__manage_tags__") {
+                        setShowManageFoldersTags(true);
+                        toast.info("Панель управления метками открыта сверху");
                       }
+                      
+                      e.target.value = `status:${assignment.status || "Идея"}`;
                     }}
-                    className={`px-1.5 py-0.5 rounded-lg text-[9px] font-extrabold border cursor-pointer transition-all focus:outline-none shadow-sm ${getIdeaStatusObj(assignment.status).bg}`}
-                    title="Изменить статус задачи"
+                    className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold border cursor-pointer transition-all focus:outline-none shadow-sm ${selectedStatusTagFilter === `status:${assignment.status || "Идея"}` ? "ring-2 ring-accent border-accent shadow-accent/25" : ""} ${getIdeaStatusObj(assignment.status).bg}`}
+                    title="Статус задачи и управление метками"
                   >
-                    {IDEA_STATUSES.map((s, idx) => (
-                      <option key={`opt-st2-${s.id}-${idx}`} value={s.id} className="bg-neutral-900 text-neutral-200">
-                        {s.label}
-                      </option>
-                    ))}
+                    <optgroup label="📌 Статус задачи" className="bg-neutral-900 text-neutral-300 font-bold">
+                      {IDEA_STATUSES.map((s, idx) => {
+                        const isCurrent = (assignment.status || "Идея") === s.id;
+                        return (
+                          <option key={`opt-st2-${s.id}-${idx}`} value={`status:${s.id}`} className="bg-neutral-900 text-neutral-200">
+                            {isCurrent ? `✓ ${s.label}` : s.label}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                    
+                    <optgroup label="🏷️ Метки (добавить / снять)" className="bg-neutral-900 text-neutral-300 font-bold">
+                      {ideaTags.length === 0 ? (
+                        <option value="" disabled className="bg-neutral-900 text-neutral-500">Нет меток</option>
+                      ) : (
+                        ideaTags.map((tag, idx) => {
+                          const isAssigned = (assignment.tags || []).includes(tag.id);
+                          return (
+                            <option
+                              key={`opt-card-tag-${tag.id ?? "item"}-${idx}`}
+                              value={isAssigned ? `tag_remove:${tag.id}` : `tag_add:${tag.id}`}
+                              className="bg-neutral-900 text-neutral-200"
+                            >
+                              {isAssigned ? `✓ 🏷️ ${tag.name} (убрать)` : `+ 🏷️ ${tag.name}`}
+                            </option>
+                          );
+                        })
+                      )}
+                      <option value="__new_tag__" className="bg-neutral-900 text-accent font-bold">➕ + Новая метка...</option>
+                      <option value="__manage_tags__" className="bg-neutral-900 text-neutral-400">⚙️ Управление метками...</option>
+                    </optgroup>
                   </select>
 
                   <button
@@ -11915,12 +8637,28 @@ export default function App() {
             {(assignment.tags || []).map((tagId: string, tagIdx: number) => {
               const tag = ideaTags.find(t => t.id === tagId);
               if (!tag) return null;
+              const isTagFiltered = selectedStatusTagFilter === `tag:${tag.id}`;
               return (
                 <span 
-                  key={`${tag.id}-${tagIdx}`} 
-                  className={`px-2 py-0.5 border rounded text-[9px] font-bold flex items-center gap-1.5 transition-all ${getTagColorClasses(tag.color)}`}
+                  key={`${tag.id}-${tagIdx}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (selectedStatusTagFilter === `tag:${tag.id}`) {
+                      setSelectedStatusTagFilter("all");
+                      toast.info(`Фильтр по метке "${tag.name}" сброшен`);
+                    } else {
+                      setSelectedStatusTagFilter(`tag:${tag.id}`);
+                      toast.success(`Фильтр по метке "${tag.name}" активен 🏷️`);
+                    }
+                  }}
+                  className={`px-2 py-0.5 border rounded-lg text-[9px] font-bold flex items-center gap-1.5 transition-all cursor-pointer select-none ${
+                    isTagFiltered
+                      ? "ring-2 ring-accent border-accent bg-accent/25 text-white font-extrabold shadow-sm shadow-accent/25 scale-105"
+                      : `${getTagColorClasses(tag.color)} hover:opacity-90 hover:scale-102`
+                  }`}
+                  title="Нажмите, чтобы включить/выключить фильтр по этой метке"
                 >
-                  🏷️ {tag.name}
+                  <span>🏷️ {tag.name}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -11937,7 +8675,7 @@ export default function App() {
                       });
                       toast.success(`Метка "${tag.name}" удалена`);
                     }}
-                    className="hover:text-red-400 ml-1 transition-colors cursor-pointer"
+                    className="hover:text-red-400 ml-0.5 p-0.5 rounded hover:bg-black/30 transition-colors cursor-pointer"
                     title="Удалить метку"
                   >
                     <X size={9} />
@@ -12014,54 +8752,37 @@ export default function App() {
                 <FileText size={10} className={assignment.note ? "text-amber-400" : "text-neutral-400"} />
                 <span>{assignment.note ? "Заметка ✓" : "Заметка"}</span>
               </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedIdea(title);
+                  setScriptTopic(title);
+                  setIsScriptTopicLocked(true);
+                  toast.success(`Тема "${title}" зафиксирована как рабочая для всех разделов! 🚀`);
+                }}
+                className={`rounded-lg text-[9px] py-1 px-2 font-bold flex items-center gap-1 transition-all cursor-pointer border ${
+                  scriptTopic === title
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm"
+                    : "bg-accent/15 hover:bg-accent/25 text-accent border-accent/40 shadow-sm"
+                }`}
+                title={scriptTopic === title ? "Эта тема сейчас является рабочей для всех разделов" : "Сделать этой идеей рабочую тему для сценария, SEO и промптов"}
+              >
+                {scriptTopic === title ? (
+                  <>
+                    <Check size={10} className="text-emerald-400" />
+                    <span>В работе ✓</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap size={10} />
+                    <span>Взять в работу</span>
+                  </>
+                )}
+              </button>
             </div>
 
             <div className="flex items-center gap-1.5 min-w-0" onClick={(e) => e.stopPropagation()}>
-              <NicheTooltip niche={selectedNiche} type="tags">
-                <select
-                  value=""
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    const val = e.target.value;
-                    if (!val) return;
-                    
-                    if (val === "__manage__") {
-                      setShowManageFoldersTags(true);
-                      toast.info("Панель управления метками открыта сверху");
-                      return;
-                    }
-
-                    const currentAssigned = assignment.tags || [];
-                    if (currentAssigned.includes(val)) {
-                      toast.info("Эта метка уже добавлена");
-                      return;
-                    }
-
-                    setIdeaAssignments(prev => ({
-                      ...prev,
-                      [title]: {
-                        ...prev[title],
-                        tags: [...(prev[title]?.tags || []), val]
-                      }
-                    }));
-                    const tag = ideaTags.find(t => t.id === val);
-                    toast.success(`Метка "${tag ? tag.name : val}" добавлена`);
-                  }}
-                  className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 rounded-lg px-1.5 py-1 text-[9px] text-neutral-300 focus:outline-none focus:border-accent cursor-pointer transition-colors font-sans max-w-[110px] truncate"
-                >
-                  <option value="">🏷️ + Метка...</option>
-                  {ideaTags.map((t, idx) => {
-                    const isAssigned = (assignment.tags || []).includes(t.id);
-                    return (
-                      <option key={`opt-t2-${t.id ?? "item"}-${idx}`} value={t.id} disabled={isAssigned}>
-                        {isAssigned ? `✓ ${t.name}` : t.name}
-                      </option>
-                    );
-                  })}
-                  <option value="__manage__">⚙️ Управление...</option>
-                </select>
-              </NicheTooltip>
-
               <NicheTooltip niche={selectedNiche} type="playlists">
                 <select
                   value={assignment.playlist || ""}
@@ -12069,19 +8790,8 @@ export default function App() {
                     e.stopPropagation();
                     const val = e.target.value;
                     if (val === "__new__") {
-                      const customName = prompt("Введите название нового плейлиста:");
-                      if (customName && customName.trim()) {
-                        const raw = customName.trim();
-                        const formatted = raw.match(/^[\p{Emoji}\u2000-\u3300]/u) ? raw : `🎬 ${raw}`;
-                        if (!ideaPlaylists.includes(formatted)) {
-                          setIdeaPlaylists(prev => [...prev, formatted]);
-                        }
-                        setIdeaAssignments(prev => ({
-                          ...prev,
-                          [title]: { ...prev[title], playlist: formatted }
-                        }));
-                        toast.success(`Идея добавлена в плейлист "${formatted}"`);
-                      }
+                      setShowManageFoldersTags(true);
+                      toast.info("Панель управления плейлистами открыта сверху");
                       return;
                     }
                     setIdeaAssignments(prev => ({
@@ -12116,8 +8826,9 @@ export default function App() {
 
                   if (isGroupedView) {
                     return (
-                      <div className="space-y-5 w-full min-w-0">
-                        {groupedClusters.map((cluster) => {
+                      <motion.div layout className="space-y-5 w-full min-w-0">
+                        <AnimatePresence mode="popLayout">
+                          {groupedClusters.map((cluster) => {
                           const isCollapsed = collapsedGroups[cluster.id];
 
                           if (cluster.type === "playlist") {
@@ -12319,12 +9030,13 @@ export default function App() {
                           }
 
                           return (
-                            <div key={cluster.id} className="w-full">
+                            <motion.div layout exit={{ opacity: 0, scale: 0.95 }} key={cluster.id} className="w-full">
                               {renderIdeaCard(cluster.parentIdea, 0, false)}
-                            </div>
+                            </motion.div>
                           );
                         })}
-                      </div>
+                        </AnimatePresence>
+                      </motion.div>
                     );
                   }
 
@@ -12476,19 +9188,19 @@ export default function App() {
             lastFirebaseSave={lastFirebaseSave}
             scriptVersions={scriptVersions}
             activeVersionId={activeVersionId}
-            handleSaveScriptVersion={handleSaveScriptVersion}
-            handleLoadScriptVersion={handleLoadScriptVersion}
-            handleDeleteScriptVersion={handleDeleteScriptVersion}
-            handleRenameScriptVersion={handleRenameScriptVersion}
+            handleSaveScriptVersion={saveScriptVersion}
+            handleLoadScriptVersion={loadScriptVersion}
+            handleDeleteScriptVersion={deleteScriptVersion}
+            handleRenameScriptVersion={renameScriptVersion}
             handleOpenDiffModal={(vA, vB) => {
               setDiffVersionAId(vA || null);
               setDiffVersionBId(vB || null);
               setIsDiffModalOpen(true);
             }}
-            scriptRecommendations={scriptRecommendations}
-            isGeneratingRecommendations={isGeneratingRecommendations}
-            handleGenerateScriptRecommendations={handleGenerateScriptRecommendations}
-            handleApplyScriptRecommendation={handleApplyScriptRecommendation}
+            scriptRecommendations={scriptImprovements}
+            isGeneratingRecommendations={isAnalyzingScript}
+            handleGenerateScriptRecommendations={handleAnalyzeScriptRetention}
+            handleApplyScriptRecommendation={handleApplyRetentionImprovement}
             ttsVoiceEngine={ttsVoiceEngine}
             setTtsVoiceEngine={setTtsVoiceEngine}
             ttsWpm={ttsWpm}
@@ -12514,6 +9226,7 @@ export default function App() {
       case "SEO":
         return (
           <SEOTab
+            scriptTopic={scriptTopic}
             selectedIdea={selectedIdea}
             nicheData={nicheData}
             selectedBranding={selectedBranding}
@@ -12521,37 +9234,42 @@ export default function App() {
             setVideoSEO={setVideoSEO}
             isGeneratingVideoSEO={isGeneratingVideoSEO}
             handleGenerateVideoSEO={handleGenerateVideoSEO}
-            generatedBlocks={generatedBlocks}
-            scriptStructure={scriptStructure}
-            renderIdeaBanner={renderIdeaBanner}
-            activeModel={selectedModel}
-            thumbnailVariants={thumbnailVariants}
-            setThumbnailVariants={setThumbnailVariants}
-            previewThumbnail={previewThumbnail}
-            setPreviewThumbnail={setPreviewThumbnail}
-            handleAnalyzeTitles={handleAnalyzeTitles}
-            isAnalyzingTitles={isAnalyzingTitles}
-            titleAnalysis={titleAnalysis}
-            applyBroadSEOChange={applyBroadSEOChange}
             handleAnalyzeSEO={handleAnalyzeSEO}
             isAnalyzingSEO={isAnalyzingSEO}
             seoAnalysis={seoAnalysis}
             setSeoAnalysis={setSeoAnalysis}
-            handleApplySEOImprovement={handleApplySEOImprovement}
             handleExportSEO={handleExportSEO}
+            applyBroadSEOChange={applyBroadSEOChange}
+            handleApplySEOImprovement={handleApplySEOImprovement}
+            handleAnalyzeTitles={handleAnalyzeTitles}
+            isAnalyzingTitles={isAnalyzingTitles}
+            titleAnalysis={titleAnalysis}
+            previewThumbnail={previewThumbnail}
+            setPreviewThumbnail={setPreviewThumbnail}
+            thumbnailVariants={thumbnailVariants}
+            setThumbnailVariants={setThumbnailVariants}
             previewBorderColor={previewBorderColor}
             setPreviewBorderColor={setPreviewBorderColor}
             previewChannelColor={previewChannelColor}
             setPreviewChannelColor={setPreviewChannelColor}
+            handleDownloadPreview={handleDownloadPreview}
+            handleGeneratePreviewThumbnail={handleGeneratePreviewThumbnail}
+            isPreviewLoading={isPreviewLoading}
+            downloadImage={downloadImage}
+            handleForceRegenerateThumbnailStyle={handleForceRegenerateThumbnailStyle}
             customInstructions={customInstructions}
             isCustomInstructionsEnabled={isCustomInstructionsEnabled}
+            scriptStructure={scriptStructure}
+            generatedBlocks={generatedBlocks}
+            renderIdeaBanner={renderIdeaBanner}
           />
         );
 
-      case "Промпты":
       case "Промтинг":
+      case "Промпты":
         return (
           <PromptingTab
+            scriptTopic={scriptTopic}
             nicheData={nicheData}
             selectedIdea={selectedIdea}
             promptImageStyle={promptImageStyle}
@@ -12605,43 +9323,72 @@ export default function App() {
 
       default:
         return (
-          <div className="p-8 text-center text-neutral-500">
-            <p>Страница не найдена или находится в разработке: {activePage}</p>
+          <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 space-y-4">
+            <h3 className="text-xl font-bold text-white">Страница не найдена</h3>
+            <button
+              onClick={() => setActivePage("Ниша")}
+              className="px-6 py-2 bg-primary text-black font-bold rounded-xl"
+            >
+              Перейти к нишам
+            </button>
           </div>
         );
     }
   };
 
   return (
-    <div className="min-h-screen bg-background text-neutral-200 flex flex-col font-sans selection:bg-accent selection:text-black">
-      <Header
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans selection:bg-accent/30 selection:text-white">
+      {/* Sidebar */}
+      <Sidebar
         activeTab={activePage}
         setActiveTab={setActivePage}
-        activeModel={selectedModel}
-        setActiveModel={setSelectedModel}
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
         onOpenInstructions={() => setShowCustomInstructionsModal(true)}
         onOpenLimits={() => setShowModelLimitsModal(true)}
-        user={user}
       />
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {renderContent()}
-      </main>
-      {renderHistoryModal()}
-      {renderQuickNoteModal()}
-      {renderCustomIdeasModal()}
-      {renderCustomInstructionsModal()}
-      {renderModelLimitsModal()}
-      {renderDeleteConfirmationModal()}
-      {renderBrandingEditModal()}
 
+      {/* Main Content Area */}
+      <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? "lg:pl-72" : ""}`}>
+        <Header
+          activeTab={activePage}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          activeModel={selectedModel}
+          setActiveModel={setSelectedModel}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenHistory={() => setIsHistoryModalOpen(true)}
+          onOpenInstructions={() => setShowCustomInstructionsModal(true)}
+          onOpenLimits={() => setShowModelLimitsModal(true)}
+          user={user}
+          onSignIn={handleSignIn}
+          onSignOut={handleSignOut}
+          onSwitchAccount={handleSwitchAccount}
+        />
+
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activePage}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.15 }}
+            >
+              {renderContent()}
+            </motion.div>
+          </AnimatePresence>
+        </main>
+      </div>
+
+      {/* Modals & Popups */}
       <AppSettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         user={user}
-        handleSignIn={handleSignIn || (() => {})}
-        handleSignOut={handleSignOut || (() => {})}
+        handleSignIn={handleSignIn}
+        handleSignOut={handleSignOut}
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
         models={MODELS}
@@ -12654,11 +9401,143 @@ export default function App() {
         setDebugEnabled={setDebugEnabled}
         isSidebarOpen={isSidebarOpen}
         setIsSidebarOpen={setIsSidebarOpen}
-        downloadPDF={() => {}}
-        downloadZIP={() => {}}
-        startTour={() => {}}
+        downloadPDF={() => downloadUserManualPDF()}
+        downloadZIP={() => {
+          if (nicheData) {
+            const files = [
+              { name: "niche-data.json", content: JSON.stringify(nicheData, null, 2) },
+              { name: "script-blocks.json", content: JSON.stringify(generatedBlocks, null, 2) },
+              { name: "seo-data.json", content: JSON.stringify(videoSEO || {}, null, 2) },
+              { name: "script.txt", content: getFullScriptText(generatedBlocks) }
+            ];
+            exportToZip(files, `${selectedNiche || "project"}-export.zip`);
+          } else {
+            toast.error("Нет данных проекта для экспорта");
+          }
+        }}
+        startTour={() => toast.info("Обучающий тур")}
         setShowFAQModal={setShowFAQModal}
       />
+
+      {renderHistoryModal()}
+      {renderQuickNoteModal()}
+      {renderCustomIdeasModal()}
+      {renderCustomInstructionsModal()}
+      {renderModelLimitsModal()}
+      {renderDeleteConfirmationModal()}
+      {renderBrandingEditModal()}
+
+      {/* Diff Modal */}
+      {isDiffModalOpen && (
+        <ScriptDiffModal
+          isOpen={isDiffModalOpen}
+          onClose={() => setIsDiffModalOpen(false)}
+          initialVersionAId={diffVersionAId || undefined}
+          initialVersionBId={diffVersionBId || undefined}
+          versions={scriptVersions}
+          currentBlocks={generatedBlocks}
+          currentStructure={scriptStructure}
+          currentTopic={scriptTopic}
+          activeVersionId={activeVersionId}
+          onLoadVersion={loadScriptVersion}
+        />
+      )}
+
+      {/* Idea Snapshots Modal */}
+      {isSnapshotsModalOpen && (
+        <IdeaSnapshotsModal
+          isOpen={isSnapshotsModalOpen}
+          onClose={() => setIsSnapshotsModalOpen(false)}
+          onApplySnapshot={handleApplySnapshot}
+          currentNiche={selectedNiche}
+          currentIdeas={nicheData?.ideas || []}
+          currentTrendingIdeas={trendingIdeas || []}
+          currentAssignments={ideaAssignments}
+          currentTags={ideaTags}
+          currentPlaylists={ideaPlaylists}
+        />
+      )}
+
+      {/* Deep Analysis Modal */}
+      {isDeepAnalysisOpen && (
+        <IdeaDeepAnalysisModal
+          isOpen={isDeepAnalysisOpen}
+          onClose={() => setIsDeepAnalysisOpen(false)}
+          ideaTitle={deepAnalysisTitle}
+          niche={deepAnalysisNiche}
+          analysis={deepAnalysisData}
+          isLoading={isDeepAnalysisLoading}
+          onReanalyze={() => handleTriggerDeepAnalysis(deepAnalysisTitle, deepAnalysisNiche)}
+        />
+      )}
+
+      {/* Block History Modal */}
+      {blockHistoryModalIndex !== null && (
+        <BlockHistoryModal
+          isOpen={blockHistoryModalIndex !== null}
+          onClose={() => setBlockHistoryModalIndex(null)}
+          blockIndex={blockHistoryModalIndex}
+          blockTitle={scriptStructure[blockHistoryModalIndex]?.title || `Блок ${blockHistoryModalIndex + 1}`}
+          currentText={generatedBlocks[blockHistoryModalIndex]?.text || ""}
+          iterations={blockHistory[blockHistoryModalIndex] || []}
+          onRestoreIteration={(iteration) => {
+            setGeneratedBlocks((prev: any) => ({
+              ...prev,
+              [blockHistoryModalIndex]: {
+                ...(prev[blockHistoryModalIndex] || {}),
+                text: iteration.text,
+              }
+            }));
+            toast.success("Версия блока восстановлена");
+            setBlockHistoryModalIndex(null);
+          }}
+          onDeleteIteration={(iterationId) => {
+            setBlockHistory((prev) => ({
+              ...prev,
+              [blockHistoryModalIndex]: (prev[blockHistoryModalIndex] || []).filter(it => it.id !== iterationId)
+            }));
+          }}
+          onClearAllIterations={() => {
+            setBlockHistory((prev) => ({
+              ...prev,
+              [blockHistoryModalIndex]: []
+            }));
+          }}
+        />
+      )}
+
+      {/* Detailed Music Prompt Builder Modal */}
+      {detailedMusicModalBlockIndex !== null && (
+        <DetailedMusicPromptBuilderModal
+          isOpen={detailedMusicModalBlockIndex !== null}
+          onClose={() => setDetailedMusicModalBlockIndex(null)}
+          blockIndex={detailedMusicModalBlockIndex}
+          blockTitle={scriptStructure[detailedMusicModalBlockIndex]?.title || `Блок ${detailedMusicModalBlockIndex + 1}`}
+          blockText={generatedBlocks[detailedMusicModalBlockIndex]?.text || ""}
+          scriptTopic={scriptTopic}
+          initialPrompt={generatedBlocks[detailedMusicModalBlockIndex]?.musicPrompt || ""}
+          selectedModel={selectedModel}
+          onApplyPrompt={(idx, promptText) => {
+            setGeneratedBlocks((prev: any) => ({
+              ...prev,
+              [idx]: {
+                ...(prev[idx] || {}),
+                musicPrompt: promptText,
+              }
+            }));
+            toast.success("Музыкальный промт сохранен");
+            setDetailedMusicModalBlockIndex(null);
+          }}
+        />
+      )}
+
+      {/* FAQ Modal */}
+      {showFAQModal && (
+        <FAQModal
+          isOpen={showFAQModal}
+          onClose={() => setShowFAQModal(false)}
+        />
+      )}
     </div>
   );
 }

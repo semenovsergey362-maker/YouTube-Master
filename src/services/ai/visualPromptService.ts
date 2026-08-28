@@ -435,9 +435,21 @@ export async function generateProductionStyleFromContext(
 }> {
   // UNIFIED SHORTS PIPELINE: Route all Shorts visual generation through generateShortsVisualsAndMusic
   if (mode && (mode.toLowerCase() === "shorts" || mode.toLowerCase().includes("short"))) {
-    let scriptText = topic || "";
+    let scriptText = (topic || "")
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
     if (breakdown && Array.isArray(breakdown) && breakdown.length > 0) {
-      const extractedText = breakdown.map((b: any) => b.text || b.voiceover || b.description || b.title || "").filter(Boolean).join("\n");
+      const extractedText = breakdown
+        .map((b: any) => (b.text || b.voiceover?.text || b.voiceover || b.description || b.title || "")
+          .toString()
+          .replace(/\[[^\]]*\]/g, " ")
+          .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
+          .trim())
+        .filter(Boolean)
+        .join("\n");
       if (extractedText.trim()) {
         scriptText = extractedText;
       }

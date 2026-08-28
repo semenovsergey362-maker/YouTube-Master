@@ -662,11 +662,13 @@ export async function generateScriptBreakdown(
   
   for (const line of lines) {
     if (!line.trim()) continue;
-    const words = line.trim().split(/\s+/).filter(Boolean);
+    const cleanLine = line.replace(/\[[^\]]*\]/g, " ").replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ").replace(/\s+/g, " ").trim();
+    if (!cleanLine) continue;
+    const words = cleanLine.split(/\s+/).filter(Boolean);
     if (words.length <= 25) {
-      allSentences.push(line.trim());
+      allSentences.push(cleanLine);
     } else {
-      const parts = line.split(/([.!?]+['"»”*)]*\s+)/);
+      const parts = cleanLine.split(/([.!?]+['"»”*)]*\s+)/);
       let built = '';
       for (let i = 0; i < parts.length; i++) {
         built += parts[i];
@@ -698,6 +700,22 @@ export async function generateScriptBreakdown(
     }
   }
   if (currentChunk) textChunks.push(currentChunk.trim());
+
+  // Максимальный жесткий потолок ДО 120 сцен для длинных сценариев
+  const MAX_SCRIPT_SCENES = 120;
+  while (textChunks.length > MAX_SCRIPT_SCENES) {
+    let minWords = Infinity;
+    let minIdx = 0;
+    for (let i = 0; i < textChunks.length - 1; i++) {
+      const combinedWords = (textChunks[i] + ' ' + textChunks[i + 1]).split(/\s+/).filter(Boolean).length;
+      if (combinedWords < minWords) {
+        minWords = combinedWords;
+        minIdx = i;
+      }
+    }
+    textChunks[minIdx] = textChunks[minIdx] + '\n' + textChunks[minIdx + 1];
+    textChunks.splice(minIdx + 1, 1);
+  }
 
   const wishesContext = wishes ? `
 ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ:
@@ -824,8 +842,10 @@ ${chunk}`).join('\n\n')}
           ? meta.visuals.description.trim()
           : dynamicVis);
 
+      const sceneText = (meta.text || chunk || '').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+
       return {
-        text: meta.text || chunk,
+        text: sceneText || cleanChunk || chunk,
         description: actualDesc,
         shotType: meta.shotType || meta.visuals?.shotType || "Средний план",
         duration: dur,

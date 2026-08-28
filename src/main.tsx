@@ -127,18 +127,31 @@ export class ErrorBoundary extends Component<{
                 {this.state.error?.message || 'Unknown error'}
               </code>
             </div>
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
                 onClick={() => this.setState({ hasError: false, error: null })}
-                className="inline-flex items-center px-4 py-2 border border-slate-300 dark:border-slate-600 text-sm font-medium rounded-lg text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600"
+                className="inline-flex items-center px-4 py-2 border border-slate-300 dark:border-slate-600 text-sm font-medium rounded-lg text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 cursor-pointer"
               >
                 Повторить
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('yt_niche_data');
+                    localStorage.removeItem('yt_ideas_state');
+                  } catch {}
+                  window.location.reload();
+                }}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-amber-600 hover:bg-amber-700 focus:outline-none cursor-pointer"
+              >
+                Сбросить кэш и перезапустить
+              </button>
+              <button
+                type="button"
                 onClick={() => window.location.reload()}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none cursor-pointer"
               >
                 Перезагрузить страницу
               </button>
@@ -152,15 +165,13 @@ export class ErrorBoundary extends Component<{
   }
 }
 
-
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppProvider>
-      <Toaster position="top-right" richColors />
-      <ErrorBoundary title="Приложение">
+    <ErrorBoundary title="Приложение">
+      <AppProvider>
+        <Toaster position="top-right" richColors />
         <App />
-      </ErrorBoundary>
-    </AppProvider>
+      </AppProvider>
+    </ErrorBoundary>
   </StrictMode>
 );

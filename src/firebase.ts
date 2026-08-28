@@ -129,7 +129,7 @@ const defaultMockUser = {
   providerData: []
 };
 
-let mockUser: any = null;
+let mockUser: any = defaultMockUser;
 
 // Determine initial mock user state & verify with server session
 try {
@@ -141,54 +141,65 @@ try {
     } else {
       mockUser = defaultMockUser;
     }
+  } else {
+    mockUser = null;
   }
 } catch (e) {
   mockUser = defaultMockUser;
 }
 
-// Session check with server
+export async function refreshAuthSession(): Promise<any> {
+  try {
+    const res = await fetch("/api/auth/me", { credentials: "same-origin" });
+    if (!res.ok) return null;
+    
+    const contentType = res.headers.get("content-type");
+    if (contentType && contentType.includes("text/html")) return null;
+    
+    const data = await res.json();
+    if (data && data.user) {
+      mockUser = {
+        uid: data.user.id || data.user.email || "google-user",
+        email: data.user.email,
+        displayName: data.user.name || data.user.displayName || (data.user.email ? data.user.email.split('@')[0] : "Пользователь Google"),
+        photoURL: data.user.picture || data.user.photoURL,
+        emailVerified: true,
+        isAnonymous: false,
+        providerData: []
+      };
+      safeStorage.setItem('mock_firebase_user', JSON.stringify(mockUser));
+      safeStorage.removeItem('mock_firebase_logged_out');
+      authListeners.forEach(cb => cb(mockUser));
+      return mockUser;
+    } else {
+      const isLoggedOut = safeStorage.getItem('mock_firebase_logged_out') === 'true';
+      if (isLoggedOut) {
+        mockUser = null;
+        authListeners.forEach(cb => cb(null));
+      }
+    }
+  } catch (e) {
+    logger.error("Error checking session", e);
+  }
+  return mockUser;
+}
+
+// Session check with server on startup
 if (typeof window !== 'undefined') {
   const checkSession = async (retries = 3) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch("/api/auth/me", { credentials: "same-origin" });
-      if (!res.ok) continue;
-      
-      // If it's HTML, it's probably the AI Studio auth interceptor
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("text/html")) return;
-      
-      const data = await res.json();
-      if (data && data.user) {
-        mockUser = {
-          uid: data.user.id || data.user.email,
-          email: data.user.email,
-          displayName: data.user.name || data.user.displayName,
-          photoURL: data.user.picture || data.user.photoURL,
-          emailVerified: true,
-          isAnonymous: false,
-          providerData: []
-        };
-        safeStorage.setItem('mock_firebase_user', JSON.stringify(mockUser));
-        safeStorage.removeItem('mock_firebase_logged_out');
-        authListeners.forEach(cb => cb(mockUser));
-      } else {
-        const isLoggedOut = safeStorage.getItem('mock_firebase_logged_out') === 'true';
-        if (isLoggedOut) {
-          mockUser = null;
-          authListeners.forEach(cb => cb(null));
+    for (let i = 0; i < retries; i++) {
+      try {
+        const u = await refreshAuthSession();
+        if (u) return;
+      } catch (e: any) {
+        if (i === retries - 1 && e.message !== "Failed to fetch") {
+          logger.error("Error checking session", e);
         }
-      }
-      return;
-    } catch (e: any) {
-      if (i === retries - 1 && e.message !== "Failed to fetch") {
-        logger.error("Error checking session", e);
       }
       await new Promise(r => setTimeout(r, 1000));
     }
-  }
-};
-checkSession();
+  };
+  checkSession();
 }
 
 if (!isPlaceholder) {
@@ -451,27 +462,49 @@ async function migrateLocalMockDataToUserInFirebase(newUid: string) {
 }
 
 export const onAuthStateChanged = (authObj: any, callback: (user: any) => void) => {
-  if (!isPlaceholder) {
-    // Real Firebase Mode - use only real Firebase Auth
-    return realOnAuthStateChanged(auth, async (userVal) => {
-      if (userVal) {
-        await migrateLocalMockDataToUserInFirebase(userVal.uid);
-        callback(userVal);
-      } else {
-        callback(null);
-      }
-    });
-  }
-
-  // Mock / Placeholder Mode
   const wrappedCallback = (userVal: any) => {
-    callback(userVal);
+    callback(userVal || mockUser || null);
   };
 
-  setTimeout(() => wrappedCallback(mockUser), 0);
+  // Immediate callback with existing user state if available
+  setTimeout(() => {
+    callback(mockUser || (auth?.currentUser) || null);
+  }, 0);
+
   authListeners.add(wrappedCallback);
+
+  let unsubscribeReal: (() => void) | null = null;
+  if (!isPlaceholder && auth) {
+    try {
+      unsubscribeReal = realOnAuthStateChanged(auth, async (userVal) => {
+        if (userVal) {
+          mockUser = {
+            uid: userVal.uid,
+            email: userVal.email,
+            displayName: userVal.displayName,
+            photoURL: userVal.photoURL,
+            emailVerified: userVal.emailVerified,
+            isAnonymous: userVal.isAnonymous,
+            providerData: userVal.providerData
+          };
+          safeStorage.setItem('mock_firebase_user', JSON.stringify(mockUser));
+          safeStorage.removeItem('mock_firebase_logged_out');
+          await migrateLocalMockDataToUserInFirebase(userVal.uid);
+          callback(userVal);
+        } else if (!mockUser) {
+          callback(null);
+        }
+      });
+    } catch (err) {
+      logger.warn("realOnAuthStateChanged registration skipped:", err);
+    }
+  }
+
   return () => {
     authListeners.delete(wrappedCallback);
+    if (unsubscribeReal) {
+      unsubscribeReal();
+    }
   };
 };
 
