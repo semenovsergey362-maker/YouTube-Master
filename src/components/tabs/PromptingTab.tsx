@@ -46,8 +46,6 @@ import { toast } from 'sonner';
 import { safeStorage } from '../../lib/storage';
 import { getUnifiedScriptScenes, getBlockColorScheme, getSceneVisualText, copyToClipboard as copyTextToClipboard } from '../../utils/helpers';
 import { getTransitionPromptTemplate, generateMasterMusicPrompt } from '../../services/geminiService';
-import { SpeakerTTSMarkupSection } from '../SpeakerTTSMarkupSection';
-import { ErrorBoundary } from '../../main';
 
 
 
@@ -115,6 +113,14 @@ export const PromptingTab = ({
   const [isGeneratingMasterMusic, setIsGeneratingMasterMusic] = React.useState(false);
   const [showAdvancedPrompting, setShowAdvancedPrompting] = React.useState(false);
 
+  const handleUpdateMusicPrompt = (val: string) => {
+    setMasterMusicPrompt(val);
+    safeStorage.setItem("masterMusicPrompt", val);
+    if (setGeneralAudioPrompt) setGeneralAudioPrompt(val);
+  };
+
+  const activeMusicPrompt = masterMusicPrompt || generalAudioPrompt || "";
+
   const handleGenerateMasterMusic = async () => {
     const scenesToRender = getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
     if (!scenesToRender || scenesToRender.length === 0) {
@@ -132,12 +138,17 @@ export const PromptingTab = ({
       const isCustomEnabled = safeStorage.getItem('yt_custom_instructions_enabled') === 'true';
       const customInst = isCustomEnabled ? (safeStorage.getItem('yt_custom_instructions') || '') : '';
 
-      const result = await generateMasterMusicPrompt(fullScript, currentTopic, { 
+      const scriptWithMood = promptMusicMood
+        ? `ПОЖЕЛАНИЯ ПО ЖАНРУ И НАСТРОЕНИЮ МУЗЫКИ: ${promptMusicMood}\n\n${fullScript}`
+        : fullScript;
+
+      const result = await generateMasterMusicPrompt(scriptWithMood, currentTopic, { 
         model: model, 
-        customInstructions: customInst
+        customInstructions: customInst,
+        toneOfVoice: toneOfVoice,
+        globalMusicMood: promptMusicMood
       });
-      setMasterMusicPrompt(result);
-      safeStorage.setItem("masterMusicPrompt", result);
+      handleUpdateMusicPrompt(result);
       toast.success("Мастер-промпт для фоновой музыки Suno успешно сгенерирован!");
     } catch (e: any) {
       toast.error(e.message || "Ошибка при генерации музыкального промпта");
@@ -270,7 +281,7 @@ export const PromptingTab = ({
         </div>
 
         {showAdvancedPrompting && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="space-y-3 bg-neutral-950/60 p-5 rounded-2xl border border-neutral-800/80">
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <label className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -368,8 +379,119 @@ export const PromptingTab = ({
                 </div>
               </div>
             </div>
+
+            <div className="space-y-3 bg-neutral-950/60 p-5 rounded-2xl border border-neutral-800/80">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <label className="text-xs font-black text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Music size={15} className="text-blue-400" />
+                  Музыкальный жанр & Настроение
+                </label>
+                <span className="text-[10px] text-neutral-500 font-mono">Audio</span>
+              </div>
+
+              <textarea
+                rows={2}
+                value={promptMusicMood || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (setPromptMusicMood) setPromptMusicMood(val);
+                }}
+                placeholder="Например: Эпичный темный synthwave, 120 bpm, нарастающее напряжение..."
+                className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-blue-500/50 resize-none font-medium leading-relaxed"
+              />
+
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Пресеты:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { name: "🎵 Эпичный Synthwave", val: "Epic dark synthwave with rising tension, 120 BPM, punchy drums, airy synths" },
+                    { name: "☕ Lo-Fi / Chill", val: "Lo-Fi chill hop, relaxed atmosphere, soft electric piano, warm vinyl crackle" },
+                    { name: "🎬 Кинематографичный", val: "Cinematic orchestral score, epic strings, brass build-up, emotional climax" },
+                    { name: "⚡ Upbeat / Corporate", val: "Upbeat energetic acoustic corporate pop, cheerful ukulele, bright piano" }
+                  ].map((pst, idx) => (
+                    <button
+                      key={`prompting-music-preset-${pst.name}-${idx}`}
+                      type="button"
+                      onClick={() => {
+                        if (setPromptMusicMood) setPromptMusicMood(pst.val);
+                        toast.info(`Применен стиль музыки: ${pst.name}`);
+                      }}
+                      className={`text-[10px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                        promptMusicMood === pst.val
+                          ? "bg-blue-500/20 text-blue-300 border-blue-500/40 font-bold"
+                          : "bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border-neutral-800 hover:border-neutral-700"
+                      }`}
+                    >
+                      {pst.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         )}
+
+        {/* Master Music Prompt Card (Always Visible) */}
+        <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-2xl p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 text-blue-400">
+                <Music size={20} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  🎵 Мастер-промпт для фоновой музыки (Suno / Udio / AI)
+                </h4>
+                <p className="text-[11px] text-neutral-400 mt-0.5 max-w-xl">
+                  Сгенерированный промпт фоновой музыки (до 1000 символов) для всего ролика с учетом настроения, темпа и глобальных кастомных инструкций.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleGenerateMasterMusic}
+              disabled={isGeneratingMasterMusic || isGeneratingGlobalProduction}
+              className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 font-bold text-xs rounded-xl transition-all border border-blue-500/40 flex items-center gap-2 shrink-0 disabled:opacity-50 cursor-pointer"
+            >
+              {isGeneratingMasterMusic ? (
+                <><Loader2 size={14} className="animate-spin" /> Анализ...</>
+              ) : (
+                <><Sparkles size={14} /> {activeMusicPrompt ? "Перегенерировать" : "Сгенерировать"}</>
+              )}
+            </button>
+          </div>
+
+          <div className="relative group">
+            <textarea
+              value={activeMusicPrompt}
+              onChange={(e) => handleUpdateMusicPrompt(e.target.value)}
+              rows={3}
+              placeholder="Музыкальный промпт пока не сгенерирован. Нажмите «Сгенерировать» или введите собственный мастер-промпт для Suno / Udio здесь..."
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-blue-500/50 resize-y min-h-[90px]"
+            />
+            {activeMusicPrompt && (
+              <button
+                type="button"
+                onClick={() => {
+                  copyTextToClipboard(activeMusicPrompt);
+                  toast.success("Мастер-промпт скопирован!");
+                }}
+                className="absolute top-2 right-2 p-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg transition-colors border border-neutral-700 opacity-0 group-hover:opacity-100 cursor-pointer"
+                title="Копировать промпт"
+              >
+                <Copy size={12} />
+              </button>
+            )}
+            <div className="flex justify-between items-center mt-1">
+              <span className="text-[10px] text-neutral-500">
+                Используется при экспорте и при генерации видеоряда
+              </span>
+              <span className={`text-[10px] font-mono ${activeMusicPrompt.length > 1000 ? 'text-red-400 font-bold' : 'text-neutral-500'}`}>
+                {activeMusicPrompt.length} / 1000 символов
+              </span>
+            </div>
+          </div>
+        </div>
 
         {showAdvancedPrompting && (
           <>
@@ -410,66 +532,6 @@ export const PromptingTab = ({
                   }`} />
                 </button>
               </div>
-            </div>
-
-            <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-2xl p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 text-blue-400">
-                    <Music size={20} />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-white flex items-center gap-2">
-                      Мастер-промпт для Suno
-                    </h4>
-                    <p className="text-[11px] text-neutral-400 mt-0.5 max-w-xl">
-                      Генерация единого музыкального промпта для всего ролика на основе темпа и атмосферы сценария.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleGenerateMasterMusic}
-                  disabled={isGeneratingMasterMusic || isGeneratingGlobalProduction}
-                  className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 font-bold text-xs rounded-xl transition-all border border-blue-500/40 flex items-center gap-2 shrink-0 disabled:opacity-50"
-                >
-                  {isGeneratingMasterMusic ? (
-                    <><Loader2 size={14} className="animate-spin" /> Анализ...</>
-                  ) : (
-                    <><Sparkles size={14} /> {masterMusicPrompt ? "Перегенерировать" : "Сгенерировать"}</>
-                  )}
-                </button>
-              </div>
-
-              {masterMusicPrompt && (
-                <div className="relative group">
-                  <textarea
-                    value={masterMusicPrompt}
-                    onChange={(e) => {
-                      setMasterMusicPrompt(e.target.value);
-                      safeStorage.setItem("masterMusicPrompt", e.target.value);
-                    }}
-                    rows={3}
-                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs text-neutral-200 focus:outline-none focus:border-blue-500/50 resize-y min-h-[80px]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      copyTextToClipboard(masterMusicPrompt);
-                      toast.success("Мастер-промпт скопирован!");
-                    }}
-                    className="absolute top-2 right-2 p-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg transition-colors border border-neutral-700 opacity-0 group-hover:opacity-100"
-                    title="Копировать промпт"
-                  >
-                    <Copy size={12} />
-                  </button>
-                  <div className="flex justify-end mt-1">
-                    <span className={`text-[10px] font-mono ${masterMusicPrompt.length > 1000 ? 'text-red-400 font-bold' : 'text-neutral-500'}`}>
-                      {masterMusicPrompt.length} / 1000 символов
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           </>
         )}
@@ -1344,39 +1406,6 @@ ${promptData.videoPrompt2 || ''}`;
         );
       })()}
 
-
-      {/* Voiceover & TTS Markup Section */}
-      {generatedBlocks && Object.keys(generatedBlocks).length > 0 && (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 md:p-8 space-y-6">
-          <div className="flex items-center gap-3 border-b border-neutral-800 pb-4">
-            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <Volume2 size={20} />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                🎙️ Дикторская озвучка & ИИ-Разметка речи (TTS)
-              </h3>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                Автоматическая расстановка пауз, эмоций и ударений для движков озвучки ElevenLabs и SpeechKit
-              </p>
-            </div>
-          </div>
-          <ErrorBoundary isSection sectionName="Дикторская озвучка & TTS">
-            <SpeakerTTSMarkupSection
-              scriptBlocks={generatedBlocks}
-              selectedModel={selectedModel}
-              onUpdateBlockText={(bIdx: number, txt: string) => {
-                if (setGeneratedBlocks) {
-                  setGeneratedBlocks((prev: any) => ({
-                    ...prev,
-                    [bIdx]: { ...prev[bIdx], text: txt }
-                  }));
-                }
-              }}
-            />
-          </ErrorBoundary>
-        </div>
-      )}
 
       {/* Voiceover Stats */}
       {(annotatedScenes && Object.keys(annotatedScenes).length > 0) && (

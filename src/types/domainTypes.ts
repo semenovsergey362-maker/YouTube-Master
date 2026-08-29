@@ -84,6 +84,7 @@ export interface AnalysisOptions {
   isScript?: boolean;
   bypassCache?: boolean;
   region?: string;
+  niche?: any;
   veoSfxEnabled?: boolean;
   existingChannelVideos?: ChannelVideoInfo[];
 }

@@ -37,8 +37,10 @@ import {
 import { toast } from "sonner";
 import { ScriptTimeline, type ScriptVersion } from "../ScriptTimeline";
 import { ScriptRecommendations } from "../ScriptRecommendations";
-import { BeautifulScriptRenderer } from "../BeautifulScriptRenderer";
-import { GlobalTTSHeaderBar } from "../SpeakerTTSMarkupSection";
+import { ErrorBoundary } from "../common/ErrorBoundary";
+import { SpeakerTTSMarkupSection } from "../SpeakerTTSMarkupSection";
+import { generateBlockMusicPrompt } from "../../services/ai/audioService";
+import { safeStorage } from "../../lib/storage";
 import { getFullScriptText, copyToClipboard as copyTextToClipboard } from "../../utils/helpers";
 
 export interface ScriptTabProps {
@@ -84,10 +86,6 @@ export interface ScriptTabProps {
   isGeneratingRecommendations?: boolean;
   handleGenerateScriptRecommendations?: () => void;
   handleApplyScriptRecommendation?: (rec: any, index: number) => void;
-  ttsVoiceEngine?: any;
-  setTtsVoiceEngine?: (engine: any) => void;
-  ttsWpm?: number;
-  setTtsWpm?: (wpm: number) => void;
   handleSelectBlockAndScrollToPrompts?: (blockIdx: number | "all") => void;
   renderIdeaBanner?: () => React.ReactNode;
   activeModel?: string;
@@ -137,17 +135,14 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
   isGeneratingRecommendations = false,
   handleGenerateScriptRecommendations,
   handleApplyScriptRecommendation,
-  ttsVoiceEngine = "elevenlabs",
-  setTtsVoiceEngine,
-  ttsWpm = 140,
-  setTtsWpm,
   handleSelectBlockAndScrollToPrompts,
   renderIdeaBanner,
   activeModel,
   copyToClipboard,
 }) => {
   const hasBlocks = generatedBlocks && Object.keys(generatedBlocks).length > 0;
-  const [activeSubView, setActiveSubView] = useState<"script" | "editor" | "tts" | "recommendations" | "timeline">("editor");
+  const [activeSubView, setActiveSubView] = useState<"editor" | "recommendations" | "timeline">("editor");
+  const [generatingBlockMusicKey, setGeneratingBlockMusicKey] = useState<number | null>(null);
 
   const fullScriptText = getFullScriptText(generatedBlocks);
 
@@ -454,24 +449,6 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
               >
                 Блоки и Редактор
               </button>
-              <button
-                onClick={() => setActiveSubView("script")}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeSubView === "script" ? "bg-primary text-black" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-                }`}
-              >
-                Красивый просмотр
-              </button>
-              {setTtsVoiceEngine && (
-                <button
-                  onClick={() => setActiveSubView("tts")}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeSubView === "tts" ? "bg-primary text-black" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-                  }`}
-                >
-                  Озвучка и TTS
-                </button>
-              )}
               {handleGenerateScriptRecommendations && (
                 <button
                   onClick={() => setActiveSubView("recommendations")}
@@ -505,9 +482,40 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
             </div>
           </div>
 
-          {/* Sub-view Content: Editor (Block Breakdown, Titles, Text editing, Voiceover, Music prompt) */}
+          {/* Sub-view Content: Editor (Block Breakdown, Titles, Text editing, Music prompt) */}
           {activeSubView === "editor" && (
             <div className="space-y-6">
+              {/* Voiceover & Speech Markup (TTS) Section */}
+              {generatedBlocks && Object.keys(generatedBlocks).length > 0 && (
+                <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 space-y-4 shadow-sm">
+                  <div className="flex items-center gap-3 border-b border-border/60 pb-3">
+                    <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                      <Volume2 size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white flex items-center gap-2">
+                        🎙️ Дикторская озвучка & ИИ-Разметка речи (TTS)
+                      </h3>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        Автоматическая расстановка пауз, эмоций и ударений для ElevenLabs, SpeechKit и Google TTS
+                      </p>
+                    </div>
+                  </div>
+                  <ErrorBoundary isSection sectionName="Дикторская озвучка & TTS">
+                    <SpeakerTTSMarkupSection
+                      scriptBlocks={generatedBlocks}
+                      selectedModel={activeModel}
+                      onUpdateBlockText={(bIdx: number, txt: string) => {
+                        setGeneratedBlocks((prev: any) => ({
+                          ...prev,
+                          [bIdx]: { ...prev[bIdx], text: txt }
+                        }));
+                      }}
+                    />
+                  </ErrorBoundary>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Layers size={16} className="text-primary" />
@@ -613,98 +621,56 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                         />
                       </div>
 
-                      {/* Voiceover settings (Scene & Sample Context) & Music Prompt */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/30">
-                        {/* Voiceover / TTS Markup settings */}
-                        <div className="space-y-2 bg-neutral-900/40 p-3 rounded-xl border border-neutral-800/80">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-neutral-300 flex items-center gap-1.5">
-                              <Volume2 size={13} className="text-primary" /> Настройки диктора (Scene / Context)
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[9px] text-neutral-500 uppercase font-bold">Интонация</label>
-                              <input
-                                type="text"
-                                value={block.voiceover?.intonation || "Интригующая"}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setGeneratedBlocks(prev => ({
-                                    ...prev,
-                                    [blockKey]: {
-                                      ...(prev[blockKey] || {}),
-                                      voiceover: { ...(prev[blockKey]?.voiceover || {}), intonation: val }
-                                    }
-                                  }));
-                                }}
-                                className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-[11px] text-neutral-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[9px] text-neutral-500 uppercase font-bold">Настроение</label>
-                              <input
-                                type="text"
-                                value={block.voiceover?.mood || "Динамичный"}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setGeneratedBlocks(prev => ({
-                                    ...prev,
-                                    [blockKey]: {
-                                      ...(prev[blockKey] || {}),
-                                      voiceover: { ...(prev[blockKey]?.voiceover || {}), mood: val }
-                                    }
-                                  }));
-                                }}
-                                className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-[11px] text-neutral-200"
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-[9px] text-neutral-500 uppercase font-bold">Контекст сцены (Sample Context)</label>
-                            <input
-                              type="text"
-                              value={block.voiceover?.sampleContext || ""}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setGeneratedBlocks(prev => ({
-                                  ...prev,
-                                  [blockKey]: {
-                                    ...(prev[blockKey] || {}),
-                                    voiceover: { ...(prev[blockKey]?.voiceover || {}), sampleContext: val }
-                                  }
-                                }));
-                              }}
-                              placeholder="Например: говорить энергично с паузой для интриги..."
-                              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-[11px] text-neutral-200"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Music Prompt */}
-                        <div className="space-y-2 bg-neutral-900/40 p-3 rounded-xl border border-neutral-800/80">
+                      {/* Music Prompt */}
+                      <div className="pt-2 border-t border-border/30">
+                        <div className="space-y-2 bg-neutral-900/40 p-4 rounded-xl border border-neutral-800/80">
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-neutral-300 flex items-center gap-1.5">
                               <Music size={13} className="text-accent" /> Музыкальный промт для блока
                             </span>
                             <button
-                              onClick={() => {
-                                const randomPrompts = [
-                                  "Cinematic dark ambient synthwave, 120 bpm, mysterious tension",
-                                  "Epic orchestral buildup with dramatic brass and ticking clock",
-                                  "Lo-fi chill hop beat, relaxing rhythm, warm Rhodes piano",
-                                  "Cyberpunk futuristic bass, intense electronic drive"
-                                ];
-                                const randomPrompt = randomPrompts[Math.floor(Math.random() * randomPrompts.length)];
-                                setGeneratedBlocks(prev => ({
-                                  ...prev,
-                                  [blockKey]: { ...(prev[blockKey] || {}), musicPrompt: randomPrompt }
-                                }));
-                                toast.success("Музыкальный промт сгенерирован!");
+                              disabled={generatingBlockMusicKey === blockKey}
+                              onClick={async () => {
+                                setGeneratingBlockMusicKey(blockKey);
+                                try {
+                                  const isCustomEnabled = safeStorage.getItem('yt_custom_instructions_enabled') === 'true';
+                                  const customInst = isCustomEnabled ? (safeStorage.getItem('yt_custom_instructions') || '') : '';
+                                  const promptMusicMood = safeStorage.getItem('prompt_music_mood') || '';
+                                  const masterMusicPrompt = safeStorage.getItem('masterMusicPrompt') || '';
+
+                                  const newPrompt = await generateBlockMusicPrompt(
+                                    block.blockTitle || `Блок ${blockKey}`,
+                                    block.text || '',
+                                    scriptTopic || 'Тема видео',
+                                    block.mood,
+                                    {
+                                      model: activeModel,
+                                      customInstructions: customInst,
+                                      globalMusicMood: promptMusicMood || masterMusicPrompt,
+                                      toneOfVoice: scriptTone,
+                                      niche: nicheData?.title
+                                    },
+                                    blockKey > 1 ? generatedBlocks[blockKey - 1]?.musicPrompt : undefined
+                                  );
+
+                                  setGeneratedBlocks(prev => ({
+                                    ...prev,
+                                    [blockKey]: { ...(prev[blockKey] || {}), musicPrompt: newPrompt }
+                                  }));
+                                  toast.success(`Музыкальный промпт для блока сгенерирован ИИ с учетом всех глобальных настроек!`);
+                                } catch (e: any) {
+                                  toast.error(e.message || "Ошибка генерации музыкального промпта");
+                                } finally {
+                                  setGeneratingBlockMusicKey(null);
+                                }
                               }}
-                              className="text-[10px] font-bold text-accent hover:underline cursor-pointer"
+                              className="text-[10px] font-bold text-accent hover:underline cursor-pointer flex items-center gap-1 disabled:opacity-50"
                             >
-                              AI Промт
+                              {generatingBlockMusicKey === blockKey ? (
+                                <><Loader2 size={11} className="animate-spin" /> Анализ...</>
+                              ) : (
+                                <><Sparkles size={11} /> AI Промт</>
+                              )}
                             </button>
                           </div>
                           <textarea
@@ -729,28 +695,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
             </div>
           )}
 
-          {activeSubView === "script" && (
-            <div className="space-y-6">
-              <BeautifulScriptRenderer scriptText={fullScriptText} />
-            </div>
-          )}
 
-          {activeSubView === "tts" && setTtsVoiceEngine && setTtsWpm && (
-            <GlobalTTSHeaderBar
-              voiceEngine={ttsVoiceEngine || "google"}
-              setVoiceEngine={setTtsVoiceEngine}
-              wordsPerMinute={ttsWpm || 140}
-              setWordsPerMinute={setTtsWpm}
-              scriptBlocks={generatedBlocks}
-              selectedModel={activeModel}
-              onUpdateBlockText={(idx, newText) => {
-                setGeneratedBlocks(prev => ({
-                  ...prev,
-                  [idx]: { ...(prev[idx] || {}), text: newText }
-                }));
-              }}
-            />
-          )}
 
           {activeSubView === "recommendations" && (
             <ScriptRecommendations

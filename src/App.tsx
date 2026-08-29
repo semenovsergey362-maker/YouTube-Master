@@ -166,7 +166,6 @@ import { useSeoGeneration } from "./hooks/useSeoGeneration";
 import { useShortsGeneration } from "./hooks/useShortsGeneration";
 import { BlockHistoryModal, BlockIteration } from "./components/BlockHistoryModal";
 import { ScriptTimeline } from "./components/ScriptTimeline";
-import { BeautifulScriptRenderer } from "./components/BeautifulScriptRenderer";
 import { safeStorage } from "./lib/storage";
 import { get, set } from "./lib/idb";
 import {
@@ -313,7 +312,6 @@ import { ImportModal } from "./components/modals/ImportModal";
 import { SEOTab } from "./components/tabs/SEOTab";
 import { ShortsTab } from "./components/tabs/ShortsTab";
 import { PromptingTab } from "./components/tabs/PromptingTab";
-import { ErrorBoundary } from "./main";
 import { useApp } from "./context/AppContext";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { FAQModal } from "./components/FAQModal";
@@ -324,11 +322,6 @@ import { QuotaWarning } from "./components/QuotaWarning";
 import { ContentPlanSection } from "./components/ContentPlanSection";
 import { TopicTreeAndSerializationSection } from "./components/TopicTreeAndSerializationSection";
 import { ScriptRecommendations } from "./components/ScriptRecommendations";
-import { 
-  GlobalTTSHeaderBar, 
-  calculateBlockTiming, 
-  type VoiceEngineType 
-} from "./components/SpeakerTTSMarkupSection";
 import { DetailedMusicPromptBuilderModal } from "./components/DetailedMusicPromptBuilderModal";
 import { IdeaDeepAnalysisModal } from "./components/IdeaDeepAnalysisModal";
 import { IdeaSnapshotsModal, type IdeaSnapshotData } from "./components/IdeaSnapshotsModal";
@@ -1980,12 +1973,6 @@ export default function App() {
     }
   });
 
-  const [ttsVoiceEngine, setTtsVoiceEngine] = useState<VoiceEngineType>('elevenlabs');
-  const [ttsWpm, setTtsWpm] = useState<number>(140);
-
-  useEffect(() => {
-    safeStorage.setItem("yt_script_active_tab", scriptActiveTab);
-  }, [scriptActiveTab]);
   const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | "all">("all");
   const [blockPreviewModes, setBlockPreviewModes] = useState<Record<number, boolean>>({});
 
@@ -9201,10 +9188,6 @@ export default function App() {
             isGeneratingRecommendations={isAnalyzingScript}
             handleGenerateScriptRecommendations={handleAnalyzeScriptRetention}
             handleApplyScriptRecommendation={handleApplyRetentionImprovement}
-            ttsVoiceEngine={ttsVoiceEngine}
-            setTtsVoiceEngine={setTtsVoiceEngine}
-            ttsWpm={ttsWpm}
-            setTtsWpm={setTtsWpm}
             handleSelectBlockAndScrollToPrompts={handleSelectBlockAndScrollToPrompts}
             renderIdeaBanner={renderIdeaBanner}
             activeModel={selectedModel}
