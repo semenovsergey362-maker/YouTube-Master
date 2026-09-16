@@ -322,6 +322,7 @@ import { PromptingTab } from "./components/tabs/PromptingTab";
 import { useApp } from "./context/AppContext";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { FAQModal } from "./components/FAQModal";
+import { AuthModal } from "./components/AuthModal";
 import { VoiceCommandsBar } from "./components/VoiceCommandsBar";
 import { downloadUserManualPDF } from "./utils/pdfGenerator";
 import { YouTubeTab } from "./components/tabs/YouTubeTab";
@@ -978,6 +979,7 @@ export default function App() {
   });
 
   const [customIdeaModalTab, setCustomIdeaModalTab] = useState<"manual" | "ai">("manual");
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [manualIdeaTitle, setManualIdeaTitle] = useState("");
   const [manualIdeaDescription, setManualIdeaDescription] = useState("");
   const [manualIdeaPlaylist, setManualIdeaPlaylist] = useState("");
@@ -1565,14 +1567,8 @@ export default function App() {
     });
   }, []);
 
-  const handleSignIn = async () => {
-    try {
-      await signInWithGoogle();
-      toast.success("Вход через Google выполнен!");
-    } catch (error: any) {
-      logger.error("Sign in error:", error);
-      toast.error("Не удалось войти: " + (error.message || error));
-    }
+  const handleSignIn = () => {
+    setIsAuthModalOpen(true);
   };
 
   const handleSignOut = async () => {
@@ -1588,8 +1584,7 @@ export default function App() {
   const handleSwitchAccount = async () => {
     try {
       await logout();
-      await signInWithGoogle();
-      toast.success("Аккаунт сменён.");
+      setIsAuthModalOpen(true);
     } catch (error: any) {
       logger.error("Switch account error:", error);
       toast.error("Не удалось сменить аккаунт: " + (error.message || error));
@@ -10857,6 +10852,12 @@ export default function App() {
           onClose={() => setShowFAQModal(false)}
         />
       )}
+
+      {/* Auth Modal (Fast Login & Google OAuth) */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </div>
   );
 }

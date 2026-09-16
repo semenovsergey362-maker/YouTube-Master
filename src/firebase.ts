@@ -258,6 +258,25 @@ export { db, auth, isPlaceholder };
 export const googleProviderInstance = googleProvider; // just in case
 
 // Auth Helpers
+export const signInWithLocalProfile = (name: string, email?: string) => {
+  const cleanName = (name || "Создатель").trim();
+  const cleanEmail = (email || `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@creator.local`).trim();
+  const newUser = {
+    uid: `user-${Date.now()}`,
+    email: cleanEmail,
+    displayName: cleanName,
+    photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanName)}`,
+    emailVerified: true,
+    isAnonymous: false,
+    providerData: []
+  };
+  mockUser = newUser;
+  safeStorage.setItem('mock_firebase_user', JSON.stringify(newUser));
+  safeStorage.removeItem('mock_firebase_logged_out');
+  authListeners.forEach(cb => cb(newUser));
+  return newUser;
+};
+
 export const signInWithGoogle = async () => {
   if (!isPlaceholder) {
     try {
