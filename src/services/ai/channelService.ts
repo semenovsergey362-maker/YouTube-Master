@@ -72,9 +72,9 @@ export async function generateNicheData(niche: string, channelName?: string, reg
         // 10. Абстрактное/Повествовательное (вызывающее любопытство, например: "Эффект Бабочки", "Точка Отсчета").
         //
         // СЛОГАНЫ: Должны идеально подходить под выбранный стиль названия, иметь разную длину, структуру и посыл. Избегай шаблонных фраз вроде "Твой путь к...". Вместо этого используй призывы к действию ("Думай. Создавай. Вдохновляй."), глубокие интригующие вопросы ("А вы готовы заглянуть глубже?"), парадоксальные утверждения или сильные обещания.
-      logo: строка (описание логотипа),
-      logo_prompts: { ru: строка, en: строка } (подробные промты для генерации логотипа в Midjourney/DALL-E),
-      banner_prompts: { ru: строка, en: строка } (подробные промты для генерации баннера канала),
+      logo: строка (описание концепта логотипа),
+      logo_prompts: { ru: строка, en: строка } (подробные мастер-промпты для генерации аватара канала в Midjourney v6.1 / Flux.1),
+      banner_prompts: { ru: строка, en: строка } (подробные мастер-промпты для генерации баннера/шапки канала 16:9 с учетом Safe Zone в Midjourney v6.1 / Flux.1),
       colors: массив из 3 строк (HEX коды),
       fonts: массив из 2 строк (названия шрифтов из Google Fonts),
       channel_seo: {
@@ -132,7 +132,27 @@ export async function generateNicheData(niche: string, channelName?: string, reg
   2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО называть защищенных авторским правом вымышленных персонажей или торговые марки напрямую. Вместо "Человек-паук" пиши "супергерой в красно-синем костюме с узором паутины".
   3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать имена живущих художников или названия защищенных брендов. Описывай художественные стили общими эстетическими терминами (например, "cinematic lighting, dramatic composition, high-contrast digital illustration").
 
-  Все тексты должны быть на русском языке.`;
+  МАСТЕР-ТРЕБОВАНИЯ К ПРОМПТАМ АВАТАРА И ШАПКИ (ВЫСШИЙ СТАНДАРТ КАЧЕСТВА):
+  Промпты должны быть кинематографичными, детальными, с безупречной композицией и освещением:
+  
+  А) ДЛЯ АВАТАРА КАНАЛА (logo_prompts):
+     - Аватар отображается на YouTube в круглом окне (32x32px до 128x128px).
+     - Визуальный объект: мощный центральный символ / метафорическая эмблема / маскот ниши. Никакого мелкого нечитаемого текста, никаких псевдобукв.
+     - Композиция: строго по центру кадра 1:1 с достаточными отступами от краев (safe-margin для круглой обрезки).
+     - Текстуры и свет: глубокие тактильные материалы (матовый титан, frosted glass, керамика, сочные градиенты), мягкий контрастный rim-lighting, кинематографичный студийный свет.
+     - Цвета: строго согласуются с сгенерированной палитрой colors.
+     - Поле "ru": художественное описание идеи и символизма знака на русском языке.
+     - Поле "en": готовый детальный технический промпт на английском для Midjourney v6.1 / Flux.1 с параметрами: "--ar 1:1 --v 6.1 --style raw".
+
+  Б) ДЛЯ ШАПКИ/БАННЕРА КАНАЛА (banner_prompts):
+     - Формат: 16:9 панорама (2560x1440 px).
+     - Обязательный учет YouTube Safe Zone: центральная горизонтальная полоса 1546x423 px, которая видна на смартфонах и мониторах.
+     - Композиция: ключевой визуальный сюжет, окружение и фокусные акценты сбалансированы в безопасной зоне по центру и справа. В левой части — атмосферное негативное пространство (чтобы аватар канала и название не перекрывали важные детали).
+     - Атмосфера: широкоугольная кинематографичная оптика 24mm/35mm, объемный свет (volumetric god rays, atmospheric haze, subtle film grain), голливудский цветокор под палитру colors.
+     - Поле "ru": детальное описание композиции и безопасных зон шапки на русском языке.
+     - Поле "en": кинематографичный промпт на английском для Midjourney v6.1 / Flux.1 с параметрами: "--ar 16:9 --v 6.1 --style raw".
+
+  Все тексты должны быть на русском языке (кроме английских версий промптов в полях en).`;
 
   const config: any = {
     responseMimeType: "application/json",
@@ -363,7 +383,7 @@ export async function generateNicheData(niche: string, channelName?: string, reg
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || (options?.deepResearch ? "gemini-3.1-pro-preview" : "gemini-3.7-flash"),
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         ...config,
@@ -406,14 +426,14 @@ export function getFallbackNicheData(niche: string, channelName?: string): Niche
         { name: `${niche} Академия`, slogan: "Просто о сложном каждый день" },
         { name: `${niche} Lab`, slogan: "Эксперименты, практики, результаты" },
       ],
-      logo: `Минималистичный логотип в стиле ${niche}`,
+      logo: `Премиальная 3D эмблема в стиле ${niche}`,
       logo_prompts: {
-        ru: `Минималистичный векторный логотип для YouTube канала о ${niche}, неоновые акценты, темный фон`,
-        en: `Minimalist vector logo for YouTube channel about ${niche}, vibrant neon accents, sleek background`,
+        ru: `Объемная минималистичная эмблема с мягким неоновым контурным светом (rim light), тактильная фактура матового титана и полупрозрачного стекла, глубокий темный фон, безопасное центрирование для круглой обрезки аватара YouTube`,
+        en: `Cinematic 3D geometric emblem representing ${niche}, obsidian dark background, soft electric indigo and emerald rim lighting, tactile matte titanium and frosted glass textures, centered composition with circular safe margin, octane render, 8k, photorealistic studio lighting --ar 1:1 --v 6.1 --style raw`,
       },
       banner_prompts: {
-        ru: `Баннер для YouTube канала о ${niche}, динамичная композиция, абстрактные графические элементы`,
-        en: `YouTube channel banner for ${niche}, sleek modern design, high resolution, 4k`,
+        ru: `Широкоформатный панорамный арт с кинематографичной глубиной резкости. Фокусные элементы и сюжетная сцена расположены в центрально-правой зоне (Safe Area), слева оставлено чистое темное атмосферное пространство под аватар и название`,
+        en: `Cinematic wide panoramic environment for YouTube channel art about ${niche}, 24mm wide angle lens, volumetric god rays piercing through atmospheric mist, key visual focus balanced in central safe area, clean negative space on left side, hyper-detailed textures, Hollywood color grading --ar 16:9 --v 6.1 --style raw`,
       },
       colors: ["#6366f1", "#10b981", "#0f172a"],
       fonts: ["Plus Jakarta Sans", "Playfair Display"],
@@ -493,33 +513,64 @@ export async function generateTrendingQueries(niche: string, region: string = 'g
   const regionName = regionNames[region] || "весь мир (глобально)";
 
   const prompt = `Найди самые популярные и трендовые поисковые запросы за последнее время для ниши YouTube: "${niche}" в регионе ${regionName}.
-  Верни JSON массив строк из 5 наиболее актуальных поисковых фразах/тем.`;
+  Верни JSON массив строк из 5 наиболее актуальных поисковых фраз или тем, которые зрители ищут прямо сейчас на YouTube.`;
 
-  const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    tools: [{ googleSearch: {} }]
-  });
-
-  const text = extractTextFromResponse(response);
-  const queries = safeParseJSON<string[]>(text, []);
-
+  let response: any = null;
   const sources: { title: string; uri: string }[] = [];
-  const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-  if (chunks) {
-    for (const chunk of chunks) {
-      if (chunk.web?.uri) {
-        sources.push({
-          title: chunk.web.title || "Источник поиска",
-          uri: chunk.web.uri
-        });
+
+  // Step 1: Try Google Search Grounding for real-time live queries
+  try {
+    response = await callGeminiWithRetry({
+      model: options?.model || "gemini-3.1-flash-lite",
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      tools: [{ googleSearch: {} }]
+    });
+
+    const chunks = response?.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (chunks) {
+      for (const chunk of chunks) {
+        if (chunk.web?.uri) {
+          sources.push({
+            title: chunk.web.title || "Источник поиска",
+            uri: chunk.web.uri
+          });
+        }
       }
     }
+  } catch (searchErr) {
+    logger.warn("[TrendingQueries] Google Search Grounding unavailable or rate-limited, falling back to direct AI generation:", searchErr);
+    // Step 2: Fallback to fast model generation without Google Search grounding (no separate search quota)
+    try {
+      response = await callGeminiWithRetry({
+        model: options?.model || "gemini-3.1-flash-lite",
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+    } catch (directErr) {
+      logger.error("[TrendingQueries] Direct AI generation failed:", directErr);
+    }
+  }
+
+  const text = response ? extractTextFromResponse(response) : "";
+  let queries = safeParseJSON<string[]>(text, []);
+
+  // Guarantee at least 5 meaningful queries for the niche even in worst-case scenario
+  if (!queries || queries.length === 0) {
+    const cleanNiche = niche.trim();
+    queries = [
+      `как начать ${cleanNiche} с нуля`,
+      `лучшие советы по ${cleanNiche} 2026`,
+      `тренды ${cleanNiche} новые фишки`,
+      `ошибки новичков в ${cleanNiche}`,
+      `топ секретов ${cleanNiche}`
+    ];
   }
 
   const uniqueSources = sources.filter((v, i, a) => a.findIndex(t => t.uri === v.uri) === i);
 
-  return { queries, sources: uniqueSources };
+  return { queries: queries.slice(0, 5), sources: uniqueSources };
 }
 
 
@@ -545,7 +596,7 @@ export async function generateMoreIdeas(niche: string, currentIdeas: GeneratedId
   );
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       systemInstruction,
@@ -622,7 +673,7 @@ ${historyContext}
 Результат должен быть массивом из 3 объектов GeneratedIdea { title: string, description: string, duration: string (в минутах, строго от 5 мин), tone: string, viral_potential: string }.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction,
@@ -666,7 +717,7 @@ ${competitorAnalysis}` : "";
   }
 
   const response = await callGeminiWithRetry({
-    model: options?.model || (options?.deepResearch ? "gemini-3.1-pro-preview" : "gemini-3.7-flash"),
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       responseMimeType: "application/json",
@@ -731,7 +782,7 @@ export async function generateIdeasFromDescription(description: string, options?
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -794,7 +845,7 @@ export async function generateIdeasFromGoogleSearch(
   searchQuery: string,
   options?: AnalysisOptions
 ): Promise<GoogleSearchIdeasResult> {
-  const model = options?.model || "gemini-3.1-pro-preview";
+  const model = options?.model || "gemini-3.1-flash-lite";
   const toneContext = getToneContext(options);
 
   const searchPrompt = `Проведи поисковый анализ в Google по запросу/нише: "${searchQuery}".
@@ -846,7 +897,7 @@ export async function generateIdeasFromGoogleSearch(
     ОБЯЗАТЕЛЬНО используй букву "ё" во всех словах, где она пишется (всегда, ещё, всё, своё).`;
 
     const formatResponse = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: formatPrompt,
       config: {
         responseMimeType: "application/json",
@@ -948,7 +999,7 @@ export async function importYouTubeVideoData(
   videoUrl: string,
   options?: AnalysisOptions
 ): Promise<ImportedYouTubeVideoData> {
-  const model = options?.model || "gemini-3.1-pro-preview";
+  const model = options?.model || "gemini-3.1-flash-lite";
   const videoId = extractYouTubeVideoId(videoUrl);
   const toneContext = getToneContext(options);
 
@@ -1010,7 +1061,7 @@ export async function importYouTubeVideoData(
     ОБЯЗАТЕЛЬНО используй букву "ё" во всех словах на русском языке, где она пишется (всегда, ещё, всё, своё).`;
 
     const formatResponse = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: formatPrompt,
       config: {
         responseMimeType: "application/json",
@@ -1187,7 +1238,7 @@ export async function generateCompetitorResearch(
   let rawResearchText = "";
   try {
     const researchResponse = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.1-pro-preview", // Pro is perfect for deep search
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: researchPrompt,
       tools: [{ googleSearch: {} }],
       toolConfig: { includeServerSideToolInvocations: true }
@@ -1214,7 +1265,7 @@ export async function generateCompetitorResearch(
   Все тексты должны быть на русском языке. ОБЯЗАТЕЛЬНО используй букву "ё" во всех словах, где она пишется (всегда, ещё, всё, своё).`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash", // Fast for formatting
+    model: options?.model || "gemini-3.1-flash-lite", // Fast for formatting
     contents: formatPrompt,
     config: {
       responseMimeType: "application/json",
@@ -1293,6 +1344,162 @@ export async function generateCompetitorResearch(
   );
 }
 
+export async function fetchYouTubeChannelDirectInfo(input: string): Promise<{
+  title?: string;
+  subs?: string;
+  avatar?: string;
+  desc?: string;
+  url?: string;
+} | null> {
+  try {
+    const res = await fetch(`/api/youtube/channel-info?url=${encodeURIComponent(input.trim())}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.success) {
+      return data;
+    }
+  } catch (e) {
+    logger.warn("Could not fetch direct YouTube channel info:", e);
+  }
+  return null;
+}
+
+export async function analyzeSingleCompetitorChannel(
+  channelInput: string,
+  options?: AnalysisOptions
+): Promise<CompetitorChannel | null> {
+  const customInst = getCustomInstructions(options);
+
+  // 1. Fetch real channel metadata directly from YouTube
+  const directInfo = await fetchYouTubeChannelDirectInfo(channelInput);
+
+  const subsHint = directInfo?.subs 
+    ? `ТОЧНОЕ ЧИСЛО ПОДПИСЧИКОВ: "${directInfo.subs}". Обязательно укажи именно это значение подписчиков в поле subs!`
+    : `Укажи реальное число подписчиков (например '9.3 тыс.' или '9.3K'). Категорически ЗАПРЕЩЕНО указывать '0' или '0K', если канал активен.`;
+
+  const researchPrompt = `Проведи подробный исследовательский анализ КОНКРЕТНОГО YouTube-канала конкурента: "${channelInput}".
+${directInfo?.title ? `Название канала на YouTube: "${directInfo.title}".` : ""}
+${subsHint}
+
+${customInst}
+
+ИНСТРУКЦИИ:
+1. Используй Google Поиск, чтобы найти точную информацию именно об этом YouTube-канале ("${channelInput}").
+2. Сформируй детализированный отчет по этому каналу:
+   - Официальное или общепринятое название этого канала.
+   - Примерное число подписчиков (например, '${directInfo?.subs || '9.3K'}').
+   - Краткое описание тематики и формата канала.
+   - Слабые стороны канала (1-2 пункта).
+   - Сильная стратегия и секрет успеха канала.
+   - Примерный уровень вовлеченности (ER, число от 1 до 100).
+   - Ссылка на канал (если удалось найти).
+   - Список из 2-3 наиболее популярных/вирусных видео этого канала с их названиями, просмотрами, датой выхода и причиной популярности.
+
+ВАЖНО: Анализируй СТРОГО тот канал, который запросил пользователь ("${channelInput}"). Не заменяй его на другие каналы и категорически НЕ путай с каналом автора!
+${subsHint}
+Напиши отчет подробно на русском языке, используя букву "ё" везде, где она пишется (всегда, ещё, всё, своё).`;
+
+  let rawResearchText = "";
+  try {
+    const response = await callGeminiWithRetry({
+      model: options?.model || "gemini-3.1-flash-lite",
+      contents: researchPrompt,
+      tools: [{ googleSearch: {} }],
+      toolConfig: { includeServerSideToolInvocations: true }
+    });
+    rawResearchText = extractTextFromResponse(response) || "";
+  } catch (e) {
+    logger.error("Error during single competitor search phase:", e);
+    rawResearchText = `Сделай профессиональную аналитику для канала "${channelInput}". ${subsHint}`;
+  }
+
+  const formatPrompt = `Преобразуй следующий текст анализа конкретного YouTube-канала в структурированный JSON.
+
+  ТЕКСТ АНАЛИЗА:
+  """
+  ${rawResearchText}
+  """
+
+  ${directInfo?.subs ? `ОБЯЗАТЕЛЬНО: В поле "subs" запиши "${directInfo.subs}".` : ""}
+
+  ВЕРНИ ТОЛЬКО ЧИСТЫЙ JSON объекта:
+  {
+    "name": "Официальное название этого канала",
+    "subs": "${directInfo?.subs || "Число подписчиков (например '9.3 тыс.')"}",
+    "desc": "Описание позиционирования и темы",
+    "weakness": "Слабые стороны этого канала",
+    "strategy": "Стратегия и причины популярности",
+    "engagement": 12.5,
+    "channelUrl": "Прямая ссылка на канал (если есть)",
+    "topVideos": [
+      {
+        "title": "Название вирусного видео",
+        "views": "1.2M",
+        "publishedAt": "2 месяца назад",
+        "viralFactor": "Причина вирусности",
+        "hookAnalysis": "Анализ цепляющего хука"
+      }
+    ]
+  }
+
+  Все тексты должны быть на русском языке. ОБЯЗАТЕЛЬНО используй букву "ё" везде, где она пишется.`;
+
+  const response = await callGeminiWithRetry({
+    model: options?.model || "gemini-3.1-flash-lite",
+    contents: formatPrompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          subs: { type: Type.STRING },
+          desc: { type: Type.STRING },
+          weakness: { type: Type.STRING },
+          strategy: { type: Type.STRING },
+          engagement: { type: Type.NUMBER },
+          channelUrl: { type: Type.STRING },
+          topVideos: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                views: { type: Type.STRING },
+                publishedAt: { type: Type.STRING },
+                viralFactor: { type: Type.STRING },
+                hookAnalysis: { type: Type.STRING }
+              },
+              required: ["title", "views", "publishedAt", "viralFactor", "hookAnalysis"]
+            }
+          }
+        },
+        required: ["name", "subs", "desc", "weakness", "strategy", "engagement"]
+      }
+    }
+  });
+
+  const parsed = safeParseJSON<CompetitorChannel | null>(
+    extractTextFromResponse(response),
+    null
+  );
+
+  if (parsed) {
+    const isSubsInvalid = !parsed.subs || parsed.subs === "0" || parsed.subs === "0 подписчиков" || parsed.subs === "0K" || parsed.subs.trim() === "0";
+    if (isSubsInvalid && directInfo?.subs) {
+      parsed.subs = directInfo.subs;
+    }
+    if ((!parsed.name || parsed.name.startsWith("@") || parsed.name.includes("youtube.com")) && directInfo?.title) {
+      parsed.name = directInfo.title;
+    }
+    if (!parsed.channelUrl && directInfo?.url) {
+      parsed.channelUrl = directInfo.url;
+    }
+  }
+
+  return parsed;
+}
+
 
 
 
@@ -1334,7 +1541,7 @@ ${customInst}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         responseMimeType: "application/json",
@@ -1454,7 +1661,7 @@ ${customInst}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         responseMimeType: "application/json",
@@ -1529,7 +1736,7 @@ export async function generateMiniSeriesTree(
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         systemInstruction,
@@ -1640,7 +1847,7 @@ ${ideaListStr}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         systemInstruction,
@@ -1770,7 +1977,7 @@ export async function generateChannelStrategy(
 }`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -1857,7 +2064,7 @@ export async function generatePlaylistSuggestions(niche: string, currentIdeas: a
   `.trim();
 
   const response = await callGeminiWithRetry({
-    model: options.model || "gemini-3.7-flash",
+    model: options.model || "gemini-3.1-flash-lite",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: { responseMimeType: "application/json" }
   });
@@ -1918,7 +2125,7 @@ ${description ? `Описание/Концепт: "${description}"` : ''}
   `.trim();
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
@@ -2030,7 +2237,7 @@ ${competitorAnalysis}` : "";
   ОБЯЗАТЕЛЬНО используй букву "ё" во всех словах, где она пишется.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -2149,4 +2356,126 @@ ${competitorAnalysis}` : "";
     shorts: [],
     production: { visualStyle: "", animationType: "", musicMood: "" }
   });
+}
+
+export interface PlaylistIdeaAssignment {
+  ideaTitle: string;
+  recommendedPlaylistId: string | null;
+  recommendedPlaylistTitle: string;
+  matchScore: number;
+  strategicReason: string;
+  suggestedEpisodeNumber?: number;
+  seriesHook?: string;
+}
+
+export interface NewPlaylistSuggestion {
+  title: string;
+  description: string;
+  targetAudience: string;
+  strategicGoal: string;
+  retentionHook: string;
+  includedIdeaTitles: string[];
+  suggestedSequencing: string[];
+  estimatedRetentionBoost: string;
+}
+
+export interface PlaylistIntelligenceResult {
+  ideaAssignments: PlaylistIdeaAssignment[];
+  newPlaylists: NewPlaylistSuggestion[];
+  channelArchitectureAudit: {
+    strengths: string;
+    missingThematicClusters: string[];
+    bingeWatchingTips: string[];
+  };
+}
+
+export async function analyzePlaylistsAndIdeaDistribution(
+  existingPlaylists: Array<{ id: string; title: string; description?: string; itemCount?: number }>,
+  ideas: Array<{ id?: string | number; title?: string; topic?: string; description?: string } | string>,
+  niche: string,
+  options: { model?: string } = {}
+): Promise<PlaylistIntelligenceResult | null> {
+  const cleanIdeas = ideas.map((i, idx) => {
+    if (typeof i === 'string') return { id: idx, title: i };
+    return { id: i.id ?? idx, title: i.title || i.topic || `Идея ${idx + 1}`, description: i.description };
+  }).filter(i => Boolean(i.title));
+
+  const cleanPlaylists = existingPlaylists.map(p => ({
+    id: p.id,
+    title: p.title,
+    description: p.description || "",
+    itemCount: p.itemCount || 0
+  }));
+
+  const prompt = `
+Ты — ведущий YouTube-стратег и архитектор контента (Binge-Watching & Retention Architect).
+Твоя цель — проанализировать текущие плейлисты канала и список идей для видео, распределить идеи по плейлистам и предложить новые высококонверсионные плейлисты/сериалы.
+
+Ниша канала: "${niche || 'YouTube Контент'}"
+
+Существующие плейлисты на канале:
+${JSON.stringify(cleanPlaylists, null, 2)}
+
+Список идей для видео (неопубликованные или планируемые):
+${JSON.stringify(cleanIdeas.slice(0, 25), null, 2)}
+
+Задача:
+1. "ideaAssignments": Для КАЖДОЙ идеи из списка укажи:
+   - "ideaTitle": точное название идеи
+   - "recommendedPlaylistId": id подходящего существующего плейлиста (или null, если ни один не подходит и нужен новый)
+   - "recommendedPlaylistTitle": название плейлиста (если существующий) или "Создать новый плейлист: [Предложенное название]"
+   - "matchScore": число от 60 до 99 (процент соответствия)
+   - "strategicReason": емкое экспертное обоснование (1-2 предложения), почему именно этот плейлист усиливает досмотры и удержание зрителя (binge-watching)
+   - "suggestedEpisodeNumber": рекомендуемый номер серии в цепочке (например 1, 2, 3...)
+   - "seriesHook": микро-триггер/мостик для перехода к следующему ролику
+
+2. "newPlaylists": Сгенерируй 2-4 концепции НОВЫХ плейлистов/сериалов, которые стратегически необходимы каналу в этой нише на основе имеющихся идей:
+   - "title": кликабельное, интригующее и SEO-оптимизированное название плейлиста
+   - "description": готовое оптимизированное описание плейлиста с ключевыми словами и призывом смотреть по порядку
+   - "targetAudience": сегмент аудитории
+   - "strategicGoal": стратегическая роль (например: "Воронка для новых зрителей", "Глубокое экспертное погружение", "Вирусный цикл")
+   - "retentionHook": почему зрители будут смотреть запоем (эффект Нетфликса)
+   - "includedIdeaTitles": массив названий идей из списка, которые идеально войдут в этот плейлист
+   - "suggestedSequencing": порядок просмотра роликов (например: ["Эпизод 1: ...", "Эпизод 2: ..."])
+   - "estimatedRetentionBoost": ориентировочный прирост удержания сессии (например: "+35-45% к длине сессии")
+
+3. "channelArchitectureAudit":
+   - "strengths": оценка текущей структуры плейлистов
+   - "missingThematicClusters": 2-3 темы/кластера, которых остро не хватает каналу
+   - "bingeWatchingTips": 3 конкретных практических совета по оформлению плейлистов (конечные заставки, порядок серий, интро)
+
+ОТВЕТЬ ИСКЛЮЧИТЕЛЬНО В ФОРМАТЕ ВАЛИДНОГО JSON БЕЗ ЛИШНЕГО ТЕКСТА:
+{
+  "ideaAssignments": [...],
+  "newPlaylists": [...],
+  "channelArchitectureAudit": {
+    "strengths": "...",
+    "missingThematicClusters": ["...", "..."],
+    "bingeWatchingTips": ["...", "...", "..."]
+  }
+}
+`.trim();
+
+  try {
+    const response = await callGeminiWithRetry({
+      model: options.model || "gemini-3.1-flash-lite",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json" }
+    });
+
+    const text = extractTextFromResponse(response);
+    if (!text) return null;
+    return safeParseJSON<PlaylistIntelligenceResult>(text, {
+      ideaAssignments: [],
+      newPlaylists: [],
+      channelArchitectureAudit: {
+        strengths: "Структура требует масштабирования тематических плейлистов.",
+        missingThematicClusters: ["Курс для начинающих", "Анализ частых ошибок"],
+        bingeWatchingTips: ["Добавляйте плейлисты в конечные заставки всех релевантных видео"]
+      }
+    });
+  } catch (err) {
+    logger.error("Error analyzing playlists and idea distribution:", err);
+    return null;
+  }
 }

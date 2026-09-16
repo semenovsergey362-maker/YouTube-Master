@@ -157,7 +157,8 @@ import {
   SlidersHorizontal,
   MessageSquare,
   Hash,
-  Terminal} from "lucide-react";
+  Terminal
+} from "lucide-react";
 import { YouTubeCardPreview } from "./components/YouTubeCardPreview";
 import { ScriptDiffModal } from "./components/ScriptDiffModal";
 import { Sidebar } from "./components/Sidebar";
@@ -277,6 +278,8 @@ import {
   type CutShortItem,
   type LoopEndingResult,
   optimizeTitle,
+  generateIdeaAlternatives,
+  type IdeaAlternativesResult,
   analyzeThumbnailEmotions,
   type ThumbnailEmotionAnalysis,
 } from "./services/geminiService";
@@ -307,7 +310,11 @@ import { HistoryModal } from "./components/modals/HistoryModal";
 import { ModelLimitsModal } from "./components/modals/ModelLimitsModal";
 import { BrandingEditModal } from "./components/modals/BrandingEditModal";
 import { CustomIdeasModal } from "./components/modals/CustomIdeasModal";
+import { getSuggestedPlaylistsForNiche } from "./services/ai/playlistSuggestionService";
+import { syncPlaylistsWithYouTube, createPlaylistOnYouTube } from "./services/youtubePlaylistsService";
 import { ImportModal } from "./components/modals/ImportModal";
+import { parseMarkdownToCustomRules } from "./utils/mdCanonParser";
+import { DEFAULT_BIBLE_CANON_MD } from "./data/defaultCanons";
 
 import { SEOTab } from "./components/tabs/SEOTab";
 import { ShortsTab } from "./components/tabs/ShortsTab";
@@ -326,6 +333,8 @@ import { DetailedMusicPromptBuilderModal } from "./components/DetailedMusicPromp
 import { IdeaDeepAnalysisModal } from "./components/IdeaDeepAnalysisModal";
 import { IdeaSnapshotsModal, type IdeaSnapshotData } from "./components/IdeaSnapshotsModal";
 import { NicheTooltip } from "./components/NicheTooltip";
+import { IdeaCardContextMenu, computeCardColorStyles } from "./components/common/IdeaCardContextMenu";
+import { IdeaPlaylistSuggestionBanner } from "./components/common/IdeaPlaylistSuggestionBanner";
 import { analyzeIdeaDeeply, type IdeaDeepAnalysis } from "./services/geminiService";
 import { BrandbookSection } from "./components/BrandbookSection";
 import { AudiencePortraitSection } from "./components/AudiencePortraitSection";
@@ -677,68 +686,70 @@ export default function App() {
     debugEnabled,
     setDebugEnabled,
     myChannelVideos,
+    scriptTopic,
+    setScriptTopic,
   } = useApp();
 
   const MODELS = [
     {
-      id: 'gemini-3.7-flash',
-      name: 'Gemini 3.7 Flash',
-      badge: 'Новейшая 3.7',
+      id: 'gemini-3.5-flash-lite',
+      name: 'Gemini 3.5 Flash Lite',
+      badge: 'Рекомендуется • Высокая квота',
       badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-      desc: 'Флагманская гибридная модель с адаптивным мышлением и максимальной скоростью.',
-      rpm: 120,
-      rpd: 10000,
-      tpm: '10,000,000',
+      desc: 'Сверхбыстрая и стабильная модель без перегрузок. Отличный баланс скорости, качества и доступности.',
+      rpm: 30,
+      rpd: 1500,
+      tpm: '4,000,000',
       speed: 5,
-      intelligence: 5,
-      limitText: 'Без ограничений',
-      limitBadge: 'Макс. лимит',
+      intelligence: 4.9,
+      limitText: 'Максимальная доступность',
+      limitBadge: 'Рекомендуется',
       limitColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     },
     {
       id: 'gemini-3.6-flash',
       name: 'Gemini 3.6 Flash',
-      badge: 'Стабильная 3.6',
+      badge: 'Новейшая • Продвинутая',
+      badgeColor: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+      desc: 'Высокоинтеллектуальная модель следующего поколения с продвинутым анализом трендов и сценариев.',
+      rpm: 15,
+      rpd: 1500,
+      tpm: '1,000,000',
+      speed: 4.8,
+      intelligence: 5.0,
+      limitText: 'Глубокий анализ',
+      limitBadge: 'Высокое качество',
+      limitColor: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    },
+    {
+      id: 'gemini-3.1-flash-lite',
+      name: 'Gemini 3.1 Flash Lite',
+      badge: 'Сверхбыстрая',
       badgeColor: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
-      desc: 'Мощная и проверенная модель поколения 3.6 для сложных задач.',
+      desc: 'Молниеносная и стабильная модель с максимальной доступной квотой.',
       rpm: 120,
-      rpd: 10000,
-      tpm: '10,000,000',
+      rpd: 15000,
+      tpm: '15,000,000',
       speed: 5,
       intelligence: 4.8,
-      limitText: 'Без ограничений',
-      limitBadge: 'Макс. лимит',
+      limitText: 'Высокая скорость',
+      limitBadge: 'Free Tier',
       limitColor: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
     },
     {
       id: 'gemini-3.5-flash',
       name: 'Gemini 3.5 Flash',
-      badge: 'Надежная 3.5',
-      badgeColor: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      desc: 'Надежная модель поколения 3.5, отлично подходящая для базовых запросов.',
-      rpm: 120,
-      rpd: 10000,
-      tpm: '10,000,000',
-      speed: 5,
-      intelligence: 4.6,
-      limitText: 'Без ограничений',
-      limitBadge: 'Макс. лимит',
-      limitColor: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-    },
-    {
-      id: 'gemini-3.1-pro-preview',
-      name: 'Gemini 3.1 Pro',
-      badge: 'Продвинутая 3.1',
-      badgeColor: 'bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30',
-      desc: 'Высочайший уровень глубокой логики, анализа и понимания контекста.',
-      rpm: 120,
-      rpd: 10000,
-      tpm: '10,000,000',
-      speed: 4,
-      intelligence: 5,
-      limitText: 'Без ограничений',
-      limitBadge: 'Макс. лимит',
-      limitColor: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
+      badge: 'Резервная',
+      badgeColor: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+      desc: 'Надежная резервная модель Google с глубоким пониманием контента.',
+      rpm: 15,
+      rpd: 1500,
+      tpm: '1,000,000',
+      speed: 4.8,
+      intelligence: 4.9,
+      limitText: 'Надежный резерв',
+      limitBadge: 'Стабильная',
+      limitColor: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
     }
   ];
   const [activePage, setActivePage] = useState(() => {
@@ -973,7 +984,7 @@ export default function App() {
   const [manualIdeaDuration, setManualIdeaDuration] = useState("10-15 мин");
   const [manualIdeaTone, setManualIdeaTone] = useState("Развлекательный");
 
-  const [ideaAssignments, setIdeaAssignments] = useState<Record<string, { folder?: string; tags?: string[]; playlist?: string; note?: string; status?: string }>>(() => {
+  const [ideaAssignments, setIdeaAssignments] = useState<Record<string, { folder?: string; tags?: string[]; playlist?: string; note?: string; status?: string; color?: string; colorType?: "custom" | "status" | "category" }>>(() => {
     try {
       const saved = safeStorage.getItem("yt_idea_assignments");
       return saved ? JSON.parse(saved) : {};
@@ -981,6 +992,8 @@ export default function App() {
       return {};
     }
   });
+
+  const [contextMenuIdea, setContextMenuIdea] = useState<{ title: string; position: { x: number; y: number } } | null>(null);
 
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
   const [selectedStatusTagFilter, setSelectedStatusTagFilter] = useState<string>(() => {
@@ -1025,6 +1038,29 @@ export default function App() {
   const [newFolderInput, setNewFolderInput] = useState("");
   const [newTagNameInput, setNewTagNameInput] = useState("");
   const [newTagColorInput, setNewTagColorInput] = useState("blue");
+
+  // Compact AI Alternatives for Idea Titles and Descriptions (using optimizeTitle)
+  const [ideaAlternatives, setIdeaAlternatives] = useState<Record<string, {
+    titles: string[];
+    descriptions: string[];
+    isLoading?: boolean;
+  }>>(() => {
+    try {
+      const saved = safeStorage.getItem("yt_idea_alternatives");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [expandedAlternatives, setExpandedAlternatives] = useState<Record<string, boolean>>({});
+  const [isBatchGeneratingAlternatives, setIsBatchGeneratingAlternatives] = useState(false);
+
+  useEffect(() => {
+    try {
+      safeStorage.setItem("yt_idea_alternatives", JSON.stringify(ideaAlternatives));
+    } catch {}
+  }, [ideaAlternatives]);
 
   const getTagColorClasses = (color: string) => {
     switch (color) {
@@ -1151,11 +1187,40 @@ export default function App() {
 
   const [selectedSceneIndices, setSelectedSceneIndices] = useState<number[]>([]);
 
+  const [isSyncingPlaylists, setIsSyncingPlaylists] = useState(false);
+
   useEffect(() => {
     safeStorage.setItem("yt_idea_playlists", JSON.stringify(ideaPlaylists));
   }, [ideaPlaylists]);
 
-  const handleAddPlaylist = (name?: string) => {
+  const handleSyncYouTubePlaylists = async (showToast = true) => {
+    setIsSyncingPlaylists(true);
+    try {
+      const result = await syncPlaylistsWithYouTube(ideaPlaylists);
+      setIdeaPlaylists(result.mergedPlaylists);
+      if (showToast) {
+        if (result.addedCount > 0) {
+          toast.success(`Синхронизировано! Загружено ${result.addedCount} плейлистов с YouTube.`);
+        } else {
+          toast.info("Все плейлисты с YouTube уже синхронизированы.");
+        }
+      }
+    } catch (err) {
+      console.error("YouTube sync error:", err);
+      if (showToast) {
+        toast.error("Ошибка при синхронизации с YouTube");
+      }
+    } finally {
+      setIsSyncingPlaylists(false);
+    }
+  };
+
+  // Initial silent sync on app mount
+  useEffect(() => {
+    handleSyncYouTubePlaylists(false);
+  }, []);
+
+  const handleAddPlaylist = async (name?: string, createOnYouTube = false) => {
     const rawName = (name !== undefined ? name : newPlaylistName).trim();
     if (!rawName) {
       toast.error("Введите название плейлиста");
@@ -1169,7 +1234,17 @@ export default function App() {
     setIdeaPlaylists(prev => [...(Array.isArray(prev) ? prev : []), formattedName]);
     setNewPlaylistName("");
     setSelectedPlaylistFilter(formattedName);
-    toast.success(`Плейлист "${formattedName}" создан!`);
+
+    if (createOnYouTube) {
+      try {
+        await createPlaylistOnYouTube(rawName);
+        toast.success(`Плейлист "${formattedName}" создан и синхронизирован с YouTube!`);
+      } catch (e) {
+        toast.success(`Плейлист "${formattedName}" создан локально`);
+      }
+    } else {
+      toast.success(`Плейлист "${formattedName}" создан!`);
+    }
   };
 
   const handleDeletePlaylist = (playlistName: string, e?: React.MouseEvent) => {
@@ -1569,52 +1644,87 @@ export default function App() {
   const [customRules, setCustomRules] = useState<CustomRule[]>(() => {
     const saved = safeStorage.getItem("yt_custom_rules");
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
+      try { 
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(r => ({
+            ...r,
+            content: (r.content || "").replace(/\\n/g, "\n")
+          }));
+        }
+      } catch (e) {}
     }
     const defaults: CustomRule[] = [
       {
         id: "hook_master", title: "Shorts: Мастер Хуков", isActive: false,
-        content: "1. ЗАДАЧА: Сделать первые 3 секунды максимально интригующими и динамичными.\\n2. ВИЗУАЛ: Кадры должны меняться каждую секунду.\\n3. ТЕКСТ: Использовать провокационный вопрос или шокирующее заявление.\\n4. ЗАПРЕЩЕНО: Начинать со слов «Привет», «В этом видео»."
+        content: "1. ЗАДАЧА: Сделать первые 3 секунды максимально интригующими и динамичными.\n2. ВИЗУАЛ: Кадры должны меняться каждую секунду.\n3. ТЕКСТ: Использовать провокационный вопрос или шокирующее заявление.\n4. ЗАПРЕЩЕНО: Начинать со слов «Привет», «В этом видео»."
       },
       {
         id: "shorts_link", title: "Shorts: Отсылка на видео", isActive: false,
-        content: "1. ЗАДАЧА: Внедрить призыв перейти на длинное связанное видео (Related Video).\\n2. ФОРМАТ ОТСЫЛКИ: Диктор должен сказать фразу, мотивирующую перейти по ссылке.\\n3. ПРИМЕРЫ: «Полный разбор этой темы смотри в связанном видео внизу».\\n4. ЗАПРЕЩЕНО: Заканчивать Shorts без призыва посмотреть полное видео."
+        content: "1. ЗАДАЧА: Внедрить призыв перейти на длинное связанное видео (Related Video).\n2. ФОРМАТ ОТСЫЛКИ: Диктор должен сказать фразу, мотивирующую перейти по ссылке.\n3. ПРИМЕРЫ: «Полный разбор этой темы смотри в связанном видео внизу».\n4. ЗАПРЕЩЕНО: Заканчивать Shorts без призыва посмотреть полное видео."
       },
       {
         id: "aggressive_seo", title: "Агрессивное SEO (Для новых каналов)", isActive: false,
-        content: "------------------------------------------------\\n## РУКОВОДСТВО ПО SEO-ВКЛАДЫШУ:\\n------------------------------------------------\\nВключите этот псевдоним в описание видео: @БИБЛИЯДЛЯЖИЗНИ\\nЗАПРЕЩЕНО: Не вставляйте другие ссылки в описание или закрепленный комментарий.\\nАгрессивная SEO-оптимизация:\\n• Используйте фразы-вопросы из поиска.\\n• Включите ключевые слова в заголовок и первые 2 строки описания.\\n• Добавлять 4 - 5 хештегов.\\n• Добавлять 10 высокочастотных - 10 низкочастотных ключевых слов."
+        content: "------------------------------------------------\n## РУКОВОДСТВО ПО SEO-ВКЛАДЫШУ:\n------------------------------------------------\nВключите этот псевдоним в описание видео: @БИБЛИЯДЛЯЖИЗНИ\nЗАПРЕЩЕНО: Не вставляйте другие ссылки в описание или закрепленный комментарий.\nАгрессивная SEO-оптимизация:\n• Используйте фразы-вопросы из поиска.\n• Включите ключевые слова в заголовок и первые 2 строки описания.\n• Добавлять 4 - 5 хештегов.\n• Добавлять 10 высокочастотных - 10 низкочастотных ключевых слов."
       }
     ];
     const oldInst = safeStorage.getItem("yt_custom_instructions");
     if (oldInst && oldInst.trim()) {
-      return [{ id: "migrated-" + Date.now(), title: "Мои инструкции", content: oldInst, isActive: true }, ...defaults];
+      return [{ id: "migrated-" + Date.now(), title: "Мои инструкции", content: oldInst.replace(/\\n/g, "\n"), isActive: true }, ...defaults];
     }
     return defaults;
   });
 
   const customInstructions = React.useMemo(() => {
-    return customRules.filter(r => r.isActive).map(r => r.content).join("\\n\\n");
+    return customRules
+      .filter(r => r && r.isActive && r.content && r.content.trim())
+      .map(r => {
+        const header = r.title ? `[ПРАВИЛО: ${r.title}]\n` : "";
+        return `${header}${r.content.trim().replace(/\\n/g, "\n")}`;
+      })
+      .join("\n\n");
   }, [customRules]);
 
   const [editingRuleData, setEditingRuleData] = useState<CustomRule | null>(null);
+  const canonFileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingImportRules, setPendingImportRules] = useState<CustomRule[] | null>(null);
+  const [showImportConfirmModal, setShowImportConfirmModal] = useState(false);
 
   useEffect(() => {
     safeStorage.setItem("yt_custom_rules", JSON.stringify(customRules));
   }, [customRules]);
+
   const [isCustomInstructionsEnabled, setIsCustomInstructionsEnabled] = useState(() => {
     const stored = safeStorage.getItem("yt_custom_instructions_enabled");
-    if (stored !== null) return stored === "true";
-    return Boolean(safeStorage.getItem("yt_custom_instructions")?.trim());
+    if (stored !== null) return stored !== "false";
+    return true;
   });
 
   const getCommonAnalysisOptions = useCallback((extraOptions?: AnalysisOptions): AnalysisOptions => {
-    const activeInstructions = isCustomInstructionsEnabled || Boolean(customInstructions.trim())
-      ? (customInstructions || safeStorage.getItem("yt_custom_instructions") || "")
-      : (safeStorage.getItem("yt_custom_instructions_enabled") !== "false" ? safeStorage.getItem("yt_custom_instructions") || "" : "");
+    let activeInstructions = "";
+    if (isCustomInstructionsEnabled) {
+      activeInstructions = customInstructions;
+      if (!activeInstructions) {
+        activeInstructions = safeStorage.getItem("yt_custom_instructions") || "";
+      }
+    } else {
+      // If user has active rules selected, respect them
+      const activeRules = customRules.filter(r => r && r.isActive && r.content && r.content.trim());
+      if (activeRules.length > 0) {
+        activeInstructions = activeRules
+          .map(r => (r.title ? `[ПРАВИЛО: ${r.title}]\n` : "") + r.content.trim().replace(/\\n/g, "\n"))
+          .join("\n\n");
+      }
+    }
+
+    const mergedCustomInstructions = extraOptions?.customInstructions && extraOptions.customInstructions.trim().length > 0
+      ? (activeInstructions.trim() 
+          ? `${activeInstructions.trim()}\n\n[ДОПОЛНИТЕЛЬНЫЕ ИЗМЕНЕНИЯ И ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ]:\n${extraOptions.customInstructions.trim()}` 
+          : extraOptions.customInstructions.trim())
+      : activeInstructions.trim();
 
     return {
       model: selectedModel,
-      customInstructions: activeInstructions,
       deepResearch,
       toneOfVoice,
       region: selectedRegion,
@@ -1622,8 +1732,9 @@ export default function App() {
       veoSfxEnabled,
       existingChannelVideos: (myChannelVideos && myChannelVideos.length > 0) ? myChannelVideos : extraOptions?.existingChannelVideos,
       ...extraOptions,
+      customInstructions: mergedCustomInstructions,
     };
-  }, [selectedModel, isCustomInstructionsEnabled, customInstructions, deepResearch, toneOfVoice, selectedRegion, audiencePortrait, veoSfxEnabled, myChannelVideos]);
+  }, [selectedModel, isCustomInstructionsEnabled, customInstructions, customRules, deepResearch, toneOfVoice, selectedRegion, audiencePortrait, veoSfxEnabled, myChannelVideos]);
 
   useEffect(() => {
     safeStorage.setItem("yt_custom_instructions", customInstructions);
@@ -1665,23 +1776,52 @@ export default function App() {
 
   const handleGeminiError = (error: any, defaultMessage: string) => {
     logger.error(defaultMessage, error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    let errorMessage = error instanceof Error ? error.message : String(error);
     
-    let isQuotaError = errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota");
-    
-    // Try to parse JSON if the error message looks like it
+    // Try to parse JSON if the error message contains embedded error object
     try {
-      if (errorMessage.trim().startsWith('{')) {
+      if (errorMessage.includes('{"error":')) {
+        const jsonStart = errorMessage.indexOf('{"error":');
+        const parsed = JSON.parse(errorMessage.slice(jsonStart));
+        if (parsed?.error?.message) {
+          errorMessage = parsed.error.message;
+        }
+      } else if (errorMessage.trim().startsWith('{')) {
         const errorObj = JSON.parse(errorMessage);
-        if (errorObj?.error?.code === 429 || errorObj?.error?.status === 'RESOURCE_EXHAUSTED' || errorObj?.error?.message?.toLowerCase().includes('quota')) {
-          isQuotaError = true;
+        if (errorObj?.error?.message) {
+          errorMessage = errorObj.error.message;
+        } else if (errorObj?.message) {
+          errorMessage = errorObj.message;
         }
       }
     } catch (e) { /* ignore */ }
 
+    const isQuotaError = errorMessage.includes("429") || 
+                         errorMessage.includes("RESOURCE_EXHAUSTED") || 
+                         errorMessage.includes("quota") ||
+                         errorMessage.includes("квота");
+    const isHighDemand = errorMessage.includes("503") || 
+                         errorMessage.includes("high demand") || 
+                         errorMessage.includes("UNAVAILABLE") ||
+                         errorMessage.includes("перегружен");
+    const isTimeout = errorMessage.includes("timed out") || 
+                      errorMessage.includes("timeout") || 
+                      errorMessage.includes("504") ||
+                      errorMessage.includes("время ожидания");
+
     if (isQuotaError) {
       toast.error(
-        "Лимит запросов или квота API исчерпаны. Пожалуйста, подождите некоторое время или проверьте настройки API ключа (Billing/Usage) в Google AI Studio.",
+        "Лимит запросов или квота Gemini API. Пожалуйста, подождите несколько секунд и повторите попытку.",
+        { duration: 6000 }
+      );
+    } else if (isHighDemand) {
+      toast.error(
+        "Серверы Gemini временно испытывают высокую нагрузку (503). Пожалуйста, подождите несколько секунд и повторите генерацию.",
+        { duration: 6000 }
+      );
+    } else if (isTimeout) {
+      toast.error(
+        "Время ожидания ответа от модели истекло. Пожалуйста, повторите генерацию — система переключится на резервную модель.",
         { duration: 6000 }
       );
     } else {
@@ -1920,7 +2060,6 @@ export default function App() {
   };
 
   // Script Tab State
-  const [scriptTopic, setScriptTopic] = useState("");
   const [isEditingScriptTopic, setIsEditingScriptTopic] = useState(false);
   const [editedScriptTopicValue, setEditedScriptTopicValue] = useState("");
   const [isScriptTopicLocked, setIsScriptTopicLocked] = useState(() => {
@@ -2125,6 +2264,7 @@ export default function App() {
     handleExportSEO,
     applyBroadSEOChange,
     handleApplySEOImprovement,
+    handleApplyAllRuleFixes,
   } = useSeoGeneration({
     scriptTopic,
     selectedIdea,
@@ -2147,6 +2287,7 @@ export default function App() {
     nicheData,
     selectedBranding,
     generatedBlocks,
+    existingChannelVideos: myChannelVideos,
     handleGeminiError,
   });
 
@@ -2768,6 +2909,8 @@ export default function App() {
   const [bannerVariants, setBannerVariants] = useState<string[]>([]);
   const [isGeneratingBrandingVisuals, setIsGeneratingBrandingVisuals] =
     useState(false);
+  const [isRegeneratingLogoPrompt, setIsRegeneratingLogoPrompt] = useState(false);
+  const [isRegeneratingBannerPrompt, setIsRegeneratingBannerPrompt] = useState(false);
 
   // Content Ideas States
   const [generatedCTAs, setGeneratedCTAs] = useState<Record<string, string>>(
@@ -3206,14 +3349,35 @@ export default function App() {
     }
     
     setGeneratingTransitions(prev => ({ ...prev, [fromBlockIndex]: true }));
-    const toastId = toast.loading(`Генерация визуального перехода между Блоком ${fromBlockIndex + 1} и ${fromBlockIndex + 2}...`);
+    const toastId = toast.loading(`Генерация перехода VEO 3 между Блоком ${fromBlockIndex + 1} и ${fromBlockIndex + 2}...`);
     try {
       const blockAText = generatedBlocks?.[fromBlockIndex]?.text || blockA.text || "";
       const blockBText = generatedBlocks?.[fromBlockIndex + 1]?.text || blockB.text || "";
       
+      // Находим финальную сцену Блока A и стартовую сцену Блока B для создания бесшовного киноперехода
+      const allUnifiedScenes = getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
+      const scenesA = allUnifiedScenes.filter(s => s.blockIndex === fromBlockIndex);
+      const scenesB = allUnifiedScenes.filter(s => s.blockIndex === fromBlockIndex + 1);
+
+      const lastSceneA = scenesA.length > 0 ? scenesA[scenesA.length - 1] : null;
+      const firstSceneB = scenesB.length > 0 ? scenesB[0] : null;
+
+      const lastSceneA_visual = lastSceneA?.visuals?.description || lastSceneA?.description || lastSceneA?.visualPrompt || "";
+      const firstSceneB_visual = firstSceneB?.visuals?.description || firstSceneB?.description || firstSceneB?.visualPrompt || "";
+
       const transition = await generateTransitionPromptBetweenBlocks(
-        { title: blockA.title, text: blockAText },
-        { title: blockB.title, text: blockBText },
+        { 
+          title: blockA.title, 
+          text: blockAText,
+          lastSceneText: lastSceneA?.text || "",
+          lastSceneVisual: lastSceneA_visual
+        },
+        { 
+          title: blockB.title, 
+          text: blockBText,
+          firstSceneText: firstSceneB?.text || "",
+          firstSceneVisual: firstSceneB_visual
+        },
         promptImageStyle,
         { model: selectedModel, bypassCache: true }
       );
@@ -3222,7 +3386,7 @@ export default function App() {
         ...prev,
         [fromBlockIndex]: transition
       }));
-      toast.success(`Переход между блоками ${fromBlockIndex + 1} и ${fromBlockIndex + 2} успешно создан!`, { id: toastId });
+      toast.success(`Переход VEO 3 между блоками ${fromBlockIndex + 1} и ${fromBlockIndex + 2} успешно создан!`, { id: toastId });
     } catch (err) {
       handleGeminiError(err, "Ошибка генерации перехода между блоками");
       toast.dismiss(toastId);
@@ -4019,11 +4183,11 @@ export default function App() {
             selectedNiche,
             selectedBranding?.name,
             selectedRegion,
-            { 
+            getCommonAnalysisOptions({ 
               toneOfVoice,
               model: selectedModel,
               deepResearch
-            },
+            }),
           );
           setNicheData(data);
           safeStorage.setItem("yt_niche", selectedNiche);
@@ -4046,7 +4210,7 @@ export default function App() {
     };
 
     fetchNicheData();
-  }, [selectedNiche, selectedRegion, isPersistenceLoaded]);
+  }, [selectedNiche, selectedRegion, isPersistenceLoaded, getCommonAnalysisOptions]);
 
   useEffect(() => {
     if (nicheData?.branding?.fonts) {
@@ -4076,11 +4240,11 @@ export default function App() {
             selectedNiche,
             selectedBranding?.name,
             selectedRegion,
-            { 
+            getCommonAnalysisOptions({ 
               toneOfVoice,
               model: selectedModel,
               deepResearch
-            },
+            }),
           );
         setNicheData(data);
         await saveToHistory(
@@ -4163,64 +4327,74 @@ export default function App() {
     }
   };
 
-  const handleRegenerateLogoPrompt = async () => {
+  const handleRegenerateLogoPrompt = async (style?: string) => {
     if (!selectedNiche || !nicheData) return;
-    setIsLoading(true);
+    setIsRegeneratingLogoPrompt(true);
     try {
       const newPrompts = await generateLogoPrompt(
         selectedNiche,
         nicheData.branding.colors,
         selectedBranding?.name,
-        getCommonAnalysisOptions({ branding: brandProfile ? JSON.stringify(brandProfile) : "" })
+        {
+          ...getCommonAnalysisOptions({ branding: brandProfile ? JSON.stringify(brandProfile) : "" }),
+          style
+        }
       );
       setNicheData({
         ...nicheData,
         branding: {
           ...nicheData.branding,
           logo_prompts: newPrompts,
+          logoPrompt: newPrompts.en,
         },
       });
       await saveToHistory(
         "Промт",
-        `Лого-промты для: ${selectedBranding?.name}`,
+        `Лого-промты для: ${selectedBranding?.name || selectedNiche}`,
         JSON.stringify(newPrompts),
-        { niche: selectedNiche },
+        { niche: selectedNiche, style },
       );
+      toast.success("Промпт аватара успешно обновлен!");
     } catch (error) {
       handleGeminiError(error, "Ошибка при регенерации лого-промта");
     } finally {
-      setIsLoading(false);
+      setIsRegeneratingLogoPrompt(false);
     }
   };
 
-  const handleRegenerateBannerPrompt = async () => {
+  const handleRegenerateBannerPrompt = async (style?: string) => {
     if (!selectedNiche || !nicheData) return;
-    setIsLoading(true);
+    setIsRegeneratingBannerPrompt(true);
     try {
       const newPrompts = await generateBannerPrompt(
         selectedNiche,
         nicheData.branding.colors,
         selectedBranding?.name,
         selectedBranding?.slogan,
-        { model: selectedModel }
+        {
+          ...getCommonAnalysisOptions({ model: selectedModel }),
+          style
+        }
       );
       setNicheData({
         ...nicheData,
         branding: {
           ...nicheData.branding,
           banner_prompts: newPrompts,
+          bannerPrompt: newPrompts.en,
         },
       });
       await saveToHistory(
         "Промт",
-        `Баннер-промты для: ${selectedBranding?.name}`,
+        `Баннер-промты для: ${selectedBranding?.name || selectedNiche}`,
         JSON.stringify(newPrompts),
-        { niche: selectedNiche },
+        { niche: selectedNiche, style },
       );
+      toast.success("Промпт баннера успешно обновлен!");
     } catch (error) {
       handleGeminiError(error, "Ошибка при регенерации баннер-промта");
     } finally {
-      setIsLoading(false);
+      setIsRegeneratingBannerPrompt(false);
     }
   };
 
@@ -4228,7 +4402,7 @@ export default function App() {
     if (!selectedNiche || !nicheData) return;
     setIsLoading(true);
     try {
-      const newColors = await generateColors(selectedNiche, { model: selectedModel });
+      const newColors = await generateColors(selectedNiche, getCommonAnalysisOptions({ model: selectedModel }));
       setNicheData({
         ...nicheData,
         branding: {
@@ -4310,7 +4484,7 @@ export default function App() {
     if (!selectedNiche || !nicheData) return;
     setIsLoading(true);
     try {
-      const newFonts = await generateFonts(selectedNiche, { model: selectedModel });
+      const newFonts = await generateFonts(selectedNiche, getCommonAnalysisOptions({ model: selectedModel }));
       setNicheData({
         ...nicheData,
         branding: {
@@ -4338,6 +4512,7 @@ export default function App() {
         selectedNiche,
         selectedBranding?.name || "",
         getCompetitorAnalysis(),
+        getCommonAnalysisOptions({ model: selectedModel })
       );
       setNicheData({
         ...nicheData,
@@ -4379,7 +4554,7 @@ export default function App() {
         trendingKeywords,
         selectedBranding?.name,
         getCompetitorAnalysis(),
-        { model: selectedModel, deepResearch }
+        getCommonAnalysisOptions({ model: selectedModel, deepResearch })
       );
       setTrendingIdeas((prev) => {
         const existingTitles = new Set((Array.isArray(prev) ? prev : []).map((i) => (typeof i === "string" ? i : i.title).trim().toLowerCase()));
@@ -4409,7 +4584,7 @@ export default function App() {
     setIsRegeneratingIdeas(true);
     try {
       const currentIdeas = [...(nicheData.ideas || []), ...(nicheData.popularIdeas || [])];
-      const newIdeas = await generateMoreIdeas(selectedNiche, currentIdeas, { toneOfVoice, model: selectedModel });
+      const newIdeas = await generateMoreIdeas(selectedNiche, currentIdeas, getCommonAnalysisOptions({ toneOfVoice, model: selectedModel }));
 
       setNicheData((prev: any) => {
         if (!prev) return prev;
@@ -4446,11 +4621,11 @@ export default function App() {
 
     setIsGeneratingCustomIdeas(true);
     try {
-      const result = await generateIdeasFromDescription(customIdeasDescription, {
+      const result = await generateIdeasFromDescription(customIdeasDescription, getCommonAnalysisOptions({
         toneOfVoice,
         model: selectedModel,
         deepResearch
-      });
+      }));
 
       if (result && result.ideas && result.ideas.length > 0) {
         setUserCustomIdeas(prev => [...result.ideas, ...(Array.isArray(prev) ? prev : [])]);
@@ -5227,6 +5402,199 @@ export default function App() {
     }
   };
 
+  // Handlers for Idea Alternative Titles and Descriptions using optimizeTitle
+  const handleGenerateAlternatives = async (ideaTitle: string, ideaDesc?: string) => {
+    if (!ideaTitle) return;
+    setIdeaAlternatives(prev => ({
+      ...prev,
+      [ideaTitle]: {
+        titles: prev[ideaTitle]?.titles || [],
+        descriptions: prev[ideaTitle]?.descriptions || [],
+        isLoading: true
+      }
+    }));
+    setExpandedAlternatives(prev => ({ ...prev, [ideaTitle]: true }));
+
+    const toastId = toast.loading(`Подбираем альтернативные заголовки и описание (optimizeTitle) для "${ideaTitle.slice(0, 30)}..."`);
+    try {
+      const options = {
+        model: selectedModel,
+        temperature: 0.85
+      };
+      const result = await generateIdeaAlternatives(ideaTitle, ideaDesc, selectedNiche, options);
+
+      setIdeaAlternatives(prev => {
+        const existingTitles = prev[ideaTitle]?.titles || [];
+        const existingDescriptions = prev[ideaTitle]?.descriptions || [];
+
+        const mergedTitles = Array.from(new Set([...result.alternativeTitles, ...existingTitles])).filter(Boolean);
+        const mergedDescriptions = Array.from(new Set([result.alternativeDescription, ...existingDescriptions])).filter(Boolean);
+
+        return {
+          ...prev,
+          [ideaTitle]: {
+            titles: mergedTitles,
+            descriptions: mergedDescriptions,
+            isLoading: false
+          }
+        };
+      });
+
+      toast.success(`Готово! Подобраны альтернативные заголовки и описание для "${ideaTitle.slice(0, 25)}..." ✨`, { id: toastId });
+    } catch (error) {
+      logger.error("Error generating alternatives:", error);
+      toast.error("Не удалось сгенерировать альтернативы", { id: toastId });
+      setIdeaAlternatives(prev => ({
+        ...prev,
+        [ideaTitle]: {
+          ...prev[ideaTitle],
+          isLoading: false
+        }
+      }));
+    }
+  };
+
+  const handleApplyOptimizedTitle = (oldTitle: string, newTitle: string) => {
+    if (!oldTitle || !newTitle || oldTitle === newTitle) return;
+
+    setNicheData((prev: any) => {
+      if (!prev || !prev.ideas) return prev;
+      const updated = prev.ideas.map((item: any) => {
+        const t = typeof item === 'string' ? item : item.title;
+        if (t === oldTitle) {
+          return typeof item === 'string' ? newTitle : { ...item, title: newTitle };
+        }
+        return item;
+      });
+      return { ...prev, ideas: updated };
+    });
+
+    setUserCustomIdeas(prev =>
+      prev.map((item: any) => {
+        const t = typeof item === 'string' ? item : item.title;
+        if (t === oldTitle) {
+          return typeof item === 'string' ? newTitle : { ...item, title: newTitle };
+        }
+        return item;
+      })
+    );
+
+    setTrendingIdeas(prev =>
+      prev.map((item: any) => {
+        const t = typeof item === 'string' ? item : item.title;
+        if (t === oldTitle) {
+          return typeof item === 'string' ? ({ title: newTitle } as any) : { ...item, title: newTitle };
+        }
+        return item;
+      })
+    );
+
+    setIdeaAssignments(prev => {
+      if (!prev[oldTitle]) return prev;
+      const val = prev[oldTitle];
+      const copy = { ...prev };
+      delete copy[oldTitle];
+      copy[newTitle] = val;
+      return copy;
+    });
+
+    setIdeaAlternatives(prev => {
+      if (!prev[oldTitle]) return prev;
+      const val = prev[oldTitle];
+      const copy = { ...prev };
+      delete copy[oldTitle];
+      const updatedTitles = [oldTitle, ...(val.titles || []).filter(t => t !== newTitle)];
+      copy[newTitle] = { ...val, titles: updatedTitles };
+      return copy;
+    });
+
+    setExpandedAlternatives(prev => {
+      const isExp = prev[oldTitle];
+      const copy = { ...prev };
+      delete copy[oldTitle];
+      if (isExp) copy[newTitle] = true;
+      return copy;
+    });
+
+    if (selectedIdea === oldTitle) {
+      setSelectedIdea(newTitle);
+    }
+    if (scriptTopic === oldTitle) {
+      setScriptTopic(newTitle);
+    }
+    setSelectedIdeasForDeletion(prev =>
+      prev.map(t => (t === oldTitle ? newTitle : t))
+    );
+
+    toast.success(`Заголовок заменен на "${newTitle}"! 🎯`);
+  };
+
+  const handleApplyOptimizedDescription = (title: string, newDesc: string) => {
+    if (!title || !newDesc) return;
+
+    setNicheData((prev: any) => {
+      if (!prev || !prev.ideas) return prev;
+      const updated = prev.ideas.map((item: any) => {
+        const t = typeof item === 'string' ? item : item.title;
+        if (t === title) {
+          return typeof item === 'string'
+            ? { title: item, description: newDesc }
+            : { ...item, description: newDesc };
+        }
+        return item;
+      });
+      return { ...prev, ideas: updated };
+    });
+
+    setUserCustomIdeas(prev =>
+      prev.map(item => {
+        const t = typeof item === 'string' ? item : item.title;
+        if (t === title) {
+          return typeof item === 'string'
+            ? { title: item, description: newDesc }
+            : { ...item, description: newDesc };
+        }
+        return item;
+      })
+    );
+
+    toast.success(`Описание идеи обновлено! 📝`);
+  };
+
+  const handleBatchGenerateAlternatives = async () => {
+    if (selectedIdeasForDeletion.length === 0) return;
+    setIsBatchGeneratingAlternatives(true);
+    const toastId = toast.loading(`Генерация альтернатив через optimizeTitle для ${selectedIdeasForDeletion.length} выбранных идей... ⚡`);
+
+    let count = 0;
+    for (const ideaTitle of selectedIdeasForDeletion) {
+      try {
+        const allIdeas = [...(nicheData?.ideas || []), ...(trendingIdeas || [])];
+        const targetIdea = allIdeas.find((i: any) => (typeof i === 'string' ? i : i?.title) === ideaTitle);
+        const desc = typeof targetIdea === 'object' ? targetIdea?.description : undefined;
+
+        const options = { model: selectedModel };
+        const res = await generateIdeaAlternatives(ideaTitle, desc, selectedNiche, options);
+
+        setIdeaAlternatives(prev => ({
+          ...prev,
+          [ideaTitle]: {
+            titles: res.alternativeTitles,
+            descriptions: [res.alternativeDescription],
+            isLoading: false
+          }
+        }));
+        setExpandedAlternatives(prev => ({ ...prev, [ideaTitle]: true }));
+        count++;
+      } catch (e) {
+        logger.warn(`Failed batch alternatives for "${ideaTitle}":`, e);
+      }
+    }
+
+    setIsBatchGeneratingAlternatives(false);
+    toast.success(`Альтернативы успешно сгенерированы для ${count} идей! 🚀`, { id: toastId });
+  };
+
   const handleGenerateFullShortsContent = async (shortIdea: string) => {
     setScriptTopic(shortIdea);
     setScriptDuration("1");
@@ -5317,24 +5685,41 @@ export default function App() {
       setIsGeneratingBlock(resetIsGeneratingBlock);
     }
 
-    // 3. Generate Breakdown
+    // 3. Generate Breakdown block by block to guarantee perfect scene alignment
     setIsGeneratingBreakdown(true);
-    let breakdown;
+    let breakdown: any[] = [];
     try {
       const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
-      breakdown = await generateScriptBreakdown(
-        fullText,
-        selectedNiche || "",
-        scriptTopic,
-        scriptWishes,
-        durationVal,
-        getCommonAnalysisOptions({
-          noVoiceover: scriptNoVoiceover,
-          referenceImages: scriptReferenceImages,
-          youtubeLinks: scriptYoutubeLinks
-        })
-      );
+      const blocksWithScenes = { ...newBlocks };
+      const blockIndicesForBreakdown = Object.keys(blocksWithScenes).map(Number).sort((a, b) => a - b);
+
+      for (const idx of blockIndicesForBreakdown) {
+        const blk = blocksWithScenes[idx];
+        if (!blk || !blk.text || !blk.text.trim()) continue;
+        const bTitle = scriptStructure?.[idx]?.title || blk.title || `Блок ${idx + 1}`;
+        const scenes = await generateScriptBreakdown(
+          blk.text,
+          selectedNiche || "",
+          bTitle,
+          scriptWishes,
+          durationVal,
+          getCommonAnalysisOptions({
+            noVoiceover: scriptNoVoiceover,
+            referenceImages: scriptReferenceImages,
+            youtubeLinks: scriptYoutubeLinks
+          })
+        );
+        const tagged = (scenes || []).map((sc, scIdx) => ({
+          ...sc,
+          id: sc.id || `sc-blk-${idx}-${scIdx}`,
+          blockIndex: idx,
+          blockTitle: bTitle
+        }));
+        blocksWithScenes[idx] = { ...blk, scenes: tagged };
+        breakdown.push(...tagged);
+      }
       
+      setGeneratedBlocks(blocksWithScenes);
       setScriptBreakdown(breakdown);
       if (scriptReferenceImages.length > 0 || scriptYoutubeLinks.some(l => l.trim() !== '')) {
          setIsReferencesUsed(true);
@@ -5459,6 +5844,8 @@ export default function App() {
             newGeneratedBlocks[idx] = {
                text: part.content,
                title: part.phase,
+               blockTitle: part.phase,
+               blockNumber: idx + 1,
                scenes: []
             };
           });
@@ -5745,9 +6132,15 @@ export default function App() {
   };
 
   const handleAddNewScene = (targetBlockIndex?: number) => {
-    const currentScenes = scriptBreakdown ? [...scriptBreakdown] : [];
+    const currentScenes = (scriptBreakdown && scriptBreakdown.length > 0)
+      ? [...scriptBreakdown]
+      : getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
+
+    const bIdx = typeof targetBlockIndex === 'number' && targetBlockIndex >= 0 ? targetBlockIndex : 0;
+    const bTitle = scriptStructure?.[bIdx]?.title || `Блок ${bIdx + 1}`;
 
     const newScene = {
+      id: `sc-blk-${bIdx}-${Date.now()}`,
       text: "Новый кадр дикторской озвучки",
       description: "Новый визуальный ряд кадра",
       shotType: "Средний план",
@@ -5755,13 +6148,25 @@ export default function App() {
       visuals: { description: "Новый визуальный ряд кадра", searchQuery: "cinematic", shotType: "Средний план", resourceLinks: [] },
       audio: { soundsAndNoises: "Интершум", backgroundMusic: "Фоновая музыка" },
       voiceover: { voiceName: "Aoede", settings: "Средний темп", intonation: "Нейтральная", mood: "Спокойное", timbre: "Нейтральный" },
-      blockIndex: typeof targetBlockIndex === 'number' && targetBlockIndex >= 0 ? targetBlockIndex : 0,
-      blockTitle: typeof targetBlockIndex === 'number' && scriptStructure?.[targetBlockIndex]
-        ? scriptStructure[targetBlockIndex].title
-        : `Блок ${(targetBlockIndex || 0) + 1}`
+      blockIndex: bIdx,
+      blockTitle: bTitle
     };
 
-    const updated = [...currentScenes, newScene];
+    let insertIndex = -1;
+    for (let i = currentScenes.length - 1; i >= 0; i--) {
+      if (currentScenes[i]?.blockIndex === bIdx) {
+        insertIndex = i + 1;
+        break;
+      }
+    }
+
+    const updated = [...currentScenes];
+    if (insertIndex >= 0) {
+      updated.splice(insertIndex, 0, newScene);
+    } else {
+      updated.push(newScene);
+    }
+
     setScriptBreakdown(updated);
     toast.success("Новый кадр успешно добавлен в монтажный лист!");
   };
@@ -6031,14 +6436,109 @@ export default function App() {
   };
 
   const handleGenerateFullScript = async () => {
+    if (!scriptTopic.trim()) {
+      toast.error("Укажите тему сценария");
+      return;
+    }
+
     setIsGeneratingFullScript(true);
-    toast.info("Запуск генерации всех блоков сценария...");
     setScriptProgress(0);
     try {
-      for (let i = 0; i < scriptStructure.length; i++) {
-        await handleGenerateScriptBlock(i);
-        setScriptProgress(Math.round(((i + 1) / scriptStructure.length) * 100));
+      let currentStructure = scriptStructure;
+      if (!currentStructure || currentStructure.length === 0) {
+        toast.info("1/2: Проектирование структуры и плана сценария...");
+        const mode = scriptMode === "Свой вариант" ? scriptCustomMode : scriptMode;
+        const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
+        currentStructure = await generateScriptStructure(
+          scriptTopic,
+          durationVal,
+          mode,
+          scriptTone,
+          scriptWishes,
+          getCompetitorAnalysis(),
+          getCommonAnalysisOptions({ toneOfVoice, noVoiceover: scriptNoVoiceover }),
+        );
+        if (!currentStructure || currentStructure.length === 0) {
+          throw new Error("Не удалось сформировать структуру сценария");
+        }
+        setScriptStructure(currentStructure);
+        setIsScriptTopicLocked(true);
       }
+
+      toast.info(`2/2: Генерация текста для ${currentStructure.length} блоков сценария...`);
+      const newBlocks: Record<number, any> = { ...generatedBlocks };
+
+      for (let i = 0; i < currentStructure.length; i++) {
+        setIsGeneratingBlock((prev) => ({ ...prev, [i]: true }));
+        const structBlock = currentStructure[i];
+
+        // Gather previous context
+        let previousContext = "";
+        for (let j = 0; j < i; j++) {
+          const b = newBlocks[j];
+          if (b && b.text) {
+            previousContext += `Блок ${j + 1} (${currentStructure[j]?.title || "Блок"}):\n${b.text}\n\n`;
+          }
+        }
+
+        const combinedWishes = [scriptWishes, blockRefinements[i]].filter(Boolean).join("\n\nДополнительно для этого блока: ");
+        const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
+
+        const result = await generateScriptBlock(
+          scriptTopic,
+          structBlock,
+          combinedWishes,
+          previousContext,
+          durationVal,
+          getCompetitorAnalysis(),
+          {
+            model: selectedModel,
+            noVoiceover: scriptNoVoiceover,
+            globalMusicMood: promptMusicMood,
+            globalAudioPrompt: generalAudioPrompt
+          }
+        );
+
+        result.blockTitle = result.title || structBlock.title || `Блок ${i + 1}`;
+        result.title = result.blockTitle;
+        result.blockNumber = i + 1;
+        result.timeRange = structBlock.estimatedTime || `0:00 - 1:00`;
+        result.scenes = [];
+
+        newBlocks[i] = result;
+        setGeneratedBlocks((prev) => ({ ...prev, [i]: result }));
+        recordBlockHistory(i, result.text, "⚡ AI Генерация");
+        setIsGeneratingBlock((prev) => ({ ...prev, [i]: false }));
+        setScriptProgress(Math.round(((i + 1) / currentStructure.length) * 100));
+
+        // Smooth pacing between blocks for UI updates and API stability
+        if (i < currentStructure.length - 1) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
+      }
+
+      setGeneratedBlocks(newBlocks);
+
+      // Auto-trigger retention analysis for deep script insights
+      try {
+        const fullScript = getFullScriptText(newBlocks);
+        if (fullScript) {
+          const improvements = await analyzeAndImproveScript(
+            fullScript,
+            "динамичный",
+            toneOfVoice || "Нейтральный",
+            "Широкая аудитория",
+            selectedNiche || "",
+            { model: selectedModel }
+          );
+          if (improvements && improvements.length > 0) {
+            setScriptImprovements(improvements);
+          }
+        }
+      } catch (err) {
+        logger.warn("Auto-analysis error:", err);
+      }
+
       toast.success("Полный сценарий успешно сгенерирован!");
     } catch (error) {
       handleGeminiError(error, "Ошибка при генерации полного сценария");
@@ -6083,17 +6583,39 @@ export default function App() {
         }
       );
 
-      try {
-        toast.info("Генерация технического плана сцен...");
-        const scenes = await generateScriptBreakdown(result.text, selectedNiche || "", scriptTopic, scriptWishes, durationVal, { model: selectedModel, noVoiceover: scriptNoVoiceover, referenceImages: scriptReferenceImages, youtubeLinks: scriptYoutubeLinks });
-        result.scenes = scenes;
-      } catch (e) {
-        handleGeminiError(e, "Ошибка генерации сцен для блока");
-      }
+      result.scenes = generatedBlocks[index]?.scenes || [];
 
-      setGeneratedBlocks((prev) => ({ ...prev, [index]: result }));
+      const updatedBlocks = { ...generatedBlocks, [index]: result };
+      setGeneratedBlocks(updatedBlocks);
       recordBlockHistory(index, result.text, "⚡ AI Генерация");
-      setScriptBreakdown([]);
+
+      // Merge into unified scriptBreakdown preserving scenes of all other blocks
+      const currentUnified = getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
+      const allBlockIndices = Array.from(
+        new Set([
+          ...Object.keys(updatedBlocks).map(Number),
+          ...(scriptStructure || []).map((_, i) => i),
+          ...currentUnified.map((s: any) => typeof s.blockIndex === 'number' ? s.blockIndex : 0)
+        ])
+      ).sort((a, b) => a - b);
+
+      const combinedBreakdown: any[] = [];
+      for (const bIdx of allBlockIndices) {
+        if (bIdx === index) {
+          if (result.scenes && result.scenes.length > 0) {
+            combinedBreakdown.push(...result.scenes);
+          }
+        } else {
+          const scenesForBlock = currentUnified.filter((s: any) => s.blockIndex === bIdx);
+          if (scenesForBlock.length > 0) {
+            combinedBreakdown.push(...scenesForBlock);
+          } else if (updatedBlocks[bIdx]?.scenes && updatedBlocks[bIdx].scenes.length > 0) {
+            combinedBreakdown.push(...updatedBlocks[bIdx].scenes);
+          }
+        }
+      }
+      setScriptBreakdown(combinedBreakdown);
+
       await saveToHistory(
         "Сценарий",
         `Блок сценария: ${scriptStructure[index].title}`,
@@ -6121,10 +6643,11 @@ export default function App() {
     
     try {
       const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
-      const scenes = await generateScriptBreakdown(
+      const blockTitle = scriptStructure?.[index]?.title || generatedBlocks[index]?.title || `Блок ${index + 1}`;
+      const rawScenes = await generateScriptBreakdown(
         generatedBlocks[index].text,
         selectedNiche || "",
-        scriptTopic,
+        blockTitle,
         scriptWishes,
         durationVal,
         {
@@ -6135,12 +6658,44 @@ export default function App() {
         }
       );
       
-      setGeneratedBlocks((prev) => ({
-        ...prev,
-        [index]: { ...prev[index], scenes }
+      const newBlockScenes = (rawScenes || []).map((sc: any, scIdx: number) => ({
+        ...sc,
+        id: sc.id || `sc-blk-${index}-${scIdx}`,
+        blockIndex: index,
+        blockTitle: blockTitle
       }));
-      // Clear global scriptBreakdown so getUnifiedScriptScenes dynamically reads per-block scenes!
-      setScriptBreakdown([]);
+
+      const updatedBlocks = {
+        ...generatedBlocks,
+        [index]: { ...generatedBlocks[index], scenes: newBlockScenes }
+      };
+      setGeneratedBlocks(updatedBlocks);
+
+      // Preserve scenes for all other blocks!
+      const currentUnified = getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
+      const allBlockIndices = Array.from(
+        new Set([
+          ...Object.keys(updatedBlocks).map(Number),
+          ...(scriptStructure || []).map((_, i) => i),
+          ...currentUnified.map((s: any) => typeof s.blockIndex === 'number' ? s.blockIndex : 0)
+        ])
+      ).sort((a, b) => a - b);
+
+      const combinedBreakdown: any[] = [];
+      for (const bIdx of allBlockIndices) {
+        if (bIdx === index) {
+          combinedBreakdown.push(...newBlockScenes);
+        } else {
+          const scenesForBlock = currentUnified.filter((s: any) => s.blockIndex === bIdx);
+          if (scenesForBlock.length > 0) {
+            combinedBreakdown.push(...scenesForBlock);
+          } else if (updatedBlocks[bIdx]?.scenes && updatedBlocks[bIdx].scenes.length > 0) {
+            combinedBreakdown.push(...updatedBlocks[bIdx].scenes);
+          }
+        }
+      }
+
+      setScriptBreakdown(combinedBreakdown);
       toast.success(`Технический план для блока ${index + 1} успешно обновлен!`);
     } catch (error) {
       handleGeminiError(error, "Ошибка при генерации техплана");
@@ -6150,30 +6705,52 @@ export default function App() {
   };
 
   const handleRegenerateFullBreakdown = async () => {
-    const fullText = getFullScriptText(generatedBlocks);
-    if (!fullText) {
+    const blockIndices = Object.keys(generatedBlocks).map(Number).sort((a, b) => a - b);
+    if (blockIndices.length === 0) {
       toast.error("Сценарий пуст. Сначала сгенерируйте текст!");
       return;
     }
     setIsGeneratingBreakdown(true);
-    toast.info("Перерасчет глобального технического плана сцен...");
+    toast.info("Перерасчет технического плана по блокам сценария...");
     try {
       const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
-      const freshBreakdown = await generateScriptBreakdown(
-        fullText,
-        selectedNiche || "",
-        scriptTopic,
-        scriptWishes,
-        durationVal,
-        {
-          model: selectedModel,
-          noVoiceover: scriptNoVoiceover,
-          referenceImages: scriptReferenceImages,
-          youtubeLinks: scriptYoutubeLinks
-        }
-      );
-      setScriptBreakdown(freshBreakdown);
-      toast.success("Глобальный технический план успешно обновлен!");
+      const updatedBlocks = { ...generatedBlocks };
+      const allScenes: any[] = [];
+
+      // Генерируем технический план строго по блокам: фразы ни при каких условиях не переносятся между блоками
+      for (const idx of blockIndices) {
+        const block = updatedBlocks[idx];
+        if (!block || !block.text || !block.text.trim()) continue;
+        
+        const blockTitle = scriptStructure?.[idx]?.title || block.title || `Блок ${idx + 1}`;
+        const scenes = await generateScriptBreakdown(
+          block.text,
+          selectedNiche || "",
+          blockTitle,
+          scriptWishes,
+          durationVal,
+          {
+            model: selectedModel,
+            noVoiceover: scriptNoVoiceover,
+            referenceImages: scriptReferenceImages,
+            youtubeLinks: scriptYoutubeLinks
+          }
+        );
+
+        const taggedScenes = (scenes || []).map((sc, scIdx) => ({
+          ...sc,
+          id: sc.id || `sc-blk-${idx}-${scIdx}`,
+          blockIndex: idx,
+          blockTitle: blockTitle
+        }));
+
+        updatedBlocks[idx] = { ...block, scenes: taggedScenes };
+        allScenes.push(...taggedScenes);
+      }
+
+      setGeneratedBlocks(updatedBlocks);
+      setScriptBreakdown(allScenes);
+      toast.success("Технический план успешно обновлен по всем блокам!");
     } catch (err) {
       handleGeminiError(err, "Ошибка при генерации технического плана");
     } finally {
@@ -6317,32 +6894,12 @@ export default function App() {
         getCommonAnalysisOptions({ toneOfVoice })
       );
 
-      let newScenes = undefined;
-      try {
-        toast.info("Обновление технического плана..." );
-        const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
-        newScenes = await generateScriptBreakdown(
-          result,
-          selectedNiche || "",
-          scriptTopic,
-          scriptWishes,
-          durationVal,
-          getCommonAnalysisOptions({
-            noVoiceover: scriptNoVoiceover,
-            referenceImages: scriptReferenceImages,
-            youtubeLinks: scriptYoutubeLinks
-          })
-        );
-      } catch (e) {
-        handleGeminiError(e, "Ошибка при обновлении сцен");
-      }
-
       setGeneratedBlocks((prev) => ({
         ...prev,
         [index]: {
           ...prev[index], // Keep old SFX and stuff, just change text potentially, or override completely
           text: result, // `rewriteScriptBlock` returns a string directly
-          scenes: newScenes || prev[index].scenes,
+          scenes: prev[index]?.scenes || [],
         },
       }));
       recordBlockHistory(index, result, "✍️ Переработка ИИ");
@@ -6495,8 +7052,8 @@ export default function App() {
   };
 
   const refreshScriptBreakdownAndPrompts = async (updatedBlocks: Record<number, any>) => {
-    const fullScript = getFullScriptText(updatedBlocks);
-    if (!fullScript) return;
+    const blockIndices = Object.keys(updatedBlocks).map(Number).sort((a, b) => a - b);
+    if (blockIndices.length === 0) return;
 
     const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
     const options = getCommonAnalysisOptions({
@@ -6505,16 +7062,33 @@ export default function App() {
       youtubeLinks: scriptYoutubeLinks,
     });
 
-    const breakDown = await generateScriptBreakdown(
-      fullScript,
-      selectedNiche || "",
-      scriptTopic,
-      scriptWishes,
-      durationVal,
-      options
-    );
+    const blocksWithScenes = { ...updatedBlocks };
+    const allScenes: any[] = [];
 
-    setScriptBreakdown(breakDown);
+    for (const idx of blockIndices) {
+      const blk = blocksWithScenes[idx];
+      if (!blk || !blk.text || !blk.text.trim()) continue;
+      const bTitle = scriptStructure?.[idx]?.title || blk.title || `Блок ${idx + 1}`;
+      const scenes = await generateScriptBreakdown(
+        blk.text,
+        selectedNiche || "",
+        bTitle,
+        scriptWishes,
+        durationVal,
+        options
+      );
+      const tagged = (scenes || []).map((sc, scIdx) => ({
+        ...sc,
+        id: sc.id || `sc-blk-${idx}-${scIdx}`,
+        blockIndex: idx,
+        blockTitle: bTitle
+      }));
+      blocksWithScenes[idx] = { ...blk, scenes: tagged };
+      allScenes.push(...tagged);
+    }
+
+    setGeneratedBlocks(blocksWithScenes);
+    setScriptBreakdown(allScenes);
 
     if (scenePrompts && scenePrompts.length > 0) {
       await handleGenerateGlobalProduction();
@@ -6533,7 +7107,13 @@ export default function App() {
       );
       
       setGeneratedBlocks(newBlocks);
-      await refreshScriptBreakdownAndPrompts(newBlocks);
+      saveScriptVersion(`Улучшение удержания: ${improvement.improvement.substring(0, 40)}`);
+
+      try {
+        await refreshScriptBreakdownAndPrompts(newBlocks);
+      } catch (bdErr) {
+        logger.warn("Не удалось обновить раскадровку после улучшения:", bdErr);
+      }
 
       toast.success("Улучшение успешно применено!", { id: toastId });
       
@@ -6578,9 +7158,15 @@ export default function App() {
       );
 
       setGeneratedBlocks(newBlocks);
-      await refreshScriptBreakdownAndPrompts(newBlocks);
-
       saveScriptVersion(`Внедрены рекомендации (${itemsToApply.length})`);
+
+      try {
+        await refreshScriptBreakdownAndPrompts(newBlocks);
+      } catch (bdErr) {
+        logger.warn("Не удалось обновить раскадровку после рекомендаций:", bdErr);
+      }
+
+      setScriptImprovements([]);
       toast.success("Все рекомендации успешно внесены в сценарий!", { id: toastId });
     } catch (error) {
       handleGeminiError(error, "Ошибка при внесении рекомендаций");
@@ -7017,6 +7603,8 @@ export default function App() {
         manualTone={manualIdeaTone}
         setManualTone={setManualIdeaTone}
         playlists={ideaPlaylists}
+        onAddPlaylist={handleAddPlaylist}
+        niche={selectedNiche || customNiche || nicheData?.niche || ""}
         onAddManualIdea={handleAddManualIdea}
         aiDescription={customIdeasDescription}
         setAiDescription={setCustomIdeasDescription}
@@ -7029,28 +7617,144 @@ export default function App() {
     if (!showCustomInstructionsModal) return null;
 
     const toggleRule = (id: string) => {
-      setCustomRules(rules => rules.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r));
+      setCustomRules(rules => {
+        const next = rules.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r);
+        const hasActive = next.some(r => r.isActive);
+        if (hasActive) {
+          setIsCustomInstructionsEnabled(true);
+          safeStorage.setItem("yt_custom_instructions_enabled", "true");
+        }
+        safeStorage.setItem("yt_custom_rules", JSON.stringify(next));
+        const activeText = next
+          .filter(r => r && r.isActive && r.content && r.content.trim())
+          .map(r => (r.title ? `[ПРАВИЛО: ${r.title}]\n` : "") + r.content.trim().replace(/\\n/g, "\n"))
+          .join("\n\n");
+        safeStorage.setItem("yt_custom_instructions", activeText);
+        return next;
+      });
     };
 
     const deleteRule = (id: string) => {
-      setCustomRules(rules => rules.filter(r => r.id !== id));
+      setCustomRules(rules => {
+        const next = rules.filter(r => r.id !== id);
+        safeStorage.setItem("yt_custom_rules", JSON.stringify(next));
+        const activeText = next
+          .filter(r => r && r.isActive && r.content && r.content.trim())
+          .map(r => (r.title ? `[ПРАВИЛО: ${r.title}]\n` : "") + r.content.trim().replace(/\\n/g, "\n"))
+          .join("\n\n");
+        safeStorage.setItem("yt_custom_instructions", activeText);
+        return next;
+      });
     };
 
     const handleSaveRule = () => {
       if (!editingRuleData) return;
+      const cleanContent = editingRuleData.content.replace(/\\n/g, "\n").trim();
+      const updatedRule = { ...editingRuleData, content: cleanContent };
+      let nextRules = customRules;
       if (editingRuleData.id === "new") {
-        setCustomRules(rules => [...rules, { ...editingRuleData, id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() }]);
+        const newRule = {
+          ...updatedRule,
+          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+          isActive: true
+        };
+        nextRules = [...customRules, newRule];
+        setIsCustomInstructionsEnabled(true);
+        safeStorage.setItem("yt_custom_instructions_enabled", "true");
       } else {
-        setCustomRules(rules => rules.map(r => r.id === editingRuleData.id ? editingRuleData : r));
+        nextRules = customRules.map(r => r.id === editingRuleData.id ? updatedRule : r);
+        if (editingRuleData.isActive) {
+          setIsCustomInstructionsEnabled(true);
+          safeStorage.setItem("yt_custom_instructions_enabled", "true");
+        }
       }
+      setCustomRules(nextRules);
+      safeStorage.setItem("yt_custom_rules", JSON.stringify(nextRules));
+      const activeText = nextRules
+        .filter(r => r && r.isActive && r.content && r.content.trim())
+        .map(r => (r.title ? `[ПРАВИЛО: ${r.title}]\n` : "") + r.content.trim().replace(/\\n/g, "\n"))
+        .join("\n\n");
+      safeStorage.setItem("yt_custom_instructions", activeText);
       setEditingRuleData(null);
     };
 
     const handleSaveGlobal = () => {
-      safeStorage.setItem("yt_custom_rules", JSON.stringify(customRules));
+      let currentRules = customRules;
+      if (editingRuleData && editingRuleData.title.trim() && editingRuleData.content.trim()) {
+        const cleanContent = editingRuleData.content.replace(/\\n/g, "\n").trim();
+        const updatedRule = { ...editingRuleData, content: cleanContent };
+        if (editingRuleData.id === "new") {
+          const newRule = {
+            ...updatedRule,
+            id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+            isActive: true
+          };
+          currentRules = [...currentRules, newRule];
+        } else {
+          currentRules = currentRules.map(r => r.id === editingRuleData.id ? updatedRule : r);
+        }
+        setCustomRules(currentRules);
+        setEditingRuleData(null);
+      }
+
+      const activeText = currentRules
+        .filter(r => r && r.isActive && r.content && r.content.trim())
+        .map(r => (r.title ? `[ПРАВИЛО: ${r.title}]\n` : "") + r.content.trim().replace(/\\n/g, "\n"))
+        .join("\n\n");
+
+      safeStorage.setItem("yt_custom_rules", JSON.stringify(currentRules));
+      safeStorage.setItem("yt_custom_instructions", activeText);
       safeStorage.setItem("yt_custom_instructions_enabled", String(isCustomInstructionsEnabled));
-      toast.success("Инструкции сохранены! Они будут автоматически учитываться ИИ-Ассистентом во всех новых генерациях.");
+      toast.success("Инструкции сохранены! Они будут строго соблюдаться во всех вкладках и генерациях, даже после любых изменений.");
       setShowCustomInstructionsModal(false);
+    };
+
+    const handlePrepareCanonImport = (imported: CustomRule[]) => {
+      if (!imported.length) {
+        toast.error("Не удалось найти правила в файле");
+        return;
+      }
+      if (customRules.length === 0) {
+        applyCanonImportRules(imported, 'replace');
+        return;
+      }
+      setPendingImportRules(imported);
+      setShowImportConfirmModal(true);
+    };
+
+    const applyCanonImportRules = (incoming: CustomRule[], mode: 'replace' | 'merge') => {
+      let updated: CustomRule[];
+      if (mode === 'replace') {
+        updated = [...incoming];
+        toast.success(`Заменено: установлено ${incoming.length} правил из файла`);
+      } else {
+        const existingTitlesMap = new Map<string, number>();
+        customRules.forEach((r, idx) => existingTitlesMap.set(r.title.trim().toLowerCase(), idx));
+        updated = [...customRules];
+        let added = 0;
+        let refreshed = 0;
+        incoming.forEach(newRule => {
+          const key = newRule.title.trim().toLowerCase();
+          if (existingTitlesMap.has(key)) {
+            const idx = existingTitlesMap.get(key)!;
+            updated[idx] = { ...newRule, id: updated[idx].id, isActive: updated[idx].isActive };
+            refreshed++;
+          } else {
+            updated.push(newRule);
+            added++;
+          }
+        });
+        toast.success(`Обновлено ${refreshed}, добавлено новых: ${added}`);
+      }
+      setCustomRules(updated);
+      safeStorage.setItem("yt_custom_rules", JSON.stringify(updated));
+      const activeRules = updated.filter(r => r && r.isActive && r.content && r.content.trim());
+      const activeText = activeRules.map(r => `[ПРАВИЛО: ${r.title}]\n${r.content.trim().replace(/\\n/g, "\n")}`).join("\n\n");
+      safeStorage.setItem("yt_custom_instructions", activeText);
+      safeStorage.setItem("yt_custom_instructions_enabled", "true");
+      setIsCustomInstructionsEnabled(true);
+      setShowImportConfirmModal(false);
+      setPendingImportRules(null);
     };
 
     return (
@@ -7105,6 +7809,72 @@ export default function App() {
                 <X size={20} />
               </button>
             </div>
+          </div>
+
+          {/* Action Toolbar for Import */}
+          <div className="px-6 py-3 bg-neutral-950/90 border-b border-neutral-800/80 flex flex-wrap items-center justify-between gap-3">
+            <input
+              type="file"
+              ref={canonFileInputRef}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  const content = event.target?.result as string;
+                  if (content) {
+                    const parsed = parseMarkdownToCustomRules(content, file.name);
+                    handlePrepareCanonImport(parsed);
+                  }
+                };
+                reader.onerror = () => toast.error("Ошибка при чтении файла");
+                reader.readAsText(file);
+                if (canonFileInputRef.current) canonFileInputRef.current.value = '';
+              }}
+              accept=".md,.txt,.markdown"
+              className="hidden"
+            />
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => canonFileInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600/25 hover:bg-blue-600/40 text-blue-300 hover:text-white border border-blue-500/40 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                title="Загрузить ваш файл канона .md с компьютера"
+              >
+                <Upload size={14} className="text-blue-400" />
+                Импортировать из .MD
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const parsed = parseMarkdownToCustomRules(DEFAULT_BIBLE_CANON_MD, "КАНОН КАНАЛА «БИБЛИЯ ДЛЯ ЖИЗНИ»");
+                  handlePrepareCanonImport(parsed);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-600/25 hover:bg-purple-600/40 text-purple-300 hover:text-white border border-purple-500/40 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                title="Импортировать встроенный канон «Библия для жизни»"
+              >
+                <Sparkles size={14} className="text-purple-400" />
+                Канон «Библия для жизни»
+              </button>
+            </div>
+            {customRules.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("Удалить все существующие правила из списка?")) {
+                    setCustomRules([]);
+                    safeStorage.setItem("yt_custom_rules", JSON.stringify([]));
+                    safeStorage.setItem("yt_custom_instructions", "");
+                    toast.info("Все правила удалены");
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-400 hover:text-red-400 hover:bg-red-500/10 border border-neutral-800 hover:border-red-500/30 rounded-xl transition-colors cursor-pointer"
+                title="Очистить все правила"
+              >
+                <Trash2 size={13} />
+                Очистить ({customRules.length})
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-neutral-950/30">
@@ -7202,6 +7972,54 @@ export default function App() {
             </div>
           </div>
         </motion.div>
+
+        {/* Модалка выбора режима импорта: Заменить всё vs Объединить без дублей */}
+        {showImportConfirmModal && pendingImportRules && (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <div className="bg-neutral-900 border border-neutral-700/80 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+              <div className="flex items-center gap-2.5 text-blue-400 font-semibold text-base">
+                <Layers size={18} />
+                <span>Параметры импорта ({pendingImportRules.length} правил)</span>
+              </div>
+              <p className="text-sm text-neutral-300">
+                В вашем списке сейчас <span className="text-white font-semibold">{customRules.length}</span> правил. Как применить новые правила из MD-файла?
+              </p>
+              <div className="space-y-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => applyCanonImportRules(pendingImportRules, 'replace')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-800/50 text-left transition-all group cursor-pointer"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-red-300 group-hover:text-red-200">Заменить всё (Чистый лист)</div>
+                    <div className="text-xs text-neutral-400 mt-0.5">Удалит старые правила и запишет только новые из файла</div>
+                  </div>
+                  <RefreshCw size={16} className="text-red-400 shrink-0 group-hover:rotate-180 transition-transform duration-500" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyCanonImportRules(pendingImportRules, 'merge')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-blue-950/30 hover:bg-blue-950/60 border border-blue-800/50 text-left transition-all group cursor-pointer"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-blue-300 group-hover:text-blue-200">Объединить без дубликатов</div>
+                    <div className="text-xs text-neutral-400 mt-0.5">Совпадающие по теме правила обновятся, новые добавятся</div>
+                  </div>
+                  <Layers size={16} className="text-blue-400 shrink-0" />
+                </button>
+              </div>
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowImportConfirmModal(false); setPendingImportRules(null); }}
+                  className="px-4 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -7210,6 +8028,7 @@ export default function App() {
       <ModelLimitsModal
         isOpen={showModelLimitsModal}
         onClose={() => setShowModelLimitsModal(false)}
+        activeModel={selectedModel}
       />
     );
   };
@@ -7426,6 +8245,10 @@ export default function App() {
             handleSelectBranding={(branding) => setSelectedBranding(branding)}
             isGeneratingBranding={isLoading}
             handleRegenerateBranding={handleRegenerateBranding}
+            handleRegenerateLogoPrompt={handleRegenerateLogoPrompt}
+            handleRegenerateBannerPrompt={handleRegenerateBannerPrompt}
+            isRegeneratingLogoPrompt={isRegeneratingLogoPrompt}
+            isRegeneratingBannerPrompt={isRegeneratingBannerPrompt}
             openBrandingEditModal={(idx) => setEditingBrandingIndex(idx)}
             copiedKey={copiedSection}
             copyToClipboard={copyToClipboard}
@@ -8007,15 +8830,28 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Кнопка создания / переключатель */}
-                  <button
-                    type="button"
-                    onClick={() => setShowManagePlaylists(prev => !prev)}
-                    className="text-[10px] font-bold text-accent hover:text-accent/80 flex items-center gap-1 transition-colors bg-accent/10 hover:bg-accent/20 px-2.5 py-1 rounded-lg border border-accent/20 cursor-pointer"
-                  >
-                    <Plus size={12} />
-                    <span>{showManagePlaylists ? "Скрыть форму" : "+ Создать плейлист"}</span>
-                  </button>
+                  {/* Кнопки синхронизации с YouTube и создания */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSyncYouTubePlaylists(true)}
+                      disabled={isSyncingPlaylists}
+                      className="text-[10px] font-bold text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded-lg border border-red-500/20 cursor-pointer disabled:opacity-50"
+                      title="Загрузить и обновить плейлисты прямо с вашего YouTube-канала"
+                    >
+                      <RefreshCw size={11} className={isSyncingPlaylists ? "animate-spin" : ""} />
+                      <span>{isSyncingPlaylists ? "Синхронизация..." : "Синхронизировать с YouTube"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowManagePlaylists(prev => !prev)}
+                      className="text-[10px] font-bold text-accent hover:text-accent/80 flex items-center gap-1 transition-colors bg-accent/10 hover:bg-accent/20 px-2.5 py-1 rounded-lg border border-accent/20 cursor-pointer"
+                    >
+                      <Plus size={12} />
+                      <span>{showManagePlaylists ? "Скрыть форму" : "+ Создать плейлист"}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Форма быстрого добавления плейлиста в выделенный блок */}
@@ -8030,7 +8866,7 @@ export default function App() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
-                            handleAddPlaylist();
+                            handleAddPlaylist(undefined, true);
                           }
                         }}
                         placeholder="Название нового плейлиста (напр. 🎬 Подкасты)..."
@@ -8039,11 +8875,12 @@ export default function App() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleAddPlaylist()}
-                      className="px-3.5 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 shrink-0 cursor-pointer"
+                      onClick={() => handleAddPlaylist(undefined, true)}
+                      className="px-3 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 shrink-0 cursor-pointer"
+                      title="Создать локально и отправка на YouTube"
                     >
-                      <Plus size={14} />
-                      <span>Добавить плейлист</span>
+                      <Plus size={13} />
+                      <span>Создать & YouTube</span>
                     </button>
                   </div>
                 )}
@@ -8252,7 +9089,28 @@ export default function App() {
                         {ideaPlaylists.map((p, i) => <option key={`opt-p1-${p}-${i}`} value={p}>{p}</option>)}
                       </select>
 
-                      {/* 5. Массовое удаление */}
+                      {/* 5. Массовая генерация альтернатив (optimizeTitle) */}
+                      <button
+                        type="button"
+                        onClick={handleBatchGenerateAlternatives}
+                        disabled={isBatchGeneratingAlternatives}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/35 rounded-lg text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50"
+                        title="Сгенерировать альтернативные заголовки и описания для всех выбранных идей через optimizeTitle"
+                      >
+                        {isBatchGeneratingAlternatives ? (
+                          <>
+                            <Loader2 size={11} className="animate-spin text-amber-400" />
+                            <span>Оптимизация...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={11} className="text-amber-400" />
+                            <span>AI Варианты ({selectedIdeasForDeletion.length})</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* 6. Массовое удаление */}
                       <button
                         onClick={handleDeleteSelectedIdeas}
                         className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
@@ -8371,11 +9229,32 @@ export default function App() {
     const isDetailed = typeof idea === "object";
     const assignment = ideaAssignments[title] || {};
     const isPublishedChannelVid = isIdeaOnChannel(title, isDetailed ? idea.description : undefined);
+    const isWorkingTopic = Boolean(
+      scriptTopic && 
+      title && 
+      scriptTopic.trim().toLowerCase() === title.trim().toLowerCase()
+    );
+    const isSelectedIdea = selectedIdea === title;
+    const { cardStyle, accentBarStyle, activeHex } = computeCardColorStyles(
+      assignment.color,
+      assignment.colorType,
+      assignment.status,
+      assignment.folder
+    );
+    const totalNicheIdeasCount = sortedIdeas.length || ((nicheData?.ideas?.length || 0) + (trendingIdeas?.length || 0));
+    const cardSuggestions = getSuggestedPlaylistsForNiche(selectedNiche, title, isDetailed ? idea.description : "", ideaPlaylists);
+    const topSug = cardSuggestions.length > 0 ? cardSuggestions[0] : null;
 
     return (
       <motion.div
         key={typeof idea === "object" && idea?.id ? `idea-${idea.id}-${i}` : `idea-${title || "idea"}-${i}`}
         layout
+        style={cardStyle}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setContextMenuIdea({ title, position: { x: e.clientX, y: e.clientY } });
+        }}
         onClick={() => {
           setSelectedIdea(title);
           if (scriptTopic && scriptTopic.trim() !== "") {
@@ -8399,7 +9278,7 @@ export default function App() {
         whileHover={{ 
           y: -4, 
           scale: 1.015,
-          borderColor: "rgba(224, 75, 142, 0.45)"
+          borderColor: activeHex ? `${activeHex}99` : isWorkingTopic ? "rgba(16, 185, 129, 0.75)" : "rgba(224, 75, 142, 0.45)"
         }}
         whileTap={{ scale: 0.995 }}
         transition={{ 
@@ -8409,14 +9288,47 @@ export default function App() {
           layout: { type: "spring", stiffness: 300, damping: 30 }
         }}
         className={`p-3.5 rounded-2xl border cursor-pointer group relative min-w-0 overflow-hidden break-words transition-all ${
-          selectedIdea === title
-            ? "bg-accent/10 border-accent/40 shadow-lg shadow-accent/10"
-            : isSequelChild
-              ? "bg-purple-950/20 border-purple-500/35 hover:border-purple-500/55 shadow-sm"
-              : "bg-surface border-border hover:border-accent/30"
+          isWorkingTopic
+            ? isSelectedIdea
+              ? "bg-gradient-to-br from-emerald-950/40 via-emerald-900/25 to-neutral-900/90 border-emerald-500/80 shadow-xl shadow-emerald-500/15 ring-1 ring-emerald-400/50"
+              : "bg-emerald-950/25 border-emerald-500/60 shadow-lg shadow-emerald-950/50 ring-1 ring-emerald-500/30"
+            : isSelectedIdea
+              ? "bg-accent/10 border-accent/40 shadow-lg shadow-accent/10"
+              : isSequelChild
+                ? "bg-purple-950/20 border-purple-500/35 hover:border-purple-500/55 shadow-sm"
+                : "bg-surface border-border hover:border-accent/30"
         }`}
       >
+        {/* Visual Indicator: Left Colored Accent Bar */}
+        {isWorkingTopic ? (
+          <div 
+            className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-emerald-400 via-teal-400 to-emerald-600 rounded-l-2xl shadow-[0_0_12px_rgba(16,185,129,0.8)] z-10" 
+            title="Рабочая тема сценария"
+          />
+        ) : activeHex ? (
+          <div 
+            style={accentBarStyle}
+            className="absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl z-10" 
+            title={`Цвет карточки: ${assignment.colorType === "status" ? `По статусу (${assignment.status || "Идея"})` : assignment.colorType === "category" ? `По рубрике (${assignment.folder})` : activeHex}`}
+          />
+        ) : null}
+
         <div className="flex flex-col gap-2 min-w-0">
+          {/* Status Badge: Active Working Topic in Script */}
+          {isWorkingTopic && (
+            <div className="flex items-center justify-between gap-2 pl-0.5 mb-0.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm shadow-emerald-500/25">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />
+                <span>Рабочая тема сценария</span>
+              </span>
+              <span className="text-[9px] font-bold text-emerald-400/90 hidden sm:inline-flex items-center gap-1 bg-emerald-950/70 px-1.5 py-0.5 rounded-md border border-emerald-500/30">
+                <Target size={10} className="text-emerald-400 shrink-0" />
+                <span>В сценарии</span>
+              </span>
+            </div>
+          )}
+
           <div className="flex items-start gap-2.5 min-w-0">
             <input
               type="checkbox"
@@ -8433,7 +9345,13 @@ export default function App() {
             />
             <div className="space-y-1 flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
-                <p className={`text-[13px] font-bold transition-colors break-words flex-1 leading-snug ${selectedIdea === title ? "text-white" : "text-neutral-300 group-hover:text-accent"}`}>
+                <p className={`text-sm sm:text-base font-bold transition-colors break-words flex-1 leading-snug ${
+                  isWorkingTopic 
+                    ? "text-emerald-200 group-hover:text-emerald-100 font-extrabold" 
+                    : isSelectedIdea 
+                      ? "text-white" 
+                      : "text-neutral-200 group-hover:text-accent"
+                }`}>
                   {title}
                 </p>
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -8500,7 +9418,7 @@ export default function App() {
                       
                       e.target.value = `status:${assignment.status || "Идея"}`;
                     }}
-                    className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold border cursor-pointer transition-all focus:outline-none shadow-sm ${selectedStatusTagFilter === `status:${assignment.status || "Идея"}` ? "ring-2 ring-accent border-accent shadow-accent/25" : ""} ${getIdeaStatusObj(assignment.status).bg}`}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all focus:outline-none shadow-sm ${selectedStatusTagFilter === `status:${assignment.status || "Идея"}` ? "ring-2 ring-accent border-accent shadow-accent/25" : ""} ${getIdeaStatusObj(assignment.status).bg}`}
                     title="Статус задачи и управление метками"
                   >
                     <optgroup label="📌 Статус задачи" className="bg-neutral-900 text-neutral-300 font-bold">
@@ -8537,6 +9455,23 @@ export default function App() {
                   </select>
 
                   <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setContextMenuIdea({ title, position: { x: Math.max(10, rect.left - 180), y: rect.bottom + 6 } });
+                    }}
+                    className={`p-1.5 rounded-lg transition-all shrink-0 cursor-pointer ${
+                      activeHex 
+                        ? "text-white bg-neutral-800/80 border border-neutral-700 shadow-sm" 
+                        : "text-neutral-500 hover:text-accent hover:bg-neutral-800/80"
+                    }`}
+                    title="Цвет карточки (палитра, статус, рубрика)"
+                  >
+                    <Palette size={13} style={{ color: activeHex || undefined }} />
+                  </button>
+
+                  <button
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteSingleIdeaTrigger(title);
@@ -8552,11 +9487,11 @@ export default function App() {
               {isDetailed && idea.description && (
                 <>
                   {(idea.description.includes("Логическое продолжение") || idea.description.includes("продолжение") || idea.description.includes("🔄")) && (
-                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 mb-1">
+                    <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 mb-1">
                       <span>🔄 Логическое продолжение</span>
                     </div>
                   )}
-                  <p className="text-[10px] text-neutral-400 italic line-clamp-2 leading-relaxed">
+                  <p className="text-xs sm:text-[13px] text-neutral-300 italic line-clamp-2 leading-relaxed">
                     {idea.description}
                   </p>
                 </>
@@ -8587,22 +9522,247 @@ export default function App() {
                   </div>
                 );
               })()}
+
+              {/* Automatic Playlist Suggestion (> 5 ideas in niche) */}
+              <IdeaPlaylistSuggestionBanner
+                nicheName={selectedNiche}
+                totalNicheIdeasCount={totalNicheIdeasCount}
+                currentIdeaTitle={title}
+                currentIdeaDescription={isDetailed ? idea.description : undefined}
+                currentPlaylist={assignment.playlist}
+                existingPlaylists={ideaPlaylists}
+                suggestedPlaylistName={topSug?.name || `🎬 ${selectedNiche || "Главная серия"}`}
+                suggestedReason={topSug?.reason || "Объединит похожие видео для роста удержания аудитории"}
+                onAssignPlaylist={(pName) => {
+                  if (!ideaPlaylists.includes(pName)) {
+                    setIdeaPlaylists(prev => [...prev, pName]);
+                  }
+                  setIdeaAssignments(prev => ({
+                    ...prev,
+                    [title]: { ...prev[title], playlist: pName }
+                  }));
+                }}
+                onBatchAssignSimilar={(pName) => {
+                  if (!ideaPlaylists.includes(pName)) {
+                    setIdeaPlaylists(prev => [...prev, pName]);
+                  }
+                  setIdeaAssignments(prev => {
+                    const next = { ...prev };
+                    sortedIdeas.forEach((si: any) => {
+                      const siTitle = typeof si === "string" ? si : si.title;
+                      if (!next[siTitle]?.playlist) {
+                        next[siTitle] = { ...next[siTitle], playlist: pName };
+                      }
+                    });
+                    return next;
+                  });
+                  toast.success(`Плейлист «${pName}» назначен всем подходящим идеям ниши! 🎬`);
+                }}
+                similarIdeasCount={sortedIdeas.filter((si: any) => {
+                  const t = typeof si === "string" ? si : si.title;
+                  return !ideaAssignments[t]?.playlist;
+                }).length}
+              />
+
+              {/* Compact AI Alternatives Panel (Titles & Descriptions via optimizeTitle) */}
+              <AnimatePresence>
+                {expandedAlternatives[title] && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-2.5 p-2.5 bg-neutral-950/90 rounded-xl border border-amber-500/30 space-y-2 overflow-hidden shadow-inner text-left"
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between gap-2 border-b border-amber-500/15 pb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Sparkles size={11} className="text-amber-400 shrink-0" />
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 truncate">
+                          AI Варианты заголовков и описания
+                        </span>
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 hidden sm:inline">
+                          optimizeTitle
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateAlternatives(title, isDetailed ? idea.description : undefined)}
+                          disabled={ideaAlternatives[title]?.isLoading}
+                          className="px-2 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                          title="Сгенерировать новые варианты через optimizeTitle"
+                        >
+                          <RefreshCw size={9} className={ideaAlternatives[title]?.isLoading ? "animate-spin text-amber-400" : ""} />
+                          <span>{ideaAlternatives[title]?.isLoading ? "Генерация..." : "Обновить"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedAlternatives(prev => ({ ...prev, [title]: false }))}
+                          className="p-1 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded transition-colors"
+                          title="Свернуть панель"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Loading State */}
+                    {ideaAlternatives[title]?.isLoading && (!ideaAlternatives[title]?.titles || ideaAlternatives[title]?.titles?.length === 0) ? (
+                      <div className="py-2.5 flex items-center justify-center gap-2 text-xs text-amber-300 font-medium">
+                        <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
+                        <span>Подбор вариантов заголовка (optimizeTitle) и описания...</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Alternative Titles List */}
+                        {ideaAlternatives[title]?.titles && ideaAlternatives[title]?.titles.length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center justify-between">
+                              <span className="flex items-center gap-1.5 text-neutral-300">
+                                <Target size={12} className="text-amber-400" />
+                                <span>Заголовки (CTR-оптимизация):</span>
+                              </span>
+                              <span className="text-xs text-neutral-500 font-mono">{ideaAlternatives[title]?.titles?.length} вар.</span>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {ideaAlternatives[title]?.titles.map((altTitle, altIdx) => (
+                                <div
+                                  key={`alt-title-${altIdx}-${altTitle.slice(0, 15)}`}
+                                  className="p-2 bg-neutral-900/90 hover:bg-neutral-850 border border-neutral-800/90 hover:border-amber-500/40 rounded-lg flex items-center justify-between gap-2 transition-all"
+                                >
+                                  <p className="text-xs text-neutral-200 font-medium leading-snug flex-1 break-words">
+                                    {altTitle}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApplyOptimizedTitle(title, altTitle)}
+                                      className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                      title="Заменить текущий заголовок идеи на этот"
+                                    >
+                                      <Check size={11} />
+                                      <span>Применить</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        copyTextToClipboard(altTitle);
+                                        toast.success("Заголовок скопировано! 📋");
+                                      }}
+                                      className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs transition-colors cursor-pointer"
+                                      title="Скопировать заголовок"
+                                    >
+                                      <Copy size={11} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedIdea(altTitle);
+                                        setScriptTopic(altTitle);
+                                        setIsScriptTopicLocked(true);
+                                        toast.success(`Тема "${altTitle}" выбрана для сценария! 🚀`);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-accent/15 hover:bg-accent/25 text-accent text-xs transition-colors cursor-pointer"
+                                      title="Использовать как рабочую тему сценария"
+                                    >
+                                      <Zap size={11} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Alternative Descriptions */}
+                        {ideaAlternatives[title]?.descriptions && ideaAlternatives[title]?.descriptions.length > 0 && (
+                          <div className="space-y-1.5 pt-2 border-t border-neutral-800/60">
+                            <div className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                              <FileText size={12} className="text-amber-400" />
+                              <span>Альтернативное описание / тизер:</span>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {ideaAlternatives[title]?.descriptions.map((altDesc, descIdx) => (
+                                <div
+                                  key={`alt-desc-${descIdx}`}
+                                  className="p-2.5 bg-neutral-900/80 border border-neutral-800/80 rounded-lg space-y-2"
+                                >
+                                  <p className="text-xs text-neutral-300 leading-relaxed italic">
+                                    {altDesc}
+                                  </p>
+                                  <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-neutral-800/50">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApplyOptimizedDescription(title, altDesc)}
+                                      className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                      title="Установить это описание в карточку идеи"
+                                    >
+                                      <Check size={11} />
+                                      <span>Применить описание</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        copyTextToClipboard(altDesc);
+                                        toast.success("Описание скопировано! 📋");
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                      title="Скопировать описание"
+                                    >
+                                      <Copy size={11} />
+                                      <span>Копировать</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Empty state inside panel */}
+                        {(!ideaAlternatives[title]?.titles || ideaAlternatives[title]?.titles?.length === 0) &&
+                         (!ideaAlternatives[title]?.descriptions || ideaAlternatives[title]?.descriptions?.length === 0) &&
+                         !ideaAlternatives[title]?.isLoading && (
+                          <div className="text-center py-2.5">
+                            <p className="text-xs text-neutral-400 mb-2">
+                              Нет сгенерированных вариантов для этой идеи
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateAlternatives(title, isDetailed ? idea.description : undefined)}
+                              className="px-3.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                            >
+                              <Sparkles size={13} />
+                              <span>Сгенерировать AI-варианты (optimizeTitle)</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
-          <div className="pl-6 flex flex-wrap gap-1.5">
+          <div className="pl-6 flex flex-wrap gap-2">
             {isDetailed && idea.duration && (
-              <span className="px-2 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[9px] text-neutral-400 flex items-center gap-1">
-                <Clock size={10} /> {idea.duration}
+              <span className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-neutral-400 flex items-center gap-1.5">
+                <Clock size={12} /> {idea.duration}
               </span>
             )}
             {assignment.folder && assignment.folder !== "none" && (
-              <span className="px-2 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded text-[9px] font-bold flex items-center gap-1">
+              <span className="px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 rounded-lg text-xs font-bold flex items-center gap-1.5">
                 📁 {assignment.folder}
               </span>
             )}
-            {assignment.playlist && assignment.playlist !== "none" && (
-              <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-[9px] font-bold flex items-center gap-1">
+            {assignment.playlist && assignment.playlist !== "none" ? (
+              <span className="px-2.5 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg text-xs font-bold flex items-center gap-1.5">
                 🎬 {assignment.playlist}
                 <button
                   type="button"
@@ -8617,10 +9777,44 @@ export default function App() {
                   className="hover:text-red-400 ml-1 transition-colors cursor-pointer"
                   title="Убрать из плейлиста"
                 >
-                  <X size={9} />
+                  <X size={12} />
                 </button>
               </span>
-            )}
+            ) : (() => {
+              const cardSuggestions = getSuggestedPlaylistsForNiche(selectedNiche, title, isDetailed ? idea.description : "", ideaPlaylists);
+              if (cardSuggestions.length === 0) return null;
+              const topSug = cardSuggestions[0];
+              const isExisting = ideaPlaylists.includes(topSug.name);
+              return (
+                <span
+                  onClick={(e) => e.stopPropagation()}
+                  className="px-2.5 py-1 bg-gradient-to-r from-purple-500/15 via-indigo-500/15 to-purple-500/20 border border-purple-500/35 rounded-lg text-xs font-medium text-purple-200 flex items-center gap-2 shadow-sm"
+                  title={topSug.reason || `Рекомендуемый плейлист для данной темы`}
+                >
+                  <Sparkles size={13} className="text-purple-300 shrink-0" />
+                  <span>Реком. плейлист: <strong className="text-white font-bold">{topSug.name}</strong></span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!ideaPlaylists.includes(topSug.name)) {
+                        setIdeaPlaylists(prev => [...prev, topSug.name]);
+                      }
+                      setIdeaAssignments(prev => ({
+                        ...prev,
+                        [title]: { ...prev[title], playlist: topSug.name }
+                      }));
+                      toast.success(`Помещено в плейлист: ${topSug.name} 🎬`);
+                    }}
+                    className="ml-1 px-2 py-0.5 bg-purple-500/30 hover:bg-purple-500/50 text-white rounded font-bold transition-all text-xs flex items-center gap-1 cursor-pointer border border-purple-400/40"
+                    title={isExisting ? `Привязать к плейлисту "${topSug.name}"` : `Создать и привязать плейлист "${topSug.name}"`}
+                  >
+                    <Plus size={11} />
+                    <span>{isExisting ? "В плейлист" : "+ Создать"}</span>
+                  </button>
+                </span>
+              );
+            })()}
             {(assignment.tags || []).map((tagId: string, tagIdx: number) => {
               const tag = ideaTags.find(t => t.id === tagId);
               if (!tag) return null;
@@ -8638,7 +9832,7 @@ export default function App() {
                       toast.success(`Фильтр по метке "${tag.name}" активен 🏷️`);
                     }
                   }}
-                  className={`px-2 py-0.5 border rounded-lg text-[9px] font-bold flex items-center gap-1.5 transition-all cursor-pointer select-none ${
+                  className={`px-2.5 py-1 border rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer select-none ${
                     isTagFiltered
                       ? "ring-2 ring-accent border-accent bg-accent/25 text-white font-extrabold shadow-sm shadow-accent/25 scale-105"
                       : `${getTagColorClasses(tag.color)} hover:opacity-90 hover:scale-102`
@@ -8665,19 +9859,19 @@ export default function App() {
                     className="hover:text-red-400 ml-0.5 p-0.5 rounded hover:bg-black/30 transition-colors cursor-pointer"
                     title="Удалить метку"
                   >
-                    <X size={9} />
+                    <X size={12} />
                   </button>
                 </span>
               );
             })}
           </div>
 
-          <div className="pl-0 sm:pl-6 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/20 min-w-0 max-w-full">
-            <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="pl-0 sm:pl-6 flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-border/20 min-w-0 max-w-full">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={(e) => { e.stopPropagation(); handleGenerateIdeaDetails(title); }}
                 disabled={!!isGeneratingIdeaDetails[title]}
-                className={`border rounded-lg text-[9px] py-1 px-2 font-bold flex items-center gap-1.5 transition-all shadow-sm ${
+                className={`border rounded-lg text-xs py-1.5 px-2.5 font-bold flex items-center gap-1.5 transition-all shadow-sm ${
                   isGeneratingIdeaDetails[title]
                     ? "bg-primary/20 text-primary border-primary/50 cursor-wait opacity-85"
                     : "bg-primary/15 hover:bg-primary/25 text-primary border border-primary/40 cursor-pointer"
@@ -8686,12 +9880,12 @@ export default function App() {
               >
                 {isGeneratingIdeaDetails[title] ? (
                   <>
-                    <Loader2 size={10} className="animate-spin text-primary" />
+                    <Loader2 size={12} className="animate-spin text-primary" />
                     <span>План...</span>
                   </>
                 ) : (
                   <>
-                    <Sparkles size={10} />
+                    <Sparkles size={12} />
                     <span>План</span>
                   </>
                 )}
@@ -8703,24 +9897,74 @@ export default function App() {
                   onChange={(e) => {
                     e.stopPropagation();
                     const val = e.target.value;
-                    if (val === "sequels") {
+                    if (val === "alternatives") {
+                      if (!expandedAlternatives[title]) {
+                        setExpandedAlternatives(prev => ({ ...prev, [title]: true }));
+                      }
+                      handleGenerateAlternatives(title, isDetailed ? idea.description : undefined);
+                    } else if (val === "sequels") {
                       handleGenerateSequels(title, isDetailed ? idea.description : undefined);
                     } else if (val === "analysis") {
                       handleTriggerDeepAnalysis(title, selectedNiche, isDetailed ? idea.description : undefined);
                     }
                     e.target.value = "";
                   }}
-                  className="bg-neutral-900 hover:bg-neutral-800 border border-accent/30 text-accent rounded-lg text-[9px] py-1 px-2 font-bold cursor-pointer transition-colors focus:outline-none"
+                  className="bg-neutral-900 hover:bg-neutral-800 border border-accent/30 text-accent rounded-lg text-xs py-1.5 px-2.5 font-bold cursor-pointer transition-colors focus:outline-none"
                   title="Дополнительные AI-инструменты"
                 >
                   <option value="">⚡ AI Инструменты...</option>
+                  <option value="alternatives">✨ AI Варианты (optimizeTitle)</option>
                   <option value="sequels">🎬 Сгенерировать сиквелы</option>
                   <option value="analysis">🧠 Глубокий AI-анализ</option>
                 </select>
                 {isGeneratingSequels[title] && (
-                  <Loader2 size={11} className="animate-spin text-accent absolute right-2 top-1.5 pointer-events-none" />
+                  <Loader2 size={12} className="animate-spin text-accent absolute right-2 top-2 pointer-events-none" />
                 )}
               </div>
+
+              {/* Compact Toggle / Generator button for AI Alternatives */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const isCurrentlyExpanded = expandedAlternatives[title];
+                  if (!isCurrentlyExpanded) {
+                    setExpandedAlternatives(prev => ({ ...prev, [title]: true }));
+                    // If no alternatives generated yet, auto-generate on first click
+                    if (!ideaAlternatives[title]?.titles || ideaAlternatives[title]?.titles?.length === 0) {
+                      handleGenerateAlternatives(title, isDetailed ? idea.description : undefined);
+                    }
+                  } else {
+                    setExpandedAlternatives(prev => ({ ...prev, [title]: false }));
+                  }
+                }}
+                disabled={!!ideaAlternatives[title]?.isLoading}
+                className={`rounded-lg text-xs py-1.5 px-2.5 font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  expandedAlternatives[title]
+                    ? "bg-amber-500/25 text-amber-300 border-amber-500/60 shadow-sm"
+                    : ideaAlternatives[title]?.titles && ideaAlternatives[title]?.titles.length > 0
+                    ? "bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30"
+                    : "bg-neutral-900 hover:bg-neutral-800 text-neutral-400 border-neutral-800 hover:text-amber-300"
+                }`}
+                title="Альтернативные заголовки и описания (optimizeTitle)"
+              >
+                {ideaAlternatives[title]?.isLoading ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin text-amber-400" />
+                    <span>AI...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={12} className={ideaAlternatives[title]?.titles?.length ? "text-amber-400" : ""} />
+                    <span>
+                      {expandedAlternatives[title]
+                        ? "Варианты ▲"
+                        : ideaAlternatives[title]?.titles?.length
+                        ? `Варианты (${ideaAlternatives[title]?.titles?.length})`
+                        : "Варианты"}
+                    </span>
+                  </>
+                )}
+              </button>
 
               <button
                 onClick={(e) => {
@@ -8729,14 +9973,14 @@ export default function App() {
                   setQuickNoteText(assignment.note || "");
                   setShowQuickNoteModal(true);
                 }}
-                className={`rounded-lg text-[9px] py-1 px-2 font-bold flex items-center gap-1 transition-all cursor-pointer border ${
+                className={`rounded-lg text-xs py-1.5 px-2.5 font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
                   assignment.note
                     ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm"
                     : "bg-neutral-900 hover:bg-neutral-800 text-neutral-400 border-neutral-800 hover:text-neutral-200"
                 }`}
                 title="Быстрая заметка к идее"
               >
-                <FileText size={10} className={assignment.note ? "text-amber-400" : "text-neutral-400"} />
+                <FileText size={12} className={assignment.note ? "text-amber-400" : "text-neutral-400"} />
                 <span>{assignment.note ? "Заметка ✓" : "Заметка"}</span>
               </button>
 
@@ -8748,60 +9992,87 @@ export default function App() {
                   setIsScriptTopicLocked(true);
                   toast.success(`Тема "${title}" зафиксирована как рабочая для всех разделов! 🚀`);
                 }}
-                className={`rounded-lg text-[9px] py-1 px-2 font-bold flex items-center gap-1 transition-all cursor-pointer border ${
-                  scriptTopic === title
-                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm"
-                    : "bg-accent/15 hover:bg-accent/25 text-accent border-accent/40 shadow-sm"
+                className={`rounded-lg text-xs py-1.5 px-2.5 font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  isWorkingTopic
+                    ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/60 shadow-sm shadow-emerald-500/25 ring-1 ring-emerald-500/40"
+                    : "bg-accent/15 hover:bg-accent/25 text-accent border-accent/40 shadow-sm hover:scale-102"
                 }`}
-                title={scriptTopic === title ? "Эта тема сейчас является рабочей для всех разделов" : "Сделать этой идеей рабочую тему для сценария, SEO и промптов"}
+                title={isWorkingTopic ? "Эта тема сейчас является рабочей для всех разделов" : "Сделать этой идеей рабочую тему для сценария, SEO и промптов"}
               >
-                {scriptTopic === title ? (
+                {isWorkingTopic ? (
                   <>
-                    <Check size={10} className="text-emerald-400" />
+                    <Check size={12} className="text-emerald-400" />
                     <span>В работе ✓</span>
                   </>
                 ) : (
                   <>
-                    <Zap size={10} />
+                    <Zap size={12} />
                     <span>Взять в работу</span>
                   </>
                 )}
               </button>
             </div>
 
-            <div className="flex items-center gap-1.5 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 min-w-0" onClick={(e) => e.stopPropagation()}>
               <NicheTooltip niche={selectedNiche} type="playlists">
-                <select
-                  value={assignment.playlist || ""}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    const val = e.target.value;
-                    if (val === "__new__") {
-                      setShowManageFoldersTags(true);
-                      toast.info("Панель управления плейлистами открыта сверху");
-                      return;
-                    }
-                    setIdeaAssignments(prev => ({
-                      ...prev,
-                      [title]: { ...prev[title], playlist: val === "none" || !val ? undefined : val }
-                    }));
-                    if (val === "none" || !val) {
-                      toast.success("Идея убрана из плейлиста");
-                    } else {
-                      toast.success(`Помещено в плейлист: ${val}`);
-                    }
-                  }}
-                  className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 rounded-lg px-1.5 py-1 text-[9px] text-neutral-300 focus:outline-none focus:border-accent cursor-pointer transition-colors font-sans max-w-[130px] truncate"
-                >
-                  <option value="">🎬 В плейлист...</option>
-                  {assignment.playlist && assignment.playlist !== "none" && (
-                    <option value="none">❌ Без плейлиста</option>
-                  )}
-                  {ideaPlaylists.map((p, pIdx) => (
-                    <option key={`playlist-opt-${pIdx}-${p}`} value={p}>{p}</option>
-                  ))}
-                  <option value="__new__">➕ + Новый плейлист...</option>
-                </select>
+                {(() => {
+                  const cardSuggestions = getSuggestedPlaylistsForNiche(selectedNiche, title, isDetailed ? idea.description : "", ideaPlaylists);
+                  return (
+                    <select
+                      value={assignment.playlist || ""}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        let val = e.target.value;
+                        if (val === "__new__") {
+                          setShowManageFoldersTags(true);
+                          toast.info("Панель управления плейлистами открыта сверху");
+                          return;
+                        }
+                        if (val.startsWith("__sug__:")) {
+                          val = val.replace("__sug__:", "");
+                          if (!ideaPlaylists.includes(val)) {
+                            setIdeaPlaylists(prev => [...prev, val]);
+                          }
+                        }
+                        setIdeaAssignments(prev => ({
+                          ...prev,
+                          [title]: { ...prev[title], playlist: val === "none" || !val ? undefined : val }
+                        }));
+                        if (val === "none" || !val) {
+                          toast.success("Идея убрана из плейлиста");
+                        } else {
+                          toast.success(`Помещено в плейлист: ${val}`);
+                        }
+                      }}
+                      className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 rounded-lg px-2.5 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-accent cursor-pointer transition-colors font-sans max-w-[160px] truncate font-medium"
+                    >
+                      <option value="">🎬 В плейлист...</option>
+                      {assignment.playlist && assignment.playlist !== "none" && (
+                        <option value="none">❌ Без плейлиста</option>
+                      )}
+
+                      {ideaPlaylists.length > 0 && (
+                        <optgroup label="📁 Мои плейлисты">
+                          {ideaPlaylists.map((p, pIdx) => (
+                            <option key={`playlist-opt-${pIdx}-${p}`} value={p}>{p}</option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {cardSuggestions.length > 0 && (
+                        <optgroup label="✨ Предложения по теме">
+                          {cardSuggestions.map((sug, sIdx) => (
+                            <option key={`sug-card-${sIdx}-${sug.name}`} value={`__sug__:${sug.name}`}>
+                              {sug.name} (Рекомендация)
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      <option value="__new__">➕ + Новый плейлист...</option>
+                    </select>
+                  );
+                })()}
               </NicheTooltip>
             </div>
           </div>
@@ -9035,6 +10306,57 @@ export default function App() {
                     </motion.div>
                   );
                 })()}
+
+                {/* Context Menu for Idea Cards */}
+                {contextMenuIdea && (
+                  <IdeaCardContextMenu
+                    isOpen={Boolean(contextMenuIdea)}
+                    onClose={() => setContextMenuIdea(null)}
+                    position={contextMenuIdea.position}
+                    currentColor={ideaAssignments[contextMenuIdea.title]?.color}
+                    currentColorType={ideaAssignments[contextMenuIdea.title]?.colorType}
+                    currentStatus={ideaAssignments[contextMenuIdea.title]?.status || "Идея"}
+                    currentCategory={ideaAssignments[contextMenuIdea.title]?.folder}
+                    playlists={ideaPlaylists}
+                    suggestedPlaylist={getSuggestedPlaylistsForNiche(selectedNiche, contextMenuIdea.title, undefined, ideaPlaylists)[0]?.name}
+                    ideaTitle={contextMenuIdea.title}
+                    onSelectColor={(color, colorType) => {
+                      setIdeaAssignments(prev => ({
+                        ...prev,
+                        [contextMenuIdea.title]: {
+                          ...prev[contextMenuIdea.title],
+                          color,
+                          colorType,
+                        }
+                      }));
+                      if (color) {
+                        toast.success("Цвет карточки обновлен 🎨");
+                      } else {
+                        toast.info("Цвет карточки сброшен на стандартный");
+                      }
+                    }}
+                    onAddToPlaylist={(pName) => {
+                      if (!ideaPlaylists.includes(pName)) {
+                        setIdeaPlaylists(prev => [...prev, pName]);
+                      }
+                      setIdeaAssignments(prev => ({
+                        ...prev,
+                        [contextMenuIdea.title]: {
+                          ...prev[contextMenuIdea.title],
+                          playlist: pName,
+                        }
+                      }));
+                      toast.success(`Идея добавлена в плейлист «${pName}» 🎬`);
+                    }}
+                    onCopyTitle={() => {
+                      copyTextToClipboard(contextMenuIdea.title);
+                      toast.success("Название идеи скопировано!");
+                    }}
+                    onDelete={() => {
+                      handleDeleteSingleIdeaTrigger(contextMenuIdea.title);
+                    }}
+                  />
+                )}
               </>
             )}
 
@@ -9186,12 +10508,20 @@ export default function App() {
             }}
             scriptRecommendations={scriptImprovements}
             isGeneratingRecommendations={isAnalyzingScript}
+            isApplyingImprovement={isApplyingImprovement}
+            isApplyingAllRecs={isApplyingAllRecs}
             handleGenerateScriptRecommendations={handleAnalyzeScriptRetention}
             handleApplyScriptRecommendation={handleApplyRetentionImprovement}
+            handleApplyAllRecommendations={handleApplyAllRecommendations}
+            handleParseAndAddRecommendations={handleParseAndAddRecommendations}
+            handleAddCustomRecommendation={handleAddCustomRecommendation}
+            handleRemoveImprovement={handleRemoveImprovement}
+            handleClearAllImprovements={handleClearAllImprovements}
             handleSelectBlockAndScrollToPrompts={handleSelectBlockAndScrollToPrompts}
             renderIdeaBanner={renderIdeaBanner}
             activeModel={selectedModel}
             copyToClipboard={copyToClipboard}
+            onNavigateToSEO={() => setActivePage("SEO")}
           />
         );
 
@@ -9229,6 +10559,7 @@ export default function App() {
             titleAnalysis={titleAnalysis}
             previewThumbnail={previewThumbnail}
             setPreviewThumbnail={setPreviewThumbnail}
+            YouTubeCardPreview={YouTubeCardPreview}
             thumbnailVariants={thumbnailVariants}
             setThumbnailVariants={setThumbnailVariants}
             previewBorderColor={previewBorderColor}
@@ -9242,6 +10573,11 @@ export default function App() {
             handleForceRegenerateThumbnailStyle={handleForceRegenerateThumbnailStyle}
             customInstructions={customInstructions}
             isCustomInstructionsEnabled={isCustomInstructionsEnabled}
+            setIsCustomInstructionsEnabled={setIsCustomInstructionsEnabled}
+            customRules={customRules}
+            setCustomRules={setCustomRules}
+            handleApplyAllRuleFixes={handleApplyAllRuleFixes}
+            setShowCustomInstructionsModal={setShowCustomInstructionsModal}
             scriptStructure={scriptStructure}
             generatedBlocks={generatedBlocks}
             renderIdeaBanner={renderIdeaBanner}
@@ -9354,9 +10690,9 @@ export default function App() {
           <AnimatePresence mode="wait">
             <motion.div
               key={activePage}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
               {renderContent()}

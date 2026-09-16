@@ -5,4 +5,6 @@ export * from "./audioService";
 export * from "./seoService";
 export * from "./channelService";
 export * from "./shortsService";
+export * from "./subtitlesService";
+export * from "./socialService";
 export * from "../../types";

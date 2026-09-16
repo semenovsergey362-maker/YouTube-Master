@@ -92,12 +92,14 @@ interface AppContextType {
   setDebugEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   myChannelVideos: ChannelVideoInfo[];
   setMyChannelVideos: React.Dispatch<React.SetStateAction<ChannelVideoInfo[]>>;
+  scriptTopic: string;
+  setScriptTopic: React.Dispatch<React.SetStateAction<string>>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const DEFAULT_MODEL = 'gemini-3.7-flash';
-const VALID_MODELS = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-pro-preview'];
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+const VALID_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-3.5-flash'];
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedNiche, setSelectedNiche] = useState(() => {
@@ -133,6 +135,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [audiencePortrait, setAudiencePortrait] = useState<AudiencePortrait | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRegeneratingIdeas, setIsRegeneratingIdeas] = useState(false);
+  const [scriptTopic, setScriptTopic] = useState(() => {
+    try {
+      return safeStorage.getItem('yt_script_topic') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  useEffect(() => {
+    if (scriptTopic) {
+      safeStorage.setItem('yt_script_topic', scriptTopic);
+    }
+  }, [scriptTopic]);
+
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
   const [selectedBranding, setSelectedBranding] = useState<{ name: string; slogan: string } | null>(null);
   const [scriptKeywords, setScriptKeywords] = useState('');
@@ -171,7 +187,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedModel, setSelectedModel] = useState(() => {
     try {
       const saved = safeStorage.getItem('yt_selected_model');
-      return (saved && VALID_MODELS.includes(saved)) ? saved : DEFAULT_MODEL;
+      if (saved && VALID_MODELS.includes(saved) && saved !== 'gemini-3.8-flash' && saved !== 'gemini-flash-latest' && saved !== 'gemini-3.7-flash') {
+        return saved;
+      }
+      safeStorage.setItem('yt_selected_model', DEFAULT_MODEL);
+      return DEFAULT_MODEL;
     } catch {
       return DEFAULT_MODEL;
     }
@@ -219,7 +239,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         if (savedThumbnail) setPreviewThumbnail(savedThumbnail);
 
         const savedModel = await get('selected_model');
-        if (savedModel && VALID_MODELS.includes(savedModel)) setSelectedModel(savedModel);
+        if (savedModel && VALID_MODELS.includes(savedModel) && savedModel !== 'gemini-3.8-flash' && savedModel !== 'gemini-flash-latest' && savedModel !== 'gemini-3.7-flash') {
+          setSelectedModel(savedModel);
+        } else {
+          setSelectedModel(DEFAULT_MODEL);
+          set('selected_model', DEFAULT_MODEL).catch(() => {});
+        }
 
         const savedBrandProfile = await get('brand_profile');
         if (savedBrandProfile) setBrandProfile(savedBrandProfile);
@@ -494,7 +519,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       pinnedStyles, setPinnedStyles,
       savedSEOs, setSavedSEOs,
       debugEnabled, setDebugEnabled,
-      myChannelVideos, setMyChannelVideos
+      myChannelVideos, setMyChannelVideos,
+      scriptTopic, setScriptTopic
     }}>
       {children}
     </AppContext.Provider>

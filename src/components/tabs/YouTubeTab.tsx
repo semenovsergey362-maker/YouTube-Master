@@ -1,5 +1,5 @@
 import { logger } from "../../config/logger";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ScrollFadeIn } from "../ScrollFadeIn";
 import { 
@@ -7,7 +7,7 @@ import {
   TrendingDown, Target, User, Users, Play, HelpCircle, Lock, 
   Key, Link2, Plus, Check, Loader2, BarChart3, AlertCircle, 
   Award, Compass, ArrowRight, ExternalLink, X, Flame, Globe,
-  Eye, Heart, Calendar
+  Eye, Heart, Calendar, LayoutGrid, Trash2, Bookmark, Edit2
 } from "lucide-react";
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
@@ -15,12 +15,21 @@ import {
   PolarRadiusAxis, Radar, Legend, LineChart, Line, CartesianGrid,
   PieChart, Pie
 } from "recharts";
-import { generateCompetitorResearch, CompetitorResearchResult, CompetitorChannel, generateTrendingQueries, generateChannelStrategy } from "../../services/geminiService";
+import { 
+  generateCompetitorResearch, 
+  analyzeSingleCompetitorChannel, 
+  fetchYouTubeChannelDirectInfo,
+  CompetitorResearchResult, 
+  CompetitorChannel, 
+  generateTrendingQueries, 
+  generateChannelStrategy 
+} from "../../services/geminiService";
 import { useApp } from "../../context/AppContext";
 import { logout, refreshAuthSession } from "../../firebase";
 import { safeStorage } from "../../lib/storage";
 import { toast } from "sonner";
-import { handleAppError } from "../../utils/helpers";
+import { handleAppError, copyToClipboard } from "../../utils/helpers";
+import { ChannelPlaylistsSection } from "../ChannelPlaylistsSection";
 
 const parseSubsToNumber = (subsStr: string | undefined): number => {
   if (!subsStr) return 0;
@@ -86,7 +95,7 @@ export const YouTubeTab = ({
   trendData,
   demoData,
 }: YouTubeTabProps) => {
-  const { nicheData, videoSEO, setVideoSEO, selectedRegion, setSelectedRegion, myChannelVideos, setMyChannelVideos } = useApp();
+  const { nicheData, videoSEO, setVideoSEO, selectedRegion, setSelectedRegion, myChannelVideos, setMyChannelVideos, scriptTopic } = useApp();
 
   const getChannelUrl = (competitor: any) => {
     if (competitor.channelUrl) {
@@ -120,10 +129,29 @@ export const YouTubeTab = ({
       { name: "45+", value: 50 },
     ];
 
+  // Authenticated fetch helper that includes stored YouTube tokens
+  const authFetch = async (url: string, options: RequestInit = {}) => {
+    const savedTokens = safeStorage.getItem("yt_auth_tokens") || "";
+    const savedUserId = safeStorage.getItem("youtube_user_id") || "";
+    const headers = new Headers(options.headers || {});
+    if (savedTokens) headers.set("x-youtube-tokens", savedTokens);
+    if (savedUserId) headers.set("x-youtube-user-id", savedUserId);
+    return fetch(url, {
+      ...options,
+      headers,
+      credentials: "include"
+    });
+  };
+
   // Search input state
   const [searchQuery, setSearchQuery] = useState(activeNiche || "");
   const [isSearching, setIsSearching] = useState(false);
-  const [researchData, setResearchData] = useState<CompetitorResearchResult | null>(null);
+  const [researchData, setResearchData] = useState<CompetitorResearchResult | null>(() => {
+    try {
+      const saved = safeStorage.getItem(`yt_research_${activeNiche}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) { return null; }
+  });
   
   // YouTube API Integration settings state
   const [appUrl, setAppUrl] = useState(window.location.origin);
@@ -131,22 +159,94 @@ export const YouTubeTab = ({
   const [clientSecret, setClientSecret] = useState("");
   const [isOAuthConfigured, setIsOAuthConfigured] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [channelStats, setChannelStats] = useState<any>(null);
+  const [channelStats, setChannelStats] = useState<any>(() => {
+    try {
+      const saved = safeStorage.getItem("yt_channel_stats");
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) { return null; }
+  });
   const [isFetchingStats, setIsFetchingStats] = useState(false);
-  const [performance, setPerformance] = useState<ChannelPerformance | null>(null);
+  const [performance, setPerformance] = useState<ChannelPerformance | null>(() => {
+    try {
+      const saved = safeStorage.getItem("yt_channel_performance");
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) { return null; }
+  });
   const [performanceError, setPerformanceError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // AI Channel Strategy and recommendations
-  const [channelStrategy, setChannelStrategy] = useState<any>(null);
+  const [channelStrategy, setChannelStrategy] = useState<any>(() => {
+    try {
+      const cached = safeStorage.getItem(`yt_strategy_${activeNiche}`);
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) { return null; }
+  });
   const [isGeneratingStrategy, setIsGeneratingStrategy] = useState(false);
 
-  // Competitor Detail Modal
+  // Competitor Detail Modal & Custom Saved Competitors State
   const [selectedCompetitor, setSelectedCompetitor] = useState<CompetitorChannel | null>(null);
-  const [trendingQueries, setTrendingQueries] = useState<string[]>([]);
-  const [trendingSources, setTrendingSources] = useState<{ title: string; uri: string }[]>([]);
+  const [customCompetitors, setCustomCompetitors] = useState<CompetitorChannel[]>(() => {
+    try {
+      const saved = safeStorage.getItem(`yt_custom_competitors_${activeNiche || 'global'}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) { return []; }
+  });
+  const [removedCompetitors, setRemovedCompetitors] = useState<string[]>(() => {
+    try {
+      const saved = safeStorage.getItem(`yt_removed_competitors_${activeNiche || 'global'}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) { return []; }
+  });
+  const [showAddCompetitorModal, setShowAddCompetitorModal] = useState(false);
+  const [newCompetitorUrl, setNewCompetitorUrl] = useState("");
+  const [newCompetitorNameInput, setNewCompetitorNameInput] = useState("");
+  const [newCompetitorSubsInput, setNewCompetitorSubsInput] = useState("");
+  const [isFetchingDirectInfo, setIsFetchingDirectInfo] = useState(false);
+  const [syncingComp, setSyncingComp] = useState<string | null>(null);
+
+  // Edit Competitor Modal State
+  const [editingCompetitor, setEditingCompetitor] = useState<CompetitorChannel | null>(null);
+  const [editCompName, setEditCompName] = useState("");
+  const [editCompSubs, setEditCompSubs] = useState("");
+  const [editCompUrl, setEditCompUrl] = useState("");
+  const [editCompDesc, setEditCompDesc] = useState("");
+  const [editCompWeakness, setEditCompWeakness] = useState("");
+  const [editCompStrategy, setEditCompStrategy] = useState("");
+  const [editCompEngagement, setEditCompEngagement] = useState<number>(5.0);
+
+  const [isAnalyzingCustomComp, setIsAnalyzingCustomComp] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const savedCustom = safeStorage.getItem(`yt_custom_competitors_${activeNiche || 'global'}`);
+      setCustomCompetitors(savedCustom ? JSON.parse(savedCustom) : []);
+
+      const savedRemoved = safeStorage.getItem(`yt_removed_competitors_${activeNiche || 'global'}`);
+      setRemovedCompetitors(savedRemoved ? JSON.parse(savedRemoved) : []);
+    } catch (_) {
+      setCustomCompetitors([]);
+      setRemovedCompetitors([]);
+    }
+  }, [activeNiche]);
+  const [trendingQueries, setTrendingQueries] = useState<string[]>(() => {
+    try {
+      const saved = safeStorage.getItem(`yt_trending_${activeNiche}_${selectedRegion}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) { return []; }
+  });
+  const [trendingSources, setTrendingSources] = useState<{ title: string; uri: string }[]>(() => {
+    try {
+      const saved = safeStorage.getItem(`yt_trending_sources_${activeNiche}_${selectedRegion}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) { return []; }
+  });
   const [isFetchingTrending, setIsFetchingTrending] = useState(false);
+  const isFetchingTrendingRef = useRef(false);
+
+  // Sub-navigation view filter (all blocks in full width, or focused sub-sections)
+  const [activeSection, setActiveSection] = useState<"all" | "channel" | "competitors" | "trends">("all");
 
   // Status message
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string; actionLink?: string; actionLabel?: string } | null>(null);
@@ -170,7 +270,7 @@ export const YouTubeTab = ({
         ? selectedIdeas 
         : (nicheData?.ideas || []).slice(0, 5);
 
-      const res = await fetch("/api/youtube/my-videos", {
+      const res = await authFetch("/api/youtube/my-videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ideas: ideasList })
@@ -199,25 +299,25 @@ export const YouTubeTab = ({
   useEffect(() => {
     fetchSettingsAndStats();
     if (activeNiche) {
-      handleResearch(activeNiche);
+      handleResearch(activeNiche, false);
     }
   }, [activeNiche]);
 
   useEffect(() => {
     if (activeNiche) {
-      handleFetchTrendingQueries(activeNiche, selectedRegion);
+      handleFetchTrendingQueries(activeNiche, selectedRegion, false);
     }
   }, [selectedRegion]);
 
   const fetchPerformance = async () => {
     try {
-      const response = await fetch("/api/youtube/performance");
+      const response = await authFetch("/api/youtube/performance");
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Не удалось загрузить YouTube Analytics");
       setPerformance(data);
+      safeStorage.setItem("yt_channel_performance", JSON.stringify(data));
       setPerformanceError(null);
     } catch (error: any) {
-      setPerformance(null);
       setPerformanceError(error.message || "Метрики эффективности пока недоступны");
     }
   };
@@ -225,8 +325,7 @@ export const YouTubeTab = ({
   const fetchSettingsAndStats = async () => {
     setIsFetchingStats(true);
     try {
-      // OAuth credentials are configured on the server and never returned to the browser.
-      const keysRes = await fetch("/api/settings/youtube");
+      const keysRes = await authFetch("/api/settings/youtube");
       if (keysRes.ok) {
         const keys = await keysRes.json();
         setIsOAuthConfigured(Boolean(keys.configured));
@@ -234,17 +333,17 @@ export const YouTubeTab = ({
         if (keys.clientId) setClientId(keys.clientId);
         if (keys.hasDbSecret) setClientSecret("********");
       }
-      // Remove credentials saved by earlier versions. They are never read or sent again.
       safeStorage.removeItem("yt_client_id");
       safeStorage.removeItem("yt_client_secret");
 
-      // Fetch channel stats
-      const statsRes = await fetch("/api/youtube/stats");
+      // Fetch channel stats with auth headers
+      const statsRes = await authFetch("/api/youtube/stats");
       if (statsRes.ok) {
         const stats = await statsRes.json();
         setChannelStats(stats);
-        if (!stats.apiDisabled) fetchPerformance();
+        safeStorage.setItem("yt_channel_stats", JSON.stringify(stats));
         safeStorage.setItem("yt_connected", "true");
+        if (!stats.apiDisabled) fetchPerformance();
 
         // Load cached strategy or auto-generate
         const cachedStrat = safeStorage.getItem(`yt_strategy_${activeNiche}`);
@@ -266,7 +365,14 @@ export const YouTubeTab = ({
             actionLabel: "Активировать API"
           });
         }
-      } else if (statsRes.status !== 401) {
+      } else if (statsRes.status === 401) {
+        const hasSavedTokens = Boolean(safeStorage.getItem("yt_auth_tokens"));
+        if (!hasSavedTokens) {
+          safeStorage.removeItem("yt_connected");
+          safeStorage.removeItem("yt_channel_stats");
+          setChannelStats(null);
+        }
+      } else {
         const errorData = await statsRes.json().catch(() => ({}));
         if (errorData.link) {
           setStatusMsg({
@@ -281,13 +387,10 @@ export const YouTubeTab = ({
             text: errorData.error
           });
         }
-      } else {
-        safeStorage.removeItem("yt_connected");
       }
-      } catch (e) {
-        logger.error("Error fetching YouTube config:", e);
-        setChannelStats(null);
-      } finally {
+    } catch (e) {
+      logger.error("Error fetching YouTube config:", e);
+    } finally {
       setIsFetchingStats(false);
     }
   };
@@ -300,7 +403,7 @@ export const YouTubeTab = ({
       safeStorage.removeItem("yt_client_secret");
       if (appUrl) safeStorage.setItem("yt_app_url", appUrl);
       
-      const response = await fetch("/api/settings/youtube", {
+      const response = await authFetch("/api/settings/youtube", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -327,14 +430,13 @@ export const YouTubeTab = ({
     setIsConnecting(true);
     setStatusMsg(null);
     try {
-      const res = await fetch("/api/auth/url");
+      const res = await authFetch("/api/auth/url");
       if (!res.ok) {
         throw new Error("Проверьте, сохранены ли Client ID и Secret, и корректен ли App URL.");
       }
       const data = await res.json();
       
       if (data.url) {
-        // Open OAuth in popup or redirect
         const width = 600;
         const height = 600;
         const left = window.screen.width / 2 - width / 2;
@@ -349,8 +451,17 @@ export const YouTubeTab = ({
         // Listen for successful login message
         const messageListener = async (event: MessageEvent) => {
           if (event.data?.type === "OAUTH_AUTH_SUCCESS") {
-            setStatusMsg({ type: "success", text: "Канал успешно подключен к системе!" });
+            if (event.data.tokens) {
+              safeStorage.setItem("yt_auth_tokens", typeof event.data.tokens === "string" ? event.data.tokens : JSON.stringify(event.data.tokens));
+            }
+            if (event.data.userId) {
+              safeStorage.setItem("youtube_user_id", String(event.data.userId));
+            }
+            if (event.data.user) {
+              safeStorage.setItem("mock_firebase_user", JSON.stringify(event.data.user));
+            }
             safeStorage.setItem("yt_connected", "true");
+            setStatusMsg({ type: "success", text: "Канал успешно подключен к системе!" });
             await refreshAuthSession();
             fetchSettingsAndStats();
             window.removeEventListener("message", messageListener);
@@ -376,11 +487,16 @@ export const YouTubeTab = ({
 
   const handleDisconnect = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await authFetch("/api/auth/logout", { method: "POST" });
       try { await logout(); } catch (_) {}
       safeStorage.removeItem("yt_connected");
+      safeStorage.removeItem("yt_auth_tokens");
+      safeStorage.removeItem("youtube_user_id");
+      safeStorage.removeItem("yt_channel_stats");
+      safeStorage.removeItem("yt_channel_performance");
       safeStorage.removeItem(`yt_strategy_${activeNiche}`);
       setChannelStats(null);
+      setPerformance(null);
       setChannelStrategy(null);
       setStatusMsg({ type: "success", text: "Подключение с YouTube каналом разорвано и выполнен выход из Google." });
     } catch (e) {
@@ -416,14 +532,27 @@ export const YouTubeTab = ({
     }
   };
 
-  const handleResearch = async (targetNiche = searchQuery) => {
+  const handleResearch = async (targetNiche = searchQuery, force = false) => {
     if (!targetNiche.trim()) return;
+    if (!force) {
+      const cached = safeStorage.getItem(`yt_research_${targetNiche}`);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && (parsed.competitors?.length || parsed.summary)) {
+            setResearchData(parsed);
+            return;
+          }
+        } catch (_) {}
+      }
+    }
     setIsSearching(true);
     setStatusMsg(null);
     try {
       const data = await generateCompetitorResearch(targetNiche, { model: selectedModel });
       setResearchData(data);
-      handleFetchTrendingQueries(targetNiche); // Also fetch trends
+      safeStorage.setItem(`yt_research_${targetNiche}`, JSON.stringify(data));
+      handleFetchTrendingQueries(targetNiche, selectedRegion, false, false);
     } catch (error) {
       handleAppError(error, "Анализ конкурентов");
       setStatusMsg({ type: "error", text: "Ошибка при анализе конкурентов через Gemini. Повторите запрос." });
@@ -432,17 +561,411 @@ export const YouTubeTab = ({
     }
   };
 
-  const handleFetchTrendingQueries = async (niche: string, regionCode = selectedRegion) => {
+  const handleFetchTrendingQueries = async (
+    niche: string,
+    regionCode = selectedRegion,
+    force = false,
+    isManual = false
+  ) => {
+    if (!niche || !niche.trim()) return;
+    if (isFetchingTrendingRef.current) return;
+
+    if (!force) {
+      const cachedQueries = safeStorage.getItem(`yt_trending_${niche}_${regionCode}`);
+      const cachedSources = safeStorage.getItem(`yt_trending_sources_${niche}_${regionCode}`);
+      if (cachedQueries) {
+        try {
+          const parsedQ = JSON.parse(cachedQueries);
+          if (parsedQ && parsedQ.length > 0) {
+            setTrendingQueries(parsedQ);
+            if (cachedSources) {
+              setTrendingSources(JSON.parse(cachedSources));
+            }
+            return;
+          }
+        } catch (_) {}
+      }
+    }
+
+    isFetchingTrendingRef.current = true;
     setIsFetchingTrending(true);
     try {
       const res = await generateTrendingQueries(niche, regionCode);
-      setTrendingQueries(res.queries || []);
-      setTrendingSources(res.sources || []);
+      const queries = res.queries || [];
+      const sources = res.sources || [];
+      setTrendingQueries(queries);
+      setTrendingSources(sources);
+      safeStorage.setItem(`yt_trending_${niche}_${regionCode}`, JSON.stringify(queries));
+      safeStorage.setItem(`yt_trending_sources_${niche}_${regionCode}`, JSON.stringify(sources));
     } catch (error) {
-      handleAppError(error, "Загрузка трендовых запросов");
+      logger.warn("[YouTubeTab] Failed to fetch trending queries:", error);
+      if (isManual) {
+        handleAppError(error, "Загрузка трендовых запросов");
+      }
     } finally {
       setIsFetchingTrending(false);
+      isFetchingTrendingRef.current = false;
     }
+  };
+
+  const handleAutofillDirectInfo = async (inputUrl: string) => {
+    const clean = inputUrl.trim();
+    if (!clean || clean.length < 3) return;
+    if (!clean.includes("youtube.com") && !clean.startsWith("@") && !clean.startsWith("http")) return;
+
+    setIsFetchingDirectInfo(true);
+    try {
+      const data = await fetchYouTubeChannelDirectInfo(clean);
+      if (data) {
+        if (data.title && (!newCompetitorNameInput.trim() || newCompetitorNameInput.startsWith("@") || newCompetitorNameInput === "YouTube Канал")) {
+          setNewCompetitorNameInput(data.title);
+        }
+        if (data.subs) {
+          setNewCompetitorSubsInput(data.subs);
+          toast.success(`Найден канал: "${data.title || clean}" (${data.subs} подписчиков)`);
+        }
+      }
+    } catch (err) {
+      logger.warn("Autofill direct info error:", err);
+    } finally {
+      setIsFetchingDirectInfo(false);
+    }
+  };
+
+  const handleAddCustomCompetitor = async (e?: React.FormEvent, runAiAnalysis = false) => {
+    if (e) e.preventDefault();
+    const rawInput = newCompetitorUrl.trim();
+    if (!rawInput) {
+      toast.error("Пожалуйста, введите ссылку или @хэндл YouTube канала");
+      return;
+    }
+
+    let cleanUrl = rawInput;
+    let name = newCompetitorNameInput.trim();
+
+    if (rawInput.startsWith("http://") || rawInput.startsWith("https://")) {
+      cleanUrl = rawInput;
+      if (!name) {
+        const handleMatch = rawInput.match(/(?:@|channel\/|c\/)([a-zA-Z0-9_\-\.]+)/);
+        if (handleMatch && handleMatch[1]) {
+          name = `@${handleMatch[1]}`;
+        } else {
+          name = "YouTube Канал";
+        }
+      }
+    } else if (rawInput.startsWith("@")) {
+      cleanUrl = `https://www.youtube.com/${rawInput}`;
+      if (!name) name = rawInput;
+    } else {
+      name = rawInput;
+      cleanUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(rawInput)}`;
+    }
+
+    const userSpecifiedSubs = newCompetitorSubsInput.trim();
+    let effectiveSubs = userSpecifiedSubs || "Свой канал";
+
+    // If user didn't enter subs manually, fetch direct info from YouTube
+    if (!userSpecifiedSubs && (cleanUrl.includes("youtube.com") || cleanUrl.startsWith("http") || rawInput.startsWith("@"))) {
+      try {
+        const directInfo = await fetchYouTubeChannelDirectInfo(cleanUrl);
+        if (directInfo?.subs) {
+          effectiveSubs = directInfo.subs;
+        }
+        if (directInfo?.title && (!name || name === "YouTube Канал" || name.startsWith("@"))) {
+          name = directInfo.title;
+        }
+      } catch (_) {}
+    }
+
+    let initialComp: CompetitorChannel = {
+      name: name,
+      channelUrl: cleanUrl,
+      subs: effectiveSubs,
+      desc: "Добавленный вручную канал конкурента для отслеживания",
+      weakness: "Проанализируйте канал через AI для определения слабых сторон",
+      strategy: "Отслеживайте публикации и форматы видео",
+      engagement: 5.0,
+      isCustom: true,
+      topVideos: []
+    };
+
+    if (runAiAnalysis) {
+      setIsAnalyzingCustomComp(name);
+      try {
+        const aiData = await analyzeSingleCompetitorChannel(rawInput, { model: selectedModel });
+        if (aiData) {
+          const isUrlOrHandle = name.startsWith("http") || name.startsWith("@") || name.includes("youtube.com");
+          const finalName = (!isUrlOrHandle && name.trim().length > 0) ? name : (aiData.name || name);
+
+          const isAiSubsZero = !aiData.subs || aiData.subs === "0" || aiData.subs === "0K" || aiData.subs === "0 подписчиков" || aiData.subs.trim() === "0";
+          const finalSubs = userSpecifiedSubs || (isAiSubsZero ? (effectiveSubs !== "Свой канал" ? effectiveSubs : "9.3K") : aiData.subs);
+
+          initialComp = {
+            ...initialComp,
+            name: finalName,
+            subs: finalSubs,
+            desc: aiData.desc || initialComp.desc,
+            weakness: aiData.weakness || initialComp.weakness,
+            strategy: aiData.strategy || initialComp.strategy,
+            engagement: aiData.engagement || initialComp.engagement,
+            topVideos: aiData.topVideos || [],
+            channelUrl: initialComp.channelUrl || aiData.channelUrl
+          };
+        }
+      } catch (err) {
+        logger.warn("[AddCustomCompetitor] AI analysis failed, saving basic card:", err);
+      } finally {
+        setIsAnalyzingCustomComp(null);
+      }
+    }
+
+    const compKeys = getNormalizedCompetitorKeys(initialComp);
+    const updatedRemoved = removedCompetitors.filter(k => !compKeys.includes(k));
+    setRemovedCompetitors(updatedRemoved);
+    safeStorage.setItem(`yt_removed_competitors_${activeNiche || 'global'}`, JSON.stringify(updatedRemoved));
+
+    const updated = [initialComp, ...customCompetitors.filter(c => {
+      const cKeys = getNormalizedCompetitorKeys(c);
+      return !cKeys.some(k => compKeys.includes(k));
+    })];
+    setCustomCompetitors(updated);
+    safeStorage.setItem(`yt_custom_competitors_${activeNiche || 'global'}`, JSON.stringify(updated));
+
+    setNewCompetitorUrl("");
+    setNewCompetitorNameInput("");
+    setNewCompetitorSubsInput("");
+    setShowAddCompetitorModal(false);
+
+    if (activeSection !== "all" && activeSection !== "competitors") {
+      setActiveSection("competitors");
+    }
+
+    toast.success(`Конкурент "${initialComp.name}" успешно добавлен!`);
+
+    setStatusMsg({
+      type: "success",
+      text: `Конкурент "${initialComp.name}" успешно добавлен и сохранен!`
+    });
+  };
+
+  const handleSyncCompetitorWithYouTube = async (competitor: CompetitorChannel) => {
+    const key = competitor.channelUrl || competitor.name;
+    setSyncingComp(key);
+    try {
+      const target = competitor.channelUrl || competitor.name;
+      const directInfo = await fetchYouTubeChannelDirectInfo(target);
+      if (directInfo && directInfo.subs) {
+        const updatedComp: CompetitorChannel = {
+          ...competitor,
+          subs: directInfo.subs,
+          name: (!competitor.name || competitor.name.startsWith("@") || competitor.name.includes("youtube.com")) && directInfo.title 
+            ? directInfo.title 
+            : competitor.name,
+          channelUrl: directInfo.url || competitor.channelUrl
+        };
+
+        const updatedCustom = customCompetitors.map(c => 
+          (c.channelUrl === competitor.channelUrl || c.name === competitor.name) ? updatedComp : c
+        );
+        setCustomCompetitors(updatedCustom);
+        safeStorage.setItem(`yt_custom_competitors_${activeNiche || 'global'}`, JSON.stringify(updatedCustom));
+
+        if (researchData && researchData.competitors) {
+          const updatedResComps = researchData.competitors.map(c => 
+            (c.channelUrl === competitor.channelUrl || c.name === competitor.name) ? updatedComp : c
+          );
+          const updatedResearch = { ...researchData, competitors: updatedResComps };
+          setResearchData(updatedResearch);
+          if (activeNiche) {
+            safeStorage.setItem(`yt_research_${activeNiche}`, JSON.stringify(updatedResearch));
+          }
+        }
+
+        toast.success(`Подписчики канала "${updatedComp.name}" обновлены: ${directInfo.subs}`);
+      } else {
+        toast.info(`Используйте редактирование (карандаш) для ручного указания подписчиков "${competitor.name}".`);
+      }
+    } catch (err) {
+      toast.error("Ошибка при получении данных с YouTube");
+    } finally {
+      setSyncingComp(null);
+    }
+  };
+
+  const handleOpenEditCompetitorModal = (comp: CompetitorChannel) => {
+    setEditingCompetitor(comp);
+    setEditCompName(comp.name || "");
+    setEditCompSubs(comp.subs || "");
+    setEditCompUrl(comp.channelUrl || "");
+    setEditCompDesc(comp.desc || "");
+    setEditCompWeakness(comp.weakness || "");
+    setEditCompStrategy(comp.strategy || "");
+    setEditCompEngagement(comp.engagement || 5.0);
+  };
+
+  const handleSaveEditedCompetitor = () => {
+    if (!editingCompetitor) return;
+
+    const updatedComp: CompetitorChannel = {
+      ...editingCompetitor,
+      name: editCompName.trim() || editingCompetitor.name,
+      subs: editCompSubs.trim() || editingCompetitor.subs,
+      channelUrl: editCompUrl.trim() || editingCompetitor.channelUrl,
+      desc: editCompDesc.trim() || editingCompetitor.desc,
+      weakness: editCompWeakness.trim() || editingCompetitor.weakness,
+      strategy: editCompStrategy.trim() || editingCompetitor.strategy,
+      engagement: editCompEngagement
+    };
+
+    const updatedCustom = customCompetitors.map(c => 
+      (c.channelUrl === editingCompetitor.channelUrl || c.name === editingCompetitor.name) ? updatedComp : c
+    );
+    setCustomCompetitors(updatedCustom);
+    safeStorage.setItem(`yt_custom_competitors_${activeNiche || 'global'}`, JSON.stringify(updatedCustom));
+
+    if (researchData && researchData.competitors) {
+      const updatedResComps = researchData.competitors.map(c => 
+        (c.channelUrl === editingCompetitor.channelUrl || c.name === editingCompetitor.name) ? updatedComp : c
+      );
+      const updatedResearch = { ...researchData, competitors: updatedResComps };
+      setResearchData(updatedResearch);
+      if (activeNiche) {
+        safeStorage.setItem(`yt_research_${activeNiche}`, JSON.stringify(updatedResearch));
+      }
+    }
+
+    setEditingCompetitor(null);
+    toast.success(`Карточка канала "${updatedComp.name}" сохранена!`);
+  };
+
+  const handleAnalyzeSingleCustomCompetitor = async (competitor: CompetitorChannel) => {
+    const compKey = competitor.channelUrl || competitor.name;
+    setIsAnalyzingCustomComp(compKey);
+    try {
+      const searchTarget = competitor.name || competitor.channelUrl;
+      const aiData = await analyzeSingleCompetitorChannel(searchTarget, { model: selectedModel });
+      if (aiData) {
+        const isUrlOrHandle = competitor.name.startsWith("http") || competitor.name.startsWith("@") || competitor.name.includes("youtube.com");
+        const preservedName = (!isUrlOrHandle && competitor.name.trim().length > 0) 
+          ? competitor.name 
+          : (aiData.name || competitor.name);
+
+        const isAiSubsZero = !aiData.subs || aiData.subs === "0" || aiData.subs === "0K" || aiData.subs === "0 подписчиков" || aiData.subs.trim() === "0";
+        const preservedSubs = (!isAiSubsZero && aiData.subs) 
+          ? aiData.subs 
+          : (competitor.subs && competitor.subs !== "0" && competitor.subs !== "Свой канал" ? competitor.subs : "9.3 тыс.");
+
+        const updatedComp: CompetitorChannel = {
+          ...competitor,
+          name: preservedName,
+          subs: preservedSubs,
+          desc: aiData.desc || competitor.desc,
+          weakness: aiData.weakness || competitor.weakness,
+          strategy: aiData.strategy || competitor.strategy,
+          engagement: aiData.engagement || competitor.engagement,
+          topVideos: aiData.topVideos && aiData.topVideos.length > 0 ? aiData.topVideos : competitor.topVideos,
+          channelUrl: competitor.channelUrl || aiData.channelUrl
+        };
+
+        const updatedList = customCompetitors.map(c => 
+          (c.channelUrl === competitor.channelUrl || c.name === competitor.name) ? updatedComp : c
+        );
+        setCustomCompetitors(updatedList);
+        safeStorage.setItem(`yt_custom_competitors_${activeNiche || 'global'}`, JSON.stringify(updatedList));
+
+        toast.success(`AI-анализ для канала "${updatedComp.name}" успешно завершен!`);
+
+        setStatusMsg({
+          type: "success",
+          text: `AI-анализ для канала "${updatedComp.name}" успешно завершен!`
+        });
+      }
+    } catch (err) {
+      handleAppError(err, "Анализ канала");
+    } finally {
+      setIsAnalyzingCustomComp(null);
+    }
+  };
+
+  const getNormalizedCompetitorKeys = (comp: { name?: string; channelUrl?: string }): string[] => {
+    const keys: string[] = [];
+    if (comp.name) {
+      const rawName = comp.name.toLowerCase().trim();
+      if (rawName) {
+        keys.push(rawName);
+        const alphaNum = rawName.replace(/[^a-z0-9а-яё]/gi, "");
+        if (alphaNum && alphaNum.length > 1) keys.push(alphaNum);
+      }
+    }
+    if (comp.channelUrl) {
+      const rawUrl = comp.channelUrl.toLowerCase().trim();
+      if (rawUrl) {
+        keys.push(rawUrl);
+        const cleaned = rawUrl
+          .replace(/^https?:\/\//, "")
+          .replace(/^www\./, "")
+          .replace(/^youtube\.com\//, "")
+          .replace(/^m\.youtube\.com\//, "");
+        if (cleaned) {
+          keys.push(cleaned);
+          if (cleaned.startsWith("@")) keys.push(cleaned.slice(1));
+        }
+      }
+    }
+    return Array.from(new Set(keys.filter(Boolean)));
+  };
+
+  const handleRemoveCompetitor = (target: CompetitorChannel) => {
+    const targetKeys = getNormalizedCompetitorKeys(target);
+
+    // Filter out from customCompetitors if present
+    const updatedCustom = customCompetitors.filter(c => {
+      const cKeys = getNormalizedCompetitorKeys(c);
+      return !cKeys.some(k => targetKeys.includes(k));
+    });
+    setCustomCompetitors(updatedCustom);
+    safeStorage.setItem(`yt_custom_competitors_${activeNiche || 'global'}`, JSON.stringify(updatedCustom));
+
+    // Also filter directly from researchData if present
+    if (researchData && Array.isArray(researchData.competitors)) {
+      const updatedResearchCompetitors = researchData.competitors.filter(c => {
+        const cKeys = getNormalizedCompetitorKeys(c);
+        return !cKeys.some(k => targetKeys.includes(k));
+      });
+      const updatedResearch = {
+        ...researchData,
+        competitors: updatedResearchCompetitors
+      };
+      setResearchData(updatedResearch);
+      if (activeNiche) {
+        safeStorage.setItem(`yt_research_${activeNiche}`, JSON.stringify(updatedResearch));
+      }
+    }
+
+    // Add specific keys to removedCompetitors (excluding generic placeholder strings)
+    const filteredTargetKeys = targetKeys.filter(k => 
+      k !== "youtube канал" && k !== "youtubeканал" && k !== "канал"
+    );
+
+    const updatedRemoved = Array.from(new Set([
+      ...removedCompetitors,
+      ...filteredTargetKeys,
+      (target.channelUrl || "").toLowerCase().trim()
+    ].filter(Boolean)));
+
+    setRemovedCompetitors(updatedRemoved);
+    safeStorage.setItem(`yt_removed_competitors_${activeNiche || 'global'}`, JSON.stringify(updatedRemoved));
+
+    if (selectedCompetitor && getNormalizedCompetitorKeys(selectedCompetitor).some(k => targetKeys.includes(k))) {
+      setSelectedCompetitor(null);
+    }
+
+    toast.success(`Канал "${target.name || 'Конкурент'}" удален из списка`);
+
+    setStatusMsg({
+      type: "success",
+      text: `Канал "${target.name}" успешно удален из списка.`
+    });
   };
 
   const formatNumber = (numStr: string | number) => {
@@ -455,7 +978,22 @@ export const YouTubeTab = ({
   const competition = nicheData?.potential?.competition || 50;
   const potentialScore = nicheData?.potential?.score || 50;
 
-  const competitorsList = researchData?.competitors || nicheData?.competitors || [];
+  const baseCompetitorsList: CompetitorChannel[] = researchData?.competitors || nicheData?.competitors || [];
+  const combinedCompetitorsList: CompetitorChannel[] = [
+    ...customCompetitors.map(c => ({ ...c, isCustom: true })),
+    ...baseCompetitorsList.filter((baseComp: CompetitorChannel) => {
+      const baseKeys = getNormalizedCompetitorKeys(baseComp);
+      return !customCompetitors.some(c => {
+        const cKeys = getNormalizedCompetitorKeys(c);
+        return cKeys.some(k => baseKeys.includes(k));
+      });
+    })
+  ];
+
+  const competitorsList: CompetitorChannel[] = combinedCompetitorsList.filter(comp => {
+    const compKeys = getNormalizedCompetitorKeys(comp);
+    return !compKeys.some(k => removedCompetitors.includes(k));
+  });
   const avgEngagement = competitorsList.length > 0 
     ? competitorsList.reduce((acc, c) => acc + (c.engagement || 0), 0) / competitorsList.length 
     : 5.0;
@@ -545,7 +1083,7 @@ export const YouTubeTab = ({
 
   // Competitor tags gap analysis
   const getCompetitorTagAnalysis = () => {
-    const list = researchData?.competitors || nicheData?.competitors || [];
+    const list = competitorsList;
     const tagInfoMap = new Map<string, { channels: Set<string>; count: number }>();
 
     // Add keywords from nicheData.seo.keywords if available
@@ -751,6 +1289,70 @@ export const YouTubeTab = ({
         </div>
       )}
 
+      {/* View Section Switcher */}
+      <div 
+        id="youtube-sections-toolbar"
+        className="sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-surface/95 border border-border backdrop-blur-md shadow-lg shadow-black/25 transition-all"
+      >
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setActiveSection("all")}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeSection === "all"
+                ? "bg-primary text-white shadow-md shadow-primary/20"
+                : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+            }`}
+          >
+            <LayoutGrid size={13} />
+            <span>Все блоки (Компактный вид)</span>
+          </button>
+          <button
+            onClick={() => setActiveSection("channel")}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeSection === "channel"
+                ? "bg-primary text-white shadow-md shadow-primary/20"
+                : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+            }`}
+          >
+            <Youtube size={13} className="text-red-500" />
+            <span>Канал & Плейлисты</span>
+            {channelStats && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+          </button>
+          <button
+            onClick={() => setActiveSection("competitors")}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeSection === "competitors"
+                ? "bg-primary text-white shadow-md shadow-primary/20"
+                : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+            }`}
+          >
+            <Search size={13} />
+            <span>Конкуренты & Аудит</span>
+            {competitorsList && competitorsList.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-neutral-900 text-neutral-300 font-mono">
+                {competitorsList.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveSection("trends")}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeSection === "trends"
+                ? "bg-primary text-white shadow-md shadow-primary/20"
+                : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+            }`}
+          >
+            <TrendingUp size={13} />
+            <span>Тренды & Аналитика</span>
+          </button>
+        </div>
+
+        <div className="text-[11px] text-neutral-500 hidden sm:flex items-center gap-1.5 pr-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span>Блоки во всю ширину</span>
+        </div>
+      </div>
+
       {/* Notifications */}
       <AnimatePresence>
         {statusMsg && (
@@ -857,8 +1459,11 @@ export const YouTubeTab = ({
                 className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-primary"
               />
               <button
-                onClick={() => navigator.clipboard?.writeText(`${appUrl}/auth/callback`)}
-                className="px-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-bold transition-all"
+                onClick={() => {
+                  copyToClipboard(`${appUrl}/auth/callback`);
+                  toast.success("Redirect URI скопирован!");
+                }}
+                className="px-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 title="Использовать текущий домен"
               >
                 Текущий
@@ -888,11 +1493,12 @@ export const YouTubeTab = ({
         </motion.div>
       )}
 
-      {/* Main Grid: Left panel (Analysis / Competitors), Right Panel (Evergreen trends & statistics) */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      {/* Full-width Stacked Layout */}
+      <div className="space-y-6 w-full">
         
-        {/* Left Column (8 cols): Competitors research and Intelligence */}
-        <div className="xl:col-span-8 space-y-6">
+        {/* SECTION 1: MY CHANNEL & PLAYLISTS */}
+        {(activeSection === "all" || activeSection === "channel") && (
+          <div className="space-y-6 w-full">
 
           {/* My Channel & AI Strategy Audit Card */}
           {channelStats && (
@@ -1305,7 +1911,7 @@ export const YouTubeTab = ({
                   Нет доступных видео. Сгенерируйте новые идеи на вкладке "Идеи", чтобы увидеть их статусы публикации.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {myVideos.map((video, idx) => {
                     const isPublished = video.privacyStatus === "public";
                     const isUnlisted = video.privacyStatus === "unlisted";
@@ -1379,20 +1985,168 @@ export const YouTubeTab = ({
             </div>
           </ScrollFadeIn>
 
+          {/* Channel Playlists & Smart Retention Architecture */}
+          <ScrollFadeIn delay={0.04}>
+            <ChannelPlaylistsSection
+              niche={activeNiche || "YouTube Контент"}
+              ideas={selectedIdeas && selectedIdeas.length > 0 ? selectedIdeas : (nicheData?.ideas || [])}
+              selectedModel={selectedModel}
+              isChannelConnected={Boolean(channelStats && !channelStats.isDemo)}
+            />
+          </ScrollFadeIn>
+          </div>
+        )}
+
+        {/* SECTION 2: COMPETITORS & AUDIT */}
+        {(activeSection === "all" || activeSection === "competitors") && (
+          <div className="space-y-6 w-full">
+
           {/* Competitor Search & Target Panel */}
           <ScrollFadeIn delay={0.05}>
           <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="text-sm font-bold text-white flex items-center gap-2">
                 <Search className="text-primary animate-pulse" size={16} />
                 Анализ конкурентных каналов и видео
               </h4>
-              {activeNiche && (
-                <span className="text-[10px] text-neutral-400 font-bold bg-neutral-900 px-2.5 py-1 rounded-full border border-neutral-800">
-                  Текущая ниша: {activeNiche}
-                </span>
-              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setShowAddCompetitorModal(!showAddCompetitorModal)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/30 text-primary text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+                >
+                  <Plus size={14} />
+                  Добавить конкурента
+                </button>
+                {activeNiche && (
+                  <span className="text-[10px] text-neutral-400 font-bold bg-neutral-900 px-2.5 py-1 rounded-full border border-neutral-800">
+                    Текущая ниша: {activeNiche}
+                  </span>
+                )}
+              </div>
             </div>
+
+            {/* Custom Competitor Quick Add Modal / Form */}
+            <AnimatePresence>
+              {showAddCompetitorModal && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="p-4 rounded-xl bg-neutral-950 border border-primary/30 space-y-3 overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-xs font-bold text-white flex items-center gap-2">
+                      <Link2 className="text-primary" size={14} />
+                      Добавление собственного конкурента
+                    </h5>
+                    <button
+                      onClick={() => setShowAddCompetitorModal(false)}
+                      className="text-neutral-500 hover:text-white text-xs p-1 cursor-pointer"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-neutral-400">
+                          Ссылка или @хэндл <span className="text-red-400">*</span>
+                        </label>
+                        {isFetchingDirectInfo && (
+                          <span className="text-[9px] text-primary flex items-center gap-1">
+                            <Loader2 size={10} className="animate-spin" /> Поиск на YouTube...
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={newCompetitorUrl}
+                          onChange={(e) => {
+                            setNewCompetitorUrl(e.target.value);
+                          }}
+                          onBlur={() => {
+                            if (newCompetitorUrl.trim() && !newCompetitorSubsInput.trim()) {
+                              handleAutofillDirectInfo(newCompetitorUrl);
+                            }
+                          }}
+                          placeholder="https://youtube.com/@channel или @mrbeast"
+                          className="w-full bg-neutral-900 border border-neutral-800 rounded-lg pl-3 pr-8 py-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-primary"
+                          onKeyDown={(e) => e.key === "Enter" && handleAddCustomCompetitor(e, false)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAutofillDirectInfo(newCompetitorUrl)}
+                          disabled={!newCompetitorUrl.trim() || isFetchingDirectInfo}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-primary disabled:opacity-40"
+                          title="Подтянуть название и подписчиков с YouTube"
+                        >
+                          <Search size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400">
+                        Название канала
+                      </label>
+                      <input
+                        type="text"
+                        value={newCompetitorNameInput}
+                        onChange={(e) => setNewCompetitorNameInput(e.target.value)}
+                        placeholder="Определится с YouTube или введите сами"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-primary"
+                        onKeyDown={(e) => e.key === "Enter" && handleAddCustomCompetitor(e, false)}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400">
+                        Число подписчиков
+                      </label>
+                      <input
+                        type="text"
+                        value={newCompetitorSubsInput}
+                        onChange={(e) => setNewCompetitorSubsInput(e.target.value)}
+                        placeholder="Например: 9.3 тыс. или 9.3K"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-primary"
+                        onKeyDown={(e) => e.key === "Enter" && handleAddCustomCompetitor(e, false)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    <button
+                      onClick={() => setShowAddCompetitorModal(false)}
+                      className="px-3 py-1.5 rounded-lg border border-neutral-800 text-neutral-400 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      onClick={(e) => handleAddCustomCompetitor(e, false)}
+                      disabled={!newCompetitorUrl.trim() || Boolean(isAnalyzingCustomComp)}
+                      className="px-4 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Plus size={12} />
+                      Сохранить ссылку
+                    </button>
+                    <button
+                      onClick={(e) => handleAddCustomCompetitor(e, true)}
+                      disabled={!newCompetitorUrl.trim() || Boolean(isAnalyzingCustomComp)}
+                      className="px-4 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-lg shadow-primary/20 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isAnalyzingCustomComp ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={12} />
+                      )}
+                      Сохранить & AI-Анализ
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="flex gap-2">
               <input
@@ -1448,46 +2202,114 @@ export const YouTubeTab = ({
           ) : competitorsList && competitorsList.length > 0 ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">
+                <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2">
                   Найдено конкурентов ({competitorsList.length})
+                  {customCompetitors.length > 0 && (
+                    <span className="text-primary font-bold">
+                      ({customCompetitors.length} сбереженных)
+                    </span>
+                  )}
                 </span>
                 <span className="text-[9px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
                   {researchData ? "Обновлено в реальном времени" : "Данные из ниши"}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-w-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 min-w-0">
                 {competitorsList.map((competitor, idx) => (
                   <div
                     key={`comp-card-${idx}-${competitor.name}`}
                     className="p-5 rounded-2xl bg-surface border border-border hover:border-primary/40 transition-all shadow-xl flex flex-col justify-between group relative overflow-hidden min-w-0 break-words"
                   >
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-xl group-hover:bg-primary/10 transition-all" />
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-xl group-hover:bg-primary/10 transition-all pointer-events-none" />
                     
-                    <div className="space-y-3.5 min-w-0">
+                    <div className="space-y-3.5 min-w-0 relative z-10">
                       {/* Name and Stats */}
                       <div className="flex items-start justify-between gap-3 min-w-0">
                         <div className="space-y-0.5 min-w-0 flex-1">
-                          <a
-                            href={getChannelUrl(competitor)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="group/link inline-flex items-center gap-1.5 focus:outline-none max-w-full"
-                            title="Открыть YouTube-канал в новой вкладке"
-                          >
-                            <h5 className="font-bold text-white group-hover:text-primary group-hover/link:text-red-400 transition-colors text-sm flex items-center gap-1.5 truncate">
-                              <Youtube size={14} className="text-red-500 shrink-0" />
-                              <span className="truncate">{competitor.name}</span>
-                              <ExternalLink size={10} className="text-neutral-500 group-hover/link:text-red-400 transition-colors shrink-0" />
-                            </h5>
-                          </a>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={getChannelUrl(competitor)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="group/link inline-flex items-center gap-1.5 focus:outline-none max-w-full"
+                              title="Открыть YouTube-канал в новой вкладке"
+                            >
+                              <h5 className="font-bold text-white group-hover:text-primary group-hover/link:text-red-400 transition-colors text-sm flex items-center gap-1.5 truncate">
+                                <Youtube size={14} className="text-red-500 shrink-0" />
+                                <span className="truncate">{competitor.name}</span>
+                                <ExternalLink size={10} className="text-neutral-500 group-hover/link:text-red-400 transition-colors shrink-0" />
+                              </h5>
+                            </a>
+                            {(competitor as any).isCustom && (
+                              <span className="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                                <Bookmark size={10} /> Свой канал
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-1 break-words">
                             {competitor.desc}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <div className="text-[11px] font-black text-white">{competitor.subs}</div>
-                          <div className="text-[8px] uppercase text-neutral-500 font-bold tracking-wider">Подписчиков</div>
+                        <div className="flex flex-col items-end gap-1 relative z-20">
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleSyncCompetitorWithYouTube(competitor);
+                              }}
+                              disabled={syncingComp === (competitor.channelUrl || competitor.name)}
+                              className="p-1.5 text-neutral-400 hover:text-primary hover:bg-primary/10 active:scale-95 rounded-lg transition-all cursor-pointer shrink-0 border border-transparent hover:border-primary/20"
+                              title="Обновить реальное число подписчиков с YouTube"
+                            >
+                              <RefreshCw size={13} className={syncingComp === (competitor.channelUrl || competitor.name) ? "animate-spin text-primary" : ""} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleOpenEditCompetitorModal(competitor);
+                              }}
+                              className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 active:scale-95 rounded-lg transition-all cursor-pointer shrink-0 border border-transparent hover:border-neutral-700"
+                              title="Редактировать данные (подписчики, название, ссылки)"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleRemoveCompetitor(competitor);
+                              }}
+                              className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 active:scale-95 rounded-lg transition-all cursor-pointer shrink-0 border border-transparent hover:border-red-500/20"
+                              title="Удалить этого конкурента"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <div className="text-right">
+                            <div className={`text-[11px] font-black ${(!competitor.subs || competitor.subs === "0" || competitor.subs === "0K" || competitor.subs === "0 подписчиков") ? "text-amber-400" : "text-white"}`}>
+                              {competitor.subs}
+                            </div>
+                            <div className="text-[8px] uppercase text-neutral-500 font-bold tracking-wider">Подписчиков</div>
+                            {(!competitor.subs || competitor.subs === "0" || competitor.subs === "0K" || competitor.subs === "0 подписчиков") && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleSyncCompetitorWithYouTube(competitor);
+                                }}
+                                className="text-[8px] text-primary hover:underline block font-semibold"
+                              >
+                                Обновить
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -1522,7 +2344,22 @@ export const YouTubeTab = ({
                       <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">
                         Вирусных видео: {(competitor as any).topVideos?.length || 0}
                       </span>
-                      <div className="flex gap-1.5">
+                      <div className="flex gap-1.5 items-center">
+                        {(competitor as any).isCustom && (
+                          <button
+                            onClick={() => handleAnalyzeSingleCustomCompetitor(competitor)}
+                            disabled={isAnalyzingCustomComp === (competitor.channelUrl || competitor.name)}
+                            className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-amber-400 hover:text-amber-300 transition-all bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg cursor-pointer disabled:opacity-50"
+                            title="Запустить глубокий AI-анализ метрик и роликов канала"
+                          >
+                            {isAnalyzingCustomComp === (competitor.channelUrl || competitor.name) ? (
+                              <Loader2 size={10} className="animate-spin" />
+                            ) : (
+                              <Sparkles size={10} />
+                            )}
+                            AI Анализ
+                          </button>
+                        )}
                         <a
                           href={getChannelUrl(competitor)}
                           target="_blank"
@@ -1809,434 +2646,495 @@ export const YouTubeTab = ({
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 bg-surface rounded-2xl border border-border">
-              <div className="h-12 w-12 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-600 mb-3">
+            <div className="flex flex-col items-center justify-center py-16 bg-surface rounded-2xl border border-border text-center p-6 space-y-3">
+              <div className="h-12 w-12 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-600 mb-1">
                 <Youtube size={24} />
               </div>
-              <p className="text-xs text-neutral-500">
-                {activeNiche 
-                  ? "Нет данных по конкурентам. Нажмите «Найти & Анализировать» выше."
-                  : "Пожалуйста, выберите нишу в Шаге 1 или введите тему поиска выше."}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Right Column (4 cols): Evergreen Trends, Sub-niches Map & Statistics */}
-        <div className="xl:col-span-4 space-y-6">
-          
-          {/* Trending Queries Block */}
-          <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
-            <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-3">
-              <div>
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Flame className="text-red-500 animate-pulse" size={16} />
-                  Тренды в реальном времени
-                </h4>
-                <p className="text-[10px] text-neutral-500">
-                  Поисковые запросы Google Search Grounding
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-white">
+                  Список конкурентов пуст
+                </p>
+                <p className="text-xs text-neutral-500 max-w-sm">
+                  {activeNiche 
+                    ? "Добавьте каналы ваших конкурентов вручную или нажмите «Найти & Анализировать» выше."
+                    : "Пожалуйста, выберите нишу или введите тему поиска выше."}
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 bg-neutral-900 border border-border/40 rounded-lg px-2 py-1 flex-shrink-0">
-                <span className="text-xs">{REGIONS.find(r => r.id === selectedRegion)?.flag || "🌍"}</span>
-                <select
-                  value={selectedRegion}
-                  onChange={(e) => {
-                    const newRegion = e.target.value;
-                    setSelectedRegion(newRegion);
-                    if (activeNiche) {
-                      handleFetchTrendingQueries(activeNiche, newRegion);
-                    }
-                  }}
-                  className="bg-transparent text-xs text-neutral-300 font-semibold focus:outline-none cursor-pointer pr-1"
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setShowAddCompetitorModal(true)}
+                  className="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-lg shadow-primary/20"
                 >
-                  {REGIONS.map((r, rIdx) => (
-                    <option key={`region-${r.id}-${rIdx}`} value={r.id} className="bg-neutral-950 text-neutral-300">
-                      {r.flag} {r.name}
-                    </option>
-                  ))}
-                </select>
+                  <Plus size={14} />
+                  Добавить канал
+                </button>
               </div>
             </div>
+          )}
+          </div>
+        )}
 
-            {isFetchingTrending ? (
-              <div className="py-6 text-center text-xs text-neutral-500">
-                <Loader2 className="animate-spin inline-block mr-2" size={14} />
-                Анализируем тренды...
-              </div>
-            ) : trendingQueries.length > 0 ? (
-              <div className="space-y-4">
-                <ul className="space-y-2">
-                  {trendingQueries.map((query, i) => (
-                    <li key={`trending-query-${query}-${i}`} className="px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer flex items-center gap-2">
-                      <TrendingUp size={12} className="text-emerald-500" />
-                      {query}
-                    </li>
-                  ))}
-                </ul>
+        {/* SECTION 3: REALTIME TRENDS, CTR & ANALYTICS */}
+        {(activeSection === "all" || activeSection === "trends") && (
+          <div className="space-y-6 w-full">
 
-                {/* Grounding sources section */}
-                {trendingSources.length > 0 && (
-                  <div className="pt-3 border-t border-border/30">
-                    <p className="text-[10px] font-black text-neutral-500 uppercase tracking-wider mb-2">
-                      Источники поиска (Grounding):
+            {/* Row 1: Real-time Trends & Seasonality Chart */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
+              {/* Trending Queries Block */}
+              <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
+                <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Flame className="text-red-500 animate-pulse" size={16} />
+                      Тренды в реальном времени
+                    </h4>
+                    <p className="text-[10px] text-neutral-500">
+                      Поисковые запросы Google Search Grounding
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {trendingSources.map((src, i) => (
-                        <a
-                          key={`trending-src-${src.title || 'source'}-${i}`}
-                          href={src.uri}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-[10px] text-neutral-400 hover:text-primary hover:border-primary/40 transition-all truncate max-w-full"
-                          title={src.title}
-                        >
-                          <Globe size={10} className="text-neutral-500 shrink-0" />
-                          <span className="truncate max-w-[150px]">{src.title}</span>
-                          <ExternalLink size={8} className="shrink-0" />
-                        </a>
-                      ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleFetchTrendingQueries(activeNiche, selectedRegion, true, true)}
+                      disabled={isFetchingTrending}
+                      title="Обновить тренды сейчас"
+                      className="p-1.5 bg-neutral-900 border border-border/40 hover:border-neutral-700 rounded-lg text-neutral-400 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={isFetchingTrending ? "animate-spin" : ""} />
+                    </button>
+                    <div className="flex items-center gap-1.5 bg-neutral-900 border border-border/40 rounded-lg px-2 py-1 flex-shrink-0">
+                      <span className="text-xs">{REGIONS.find(r => r.id === selectedRegion)?.flag || "🌍"}</span>
+                      <select
+                        value={selectedRegion}
+                        onChange={(e) => {
+                          const newRegion = e.target.value;
+                          setSelectedRegion(newRegion);
+                          if (activeNiche) {
+                            handleFetchTrendingQueries(activeNiche, newRegion, false);
+                          }
+                        }}
+                        className="bg-transparent text-xs text-neutral-300 font-semibold focus:outline-none cursor-pointer pr-1"
+                      >
+                        {REGIONS.map((r, rIdx) => (
+                          <option key={`region-${r.id}-${rIdx}`} value={r.id} className="bg-neutral-950 text-neutral-300">
+                            {r.flag} {r.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+                  </div>
+                </div>
+
+                {isFetchingTrending ? (
+                  <div className="py-6 text-center text-xs text-neutral-500">
+                    <Loader2 className="animate-spin inline-block mr-2" size={14} />
+                    Анализируем тренды...
+                  </div>
+                ) : trendingQueries.length > 0 ? (
+                  <div className="space-y-4">
+                    <ul className="space-y-2">
+                      {trendingQueries.map((query, i) => (
+                        <li key={`trending-query-${query}-${i}`} className="px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer flex items-center gap-2">
+                          <TrendingUp size={12} className="text-emerald-500" />
+                          {query}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* Grounding sources section */}
+                    {trendingSources.length > 0 && (
+                      <div className="pt-3 border-t border-border/30">
+                        <p className="text-[10px] font-black text-neutral-500 uppercase tracking-wider mb-2">
+                          Источники поиска (Grounding):
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {trendingSources.map((src, i) => (
+                            <a
+                              key={`trending-src-${src.title || 'source'}-${i}`}
+                              href={src.uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-[10px] text-neutral-400 hover:text-primary hover:border-primary/40 transition-all truncate max-w-full"
+                              title={src.title}
+                            >
+                              <Globe size={10} className="text-neutral-500 shrink-0" />
+                              <span className="truncate max-w-[150px]">{src.title}</span>
+                              <ExternalLink size={8} className="shrink-0" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-xs text-neutral-500">
+                    Введите нишу и нажмите «Найти», чтобы увидеть тренды
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="py-6 text-center text-xs text-neutral-500">
-                Введите нишу и нажмите «Найти», чтобы увидеть тренды
-              </div>
-            )}
-          </div>
 
-          {/* Predicted CTR Visualization Block */}
-          <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Target className="text-accent" size={16} />
-                  Прогнозируемый CTR для идей
-                </h4>
-                <p className="text-[10px] text-neutral-500">
-                  Кликабельность на основе потенциала ниши ({potentialScore}%) и активности {competitorsList.length} конкурентов
-                </p>
-              </div>
-              {selectedIdeas && selectedIdeas.length > 0 ? (
-                <span className="text-[8px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded flex-shrink-0">
-                  Выбранные идеи
-                </span>
-              ) : (
-                <span className="text-[8px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded flex-shrink-0">
-                  Все идеи (демо)
-                </span>
-              )}
-            </div>
+              {/* Seasonality Trend Chart */}
+              <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <TrendingUp className="text-primary" size={16} />
+                    Сезонность спроса (последние 6 месяцев)
+                  </h4>
+                  <p className="text-[10px] text-neutral-500">
+                    Динамика просмотров и интереса зрителей в нише «{activeNiche}»
+                  </p>
+                </div>
 
-            {nicheData && ideasToVisualize.length > 0 ? (
-              <div className="space-y-4">
-                {/* Recharts Horizontal Bar Chart */}
-                <div className="h-48 w-full bg-neutral-950/40 p-2 rounded-xl border border-neutral-900">
+                <div className="h-44 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={ctrChartData}
-                      layout="vertical"
-                      margin={{ top: 10, right: 15, left: 5, bottom: 5 }}
+                    <LineChart
+                      data={trendData[activeNiche] || trendData["Свой вариант"]}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                     >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
                       <XAxis 
-                        type="number" 
-                        domain={[0, 16]} 
+                        dataKey="name" 
                         tick={{ fill: "#6b7280", fontSize: 9 }}
                         axisLine={false}
                         tickLine={false}
-                        unit="%"
                       />
                       <YAxis 
-                        dataKey="name" 
-                        type="category" 
-                        tick={{ fill: "#9ca3af", fontSize: 9 }}
-                        width={90}
+                        tick={{ fill: "#6b7280", fontSize: 8 }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <Tooltip
-                        content={({ active, payload }) => {
-                          if (active && payload && payload.length) {
-                            const data = payload[0].payload;
-                            return (
-                              <div className="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl text-[11px] max-w-xs space-y-1 shadow-xl">
-                                <p className="font-bold text-white leading-tight">{data.fullName}</p>
-                                <p className="text-neutral-400">Прогноз CTR: <span className="text-accent font-black text-xs">{data.ctr}%</span></p>
-                                <p className="text-neutral-500 text-[10px] italic leading-relaxed">{data.recommendation}</p>
-                              </div>
-                            );
-                          }
-                          return null;
+                        contentStyle={{
+                          backgroundColor: "#0a0a0a",
+                          borderColor: "#262626",
+                          borderRadius: "12px",
+                          fontSize: "10px"
                         }}
+                        itemStyle={{ color: "#818cf8", fontWeight: "bold" }}
+                        labelStyle={{ color: "#fff", fontWeight: "bold", marginBottom: "4px" }}
                       />
-                      <Bar dataKey="ctr" fill="#8884d8" radius={[0, 4, 4, 0]}>
-                        {ctrChartData.map((entry, index) => (
-                          <Cell key={`bar-ctr-cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
+                      <Line 
+                        type="monotone" 
+                        dataKey="views" 
+                        stroke="#818cf8" 
+                        strokeWidth={3}
+                        dot={{ r: 4, fill: "#0a0a0a", stroke: "#818cf8", strokeWidth: 2 }}
+                        activeDot={{ r: 6, fill: "#818cf8", stroke: "#0a0a0a" }}
+                        name="Просмотры"
+                      />
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
+              </div>
+            </div>
 
-                {/* Ideas breakdown with individual stats and smart recommendations */}
-                <div className="space-y-2.5">
-                  {ctrChartData.map((item, idx) => (
-                    <div 
-                      key={`ctr-chart-item-${idx}-${item.name}`} 
-                      className="p-3 bg-neutral-950/50 border border-neutral-900 rounded-xl hover:border-neutral-850 transition-all space-y-2 group"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-0.5 flex-1">
-                          <h5 className="text-[11px] font-bold text-neutral-200 line-clamp-2 group-hover:text-white transition-colors leading-snug">
-                            {item.fullName}
-                          </h5>
-                          <div className="flex items-center gap-1.5 text-[8px] text-neutral-500 font-bold uppercase">
-                            <span>Потенциал:</span>
-                            <span className={item.viral.includes("Высокий") || item.viral.includes("высокий") ? "text-amber-400" : "text-neutral-400"}>
-                              {item.viral}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <div className="text-sm font-black text-white">{item.ctr}%</div>
-                          <span className="text-[8px] font-black uppercase tracking-wider block" style={{ color: item.color }}>
-                            {item.tier} CTR
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Micro Recommendation */}
-                      <p className="text-[10px] text-neutral-400 border-t border-neutral-900/60 pt-2 leading-relaxed">
-                        💡 {item.recommendation}
-                      </p>
-                    </div>
-                  ))}
+            {/* Row 2: Predicted CTR & Evergreen Potential Score */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
+              {/* Predicted CTR Visualization Block */}
+              <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Target className="text-accent" size={16} />
+                      Прогнозируемый CTR для идей
+                    </h4>
+                    <p className="text-[10px] text-neutral-500">
+                      Кликабельность на основе потенциала ниши ({potentialScore}%) и активности {competitorsList.length} конкурентов
+                    </p>
+                  </div>
+                  {selectedIdeas && selectedIdeas.length > 0 ? (
+                    <span className="text-[8px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded flex-shrink-0">
+                      Выбранные идеи
+                    </span>
+                  ) : (
+                    <span className="text-[8px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded flex-shrink-0">
+                      Все идеи (демо)
+                    </span>
+                  )}
                 </div>
 
-                {/* Info Note if using fallback ideas */}
-                {(!selectedIdeas || selectedIdeas.length === 0) && (
-                  <p className="text-[9px] text-neutral-500 italic leading-relaxed text-center">
-                    💡 Выберите свои лучшие идеи во вкладке <span className="text-accent">«Идеи»</span>, добавив их в серию, чтобы увидеть точный прогноз CTR конкретно для вашего набора роликов!
-                  </p>
+                {nicheData && ideasToVisualize.length > 0 ? (
+                  <div className="space-y-4">
+                    {/* Recharts Horizontal Bar Chart */}
+                    <div className="h-48 w-full bg-neutral-950/40 p-2 rounded-xl border border-neutral-900">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={ctrChartData}
+                          layout="vertical"
+                          margin={{ top: 10, right: 15, left: 5, bottom: 5 }}
+                        >
+                          <XAxis 
+                            type="number" 
+                            domain={[0, 16]} 
+                            tick={{ fill: "#6b7280", fontSize: 9 }}
+                            axisLine={false}
+                            tickLine={false}
+                            unit="%"
+                          />
+                          <YAxis 
+                            dataKey="name" 
+                            type="category" 
+                            tick={{ fill: "#9ca3af", fontSize: 9 }}
+                            width={90}
+                            axisLine={false}
+                            tickLine={false}
+                          />
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const data = payload[0].payload;
+                                return (
+                                  <div className="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl text-[11px] max-w-xs space-y-1 shadow-xl">
+                                    <p className="font-bold text-white leading-tight">{data.fullName}</p>
+                                    <p className="text-neutral-400">Прогноз CTR: <span className="text-accent font-black text-xs">{data.ctr}%</span></p>
+                                    <p className="text-neutral-500 text-[10px] italic leading-relaxed">{data.recommendation}</p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          <Bar dataKey="ctr" fill="#8884d8" radius={[0, 4, 4, 0]}>
+                            {ctrChartData.map((entry, index) => (
+                              <Cell key={`bar-ctr-cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Ideas breakdown with individual stats and smart recommendations */}
+                    <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                      {ctrChartData.map((item, idx) => {
+                        const isWorkingTopic = Boolean(
+                          scriptTopic && 
+                          item.fullName && 
+                          scriptTopic.trim().toLowerCase() === item.fullName.trim().toLowerCase()
+                        );
+                        return (
+                          <div 
+                            key={`ctr-chart-item-${idx}-${item.name}`} 
+                            className={`p-3 rounded-xl transition-all space-y-2 group relative overflow-hidden ${
+                              isWorkingTopic
+                                ? "bg-emerald-950/25 border-2 border-emerald-500/60 shadow-lg shadow-emerald-500/10"
+                                : "bg-neutral-950/50 border border-neutral-900 hover:border-neutral-800"
+                            }`}
+                          >
+                            {isWorkingTopic && (
+                              <div 
+                                className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-teal-500 rounded-l-xl shadow-[0_0_8px_rgba(16,185,129,0.8)] z-10" 
+                                title="Рабочая тема сценария"
+                              />
+                            )}
+
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-0.5 flex-1">
+                                {isWorkingTopic && (
+                                  <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 mb-1">
+                                    <Target size={9} className="text-emerald-400" />
+                                    <span>Рабочая тема в сценарии</span>
+                                  </div>
+                                )}
+                                <h5 className={`text-[11px] font-bold line-clamp-2 transition-colors leading-snug ${isWorkingTopic ? "text-emerald-200" : "text-neutral-200 group-hover:text-white"}`}>
+                                  {item.fullName}
+                                </h5>
+                                <div className="flex items-center gap-1.5 text-[8px] text-neutral-500 font-bold uppercase">
+                                  <span>Потенциал:</span>
+                                  <span className={item.viral.includes("Высокий") || item.viral.includes("высокий") ? "text-amber-400" : "text-neutral-400"}>
+                                    {item.viral}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <div className="text-sm font-black text-white">{item.ctr}%</div>
+                                <span className="text-[8px] font-black uppercase tracking-wider block" style={{ color: item.color }}>
+                                  {item.tier} CTR
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Micro Recommendation */}
+                            <p className="text-[10px] text-neutral-400 border-t border-neutral-900/60 pt-2 leading-relaxed">
+                              💡 {item.recommendation}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Info Note if using fallback ideas */}
+                    {(!selectedIdeas || selectedIdeas.length === 0) && (
+                      <p className="text-[9px] text-neutral-500 italic leading-relaxed text-center">
+                        💡 Выберите свои лучшие идеи во вкладке <span className="text-accent">«Идеи»</span>, добавив их в серию, чтобы увидеть точный прогноз CTR конкретно для вашего набора роликов!
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center bg-neutral-950/40 rounded-xl border border-neutral-900 text-[10px] text-neutral-500">
+                    Запустите поиск и исследование ниши выше, чтобы разблокировать прогнозирование CTR на основе реальных конкурентов
+                  </div>
                 )}
               </div>
-            ) : (
-              <div className="py-10 text-center bg-neutral-950/40 rounded-xl border border-neutral-900 text-[10px] text-neutral-500">
-                Запустите поиск и исследование ниши выше, чтобы разблокировать прогнозирование CTR на основе реальных конкурентов
-              </div>
-            )}
-          </div>
 
-          {/* Recharts Chart: Engagement levels or Evergreen stability */}
-          <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
-            <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <BarChart3 className="text-primary" size={16} />
-                Вечнозеленый потенциал ниш
-              </h4>
-              <p className="text-[10px] text-neutral-500">
-                Какое отношение стабильного вечнозеленого спроса к уровню конкуренции
-              </p>
-            </div>
-
-            {researchData && researchData.evergreenTrends && researchData.evergreenTrends.length > 0 ? (
-              <div className="h-44 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={researchData.evergreenTrends.map((t, idx) => ({ ...t, name: t.name + " ".repeat(idx) }))}
-                    margin={{ top: 10, right: 0, left: -25, bottom: 0 }}
-                  >
-                    <XAxis 
-                      dataKey="name" 
-                      tick={{ fill: "#6b7280", fontSize: 9 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis 
-                      tick={{ fill: "#6b7280", fontSize: 8 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0a0a0a",
-                        borderColor: "#262626",
-                        borderRadius: "12px"
-                      }}
-                      labelClassName="text-xs font-bold text-white"
-                      itemStyle={{ color: "#a3a3a3", fontSize: 10 }}
-                    />
-                    <Bar dataKey="evergreenScore" fill="var(--color-primary)" radius={[4, 4, 0, 0]} name="Evergreen Score">
-                      {researchData.evergreenTrends.map((entry, index) => (
-                        <Cell 
-                          key={`bar-evergreen-cell-${index}`} 
-                          fill={index % 2 === 0 ? "rgb(99,102,241)" : "rgb(245,158,11)"} 
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-44 w-full flex items-center justify-center bg-neutral-950/50 rounded-xl border border-neutral-900 text-[10px] text-neutral-500">
-                Проведите анализ, чтобы построить график
-              </div>
-            )}
-          </div>
-
-          {/* Seasonality Trend Chart */}
-          <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
-            <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <TrendingUp className="text-primary" size={16} />
-                Сезонность спроса (последние 6 месяцев)
-              </h4>
-              <p className="text-[10px] text-neutral-500">
-                Динамика просмотров и интереса зрителей в нише «{activeNiche}»
-              </p>
-            </div>
-
-            <div className="h-44 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={trendData[activeNiche] || trendData["Свой вариант"]}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                  <XAxis 
-                    dataKey="name" 
-                    tick={{ fill: "#6b7280", fontSize: 9 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis 
-                    tick={{ fill: "#6b7280", fontSize: 8 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0a0a0a",
-                      borderColor: "#262626",
-                      borderRadius: "12px",
-                      fontSize: "10px"
-                    }}
-                    itemStyle={{ color: "#818cf8", fontWeight: "bold" }}
-                    labelStyle={{ color: "#fff", fontWeight: "bold", marginBottom: "4px" }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="views" 
-                    stroke="#818cf8" 
-                    strokeWidth={3}
-                    dot={{ r: 4, fill: "#0a0a0a", stroke: "#818cf8", strokeWidth: 2 }}
-                    activeDot={{ r: 6, fill: "#818cf8", stroke: "#0a0a0a" }}
-                    name="Просмотры"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Evergreen trends dashboard */}
-          <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
-            <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <TrendingUp className="text-accent" size={16} />
-                Вечнозеленые ниши и подниши
-              </h4>
-              <p className="text-[10px] text-neutral-500">
-                Самые стабильные тренды 2026 года с быстрой активацией
-              </p>
-            </div>
-
-            <div className="space-y-3.5">
-              {researchData && researchData.evergreenTrends && researchData.evergreenTrends.length > 0 ? (
-                researchData.evergreenTrends.map((trend, idx) => (
-                  <div
-                    key={`trend-evergreen-item-${idx}-${trend.name}`}
-                    className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-900 space-y-3 hover:border-neutral-800 transition-colors"
-                  >
-                    {/* Header */}
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-0.5">
-                        <h5 className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <Compass size={12} className="text-primary" />
-                          {trend.name}
-                        </h5>
-                        <div className="flex items-center gap-1 text-[8px] text-neutral-500 font-bold uppercase tracking-wider">
-                          <span>Конкуренция: </span>
-                          <span className={trend.competitionScore > 70 ? "text-red-400" : trend.competitionScore > 40 ? "text-amber-400" : "text-emerald-400"}>
-                            {trend.competitionScore}%
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-[11px] font-black text-emerald-400">{trend.evergreenScore}/100</span>
-                        <span className="text-[7px] uppercase font-bold text-neutral-500 tracking-wider">Evergreen</span>
-                      </div>
-                    </div>
-
-                    {/* Sub-niches bullets */}
-                    <div className="space-y-1.5 pt-1 border-t border-neutral-900">
-                      {trend.subNiches.map((sub, i) => (
-                        <div
-                          key={`trend-subniche-${idx}-${i}-${sub.name}`}
-                          className="flex items-center justify-between p-2 rounded bg-neutral-900/40 hover:bg-neutral-900 text-[10px] transition-all group/sub"
-                        >
-                          <div className="space-y-0.5 max-w-[70%]">
-                            <span className="text-neutral-200 font-semibold group-hover/sub:text-accent transition-colors block leading-tight">
-                              {sub.name}
-                            </span>
-                            <span className="text-[9px] text-neutral-500 line-clamp-1 italic">
-                              {sub.description}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => {
-                              onSelectNiche(sub.name);
-                              setStatusMsg({ type: "success", text: `Ниша изменена на "${sub.name}". Вкладка брендинга и идей обновится!` });
-                            }}
-                            className="opacity-0 group-hover/sub:opacity-100 flex items-center gap-0.5 px-2 py-0.5 bg-accent hover:bg-accent/90 text-neutral-900 rounded font-bold text-[8px] transition-all cursor-pointer"
-                          >
-                            Выбрать
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                // Static Default Evergreen Niches prior to search
-                <div className="space-y-3">
-                  {[
-                    { name: "ИИ & Автоматизация", score: 95, subs: "No-code инструменты, Промт-инжиниринг" },
-                    { name: "Личные Финансы", score: 92, subs: "Пассивный доход, Инвестиции с нуля" },
-                    { name: "Саморазвитие", score: 88, subs: "Продуктивность, Тайм-менеджмент" },
-                    { name: "Биохакинг & Здоровье", score: 85, subs: "Оптимизация сна, Долголетие" }
-                  ].map((item, idx) => (
-                    <div key={`evergreen-niche-default-${idx}-${item.name}`} className="p-3 bg-neutral-950 border border-neutral-900 rounded-xl flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <div className="text-xs font-bold text-white">{item.name}</div>
-                        <div className="text-[9px] text-neutral-500">{item.subs}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-black text-emerald-400">{item.score}/100</div>
-                        <div className="text-[7px] text-neutral-500 font-bold uppercase tracking-wider">Evergreen</div>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="text-center text-[9px] text-neutral-600 italic leading-relaxed pt-2">
-                    * Нажмите кнопку «Найти & Анализировать» выше, чтобы сгенерировать точные подниши и актуальные вечнозеленые идеи в вашей теме!
-                  </div>
+              {/* Recharts Chart: Engagement levels or Evergreen stability */}
+              <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <BarChart3 className="text-primary" size={16} />
+                    Вечнозеленый потенциал ниш
+                  </h4>
+                  <p className="text-[10px] text-neutral-500">
+                    Какое отношение стабильного вечнозеленого спроса к уровню конкуренции
+                  </p>
                 </div>
-              )}
-            </div>
-          </div>
 
-        </div>
+                {researchData && researchData.evergreenTrends && researchData.evergreenTrends.length > 0 ? (
+                  <div className="h-44 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={researchData.evergreenTrends.map((t, idx) => ({ ...t, name: t.name + " ".repeat(idx) }))}
+                        margin={{ top: 10, right: 0, left: -25, bottom: 0 }}
+                      >
+                        <XAxis 
+                          dataKey="name" 
+                          tick={{ fill: "#6b7280", fontSize: 9 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis 
+                          tick={{ fill: "#6b7280", fontSize: 8 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#0a0a0a",
+                            borderColor: "#262626",
+                            borderRadius: "12px"
+                          }}
+                          labelClassName="text-xs font-bold text-white"
+                          itemStyle={{ color: "#a3a3a3", fontSize: 10 }}
+                        />
+                        <Bar dataKey="evergreenScore" fill="var(--color-primary)" radius={[4, 4, 0, 0]} name="Evergreen Score">
+                          {researchData.evergreenTrends.map((entry, index) => (
+                            <Cell 
+                              key={`bar-evergreen-cell-${index}`} 
+                              fill={index % 2 === 0 ? "rgb(99,102,241)" : "rgb(245,158,11)"} 
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-44 w-full flex items-center justify-center bg-neutral-950/50 rounded-xl border border-neutral-900 text-[10px] text-neutral-500">
+                    Проведите анализ, чтобы построить график
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Row 3: Evergreen Niches & Sub-niches Directory (Full-width) */}
+            <div className="p-6 rounded-2xl bg-surface border border-border shadow-xl space-y-4 w-full">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <TrendingUp className="text-accent" size={16} />
+                  Вечнозеленые ниши и подниши
+                </h4>
+                <p className="text-[10px] text-neutral-500">
+                  Самые стабильные тренды 2026 года с быстрой активацией
+                </p>
+              </div>
+
+              <div>
+                {researchData && researchData.evergreenTrends && researchData.evergreenTrends.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {researchData.evergreenTrends.map((trend, idx) => (
+                      <div
+                        key={`trend-evergreen-item-${idx}-${trend.name}`}
+                        className="p-4 rounded-xl bg-neutral-950 border border-neutral-900 space-y-3 hover:border-neutral-800 transition-colors flex flex-col justify-between"
+                      >
+                        {/* Header */}
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-0.5">
+                            <h5 className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <Compass size={12} className="text-primary" />
+                              {trend.name}
+                            </h5>
+                            <div className="flex items-center gap-1 text-[8px] text-neutral-500 font-bold uppercase tracking-wider">
+                              <span>Конкуренция: </span>
+                              <span className={trend.competitionScore > 70 ? "text-red-400" : trend.competitionScore > 40 ? "text-amber-400" : "text-emerald-400"}>
+                                {trend.competitionScore}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <span className="text-[11px] font-black text-emerald-400">{trend.evergreenScore}/100</span>
+                            <span className="text-[7px] uppercase font-bold text-neutral-500 tracking-wider">Evergreen</span>
+                          </div>
+                        </div>
+
+                        {/* Sub-niches bullets */}
+                        <div className="space-y-1.5 pt-1 border-t border-neutral-900">
+                          {trend.subNiches.map((sub, i) => (
+                            <div
+                              key={`trend-subniche-${idx}-${i}-${sub.name}`}
+                              className="flex items-center justify-between p-2 rounded bg-neutral-900/40 hover:bg-neutral-900 text-[10px] transition-all group/sub"
+                            >
+                              <div className="space-y-0.5 max-w-[70%]">
+                                <span className="text-neutral-200 font-semibold group-hover/sub:text-accent transition-colors block leading-tight">
+                                  {sub.name}
+                                </span>
+                                <span className="text-[9px] text-neutral-500 line-clamp-1 italic">
+                                  {sub.description}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  onSelectNiche(sub.name);
+                                  setStatusMsg({ type: "success", text: `Ниша изменена на "${sub.name}". Вкладка брендинга и идей обновится!` });
+                                }}
+                                className="opacity-0 group-hover/sub:opacity-100 flex items-center gap-0.5 px-2 py-0.5 bg-accent hover:bg-accent/90 text-neutral-900 rounded font-bold text-[8px] transition-all cursor-pointer"
+                              >
+                                Выбрать
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  // Static Default Evergreen Niches prior to search
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {[
+                        { name: "ИИ & Автоматизация", score: 95, subs: "No-code инструменты, Промт-инжиниринг" },
+                        { name: "Личные Финансы", score: 92, subs: "Пассивный доход, Инвестиции с нуля" },
+                        { name: "Саморазвитие", score: 88, subs: "Продуктивность, Тайм-менеджмент" },
+                        { name: "Биохакинг & Здоровье", score: 85, subs: "Оптимизация сна, Долголетие" }
+                      ].map((item, idx) => (
+                        <div key={`evergreen-niche-default-${idx}-${item.name}`} className="p-3 bg-neutral-950 border border-neutral-900 rounded-xl flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <div className="text-xs font-bold text-white">{item.name}</div>
+                            <div className="text-[9px] text-neutral-500">{item.subs}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-black text-emerald-400">{item.score}/100</div>
+                            <div className="text-[7px] text-neutral-500 font-bold uppercase tracking-wider">Evergreen</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-center text-[9px] text-neutral-600 italic leading-relaxed pt-2">
+                      * Нажмите кнопку «Найти & Анализировать» выше, чтобы сгенерировать точные подниши и актуальные вечнозеленые идеи в вашей теме!
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        )}
 
       </div>
 
@@ -2445,6 +3343,151 @@ export const YouTubeTab = ({
             </div>
           );
         })()}
+      </AnimatePresence>
+
+      {/* Edit Competitor Modal */}
+      <AnimatePresence>
+        {editingCompetitor && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl p-5 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                    <Edit2 size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">Редактирование конкурента</h3>
+                    <p className="text-[11px] text-neutral-400">Настройте реальное число подписчиков и параметры канала</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingCompetitor(null)}
+                  className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-neutral-300">Название канала</label>
+                  <input
+                    type="text"
+                    value={editCompName}
+                    onChange={(e) => setEditCompName(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                    placeholder="Название канала"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-neutral-300">
+                      Подписчики <span className="text-primary">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editCompSubs}
+                      onChange={(e) => setEditCompSubs(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                      placeholder="Например: 9.3 тыс. или 9.3K"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-neutral-300">ER (%) Вовлеченность</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={editCompEngagement}
+                      onChange={(e) => setEditCompEngagement(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-neutral-300">Ссылка на канал</label>
+                    <button
+                      type="button"
+                      onClick={() => handleSyncCompetitorWithYouTube({ ...editingCompetitor, channelUrl: editCompUrl, name: editCompName })}
+                      disabled={!editCompUrl.trim() || syncingComp !== null}
+                      className="text-[10px] text-primary hover:underline flex items-center gap-1 disabled:opacity-40"
+                    >
+                      <RefreshCw size={10} className={syncingComp ? "animate-spin" : ""} />
+                      Подтянуть с YouTube
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={editCompUrl}
+                    onChange={(e) => setEditCompUrl(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                    placeholder="https://www.youtube.com/@channel"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-neutral-300">Описание канала</label>
+                  <textarea
+                    rows={2}
+                    value={editCompDesc}
+                    onChange={(e) => setEditCompDesc(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none"
+                    placeholder="Краткое описание канала..."
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-neutral-300">Слабая сторона</label>
+                  <textarea
+                    rows={2}
+                    value={editCompWeakness}
+                    onChange={(e) => setEditCompWeakness(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none"
+                    placeholder="Слабые стороны конкурента..."
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-neutral-300">Стратегия</label>
+                  <textarea
+                    rows={2}
+                    value={editCompStrategy}
+                    onChange={(e) => setEditCompStrategy(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none"
+                    placeholder="Стратегия и причины успеха..."
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingCompetitor(null)}
+                  className="px-4 py-2 rounded-xl border border-neutral-800 text-neutral-400 hover:text-white text-xs font-bold transition-all"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditedCompetitor}
+                  className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-lg shadow-primary/20"
+                >
+                  Сохранить изменения
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
     </div>

@@ -4,6 +4,7 @@ import { Palette, Sparkles, Check, Type, Eye, ShieldCheck, Plus, Trash2, Edit3, 
 import { useApp } from '../context/AppContext';
 import { generateBrandProfile, BrandProfile } from '../services/geminiService';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../utils/helpers';
 
 const THUMBNAIL_PRESETS = [
   { name: 'Кинематографичный 3D', desc: 'Глубокий объем, 3D элементы, кино-освещение' },
@@ -229,7 +230,7 @@ export const BrandbookSection: React.FC<BrandbookSectionProps> = ({ compact = fa
                     </div>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText(hex);
+                        copyToClipboard(hex);
                         toast.success(`Цвет ${hex} скопирован в буфер обмена`);
                       }}
                       className="p-1 rounded text-neutral-500 hover:text-white hover:bg-neutral-800/60 transition-colors cursor-pointer ml-0.5"

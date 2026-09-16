@@ -133,8 +133,10 @@ export function getCustomInstructions(options?: AnalysisOptions, forceIncludeGen
   let customHeader = "";
   if (ui) {
     customHeader = `
-=== 🚨 ГЛАВНОЕ ПРАВИЛО (ВЫСШИЙ ПРИОРИТЕТ): СТРОГО СОБЛЮДАЙ ИНСТРУКЦИИ ДЛЯ ИИ-АССИСТЕНТА ===
-Любые правила, требования, запреты, музыкальные пожелания и стилистические ограничения, записанные в настройках Инструкции для ИИ Ассистента, ИМЕЮТ ВЫСШИЙ ПРИОРИТЕТ И ОБЯЗАТЕЛЬНЫ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ во всех генерациях (сценарий, промпты, музыка, SEO, визуал)!
+=== 🚨 ГЛАВНОЕ ПРАВИЛО (ВЫСШИЙ ПРИОРИТЕТ): СТРОГОЕ СОБЛЮДЕНИЕ ПРАВИЛ ИЗ ОКНА «ИНСТРУКЦИИ ДЛЯ ИИ АССИСТЕНТА» ===
+Правила, запреты, формулировки, обращения, ссылки, псевдонимы и стилистические ограничения из модального окна «Инструкции для ИИ Ассистента»
+ИМЕЮТ ВЫСШИЙ ПРИОРИТЕТ И ОБЯЗАТЕЛЬНЫ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ ДАЖЕ ПОСЛЕ ВНЕСЕНИЯ ИЗМЕНЕНИЙ ПОЛЬЗОВАТЕЛЕМ!
+Никакие ручные правки текста, локальные уточнения («сделай проще/короче/смешнее»), изменения структуры или длительности НЕ МОГУТ отменять или ослаблять эти правила!
 
 ${ui}${regionContext}
 ================================================================================
@@ -234,7 +236,7 @@ export async function generateHooks(topic: string, format: string, options?: Ana
   Верни только JSON-массив из 3 строк.`;
   
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: { responseMimeType: "application/json" }
   });
@@ -256,7 +258,7 @@ export async function generateSRTContent(scriptText: string, options?: AnalysisO
   Верни ТОЛЬКО валидное содержимое SRT файла. Начни сразу с первого блока (1), без тегов markdown, без комментариев и вступлений.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
   });
 
@@ -278,7 +280,7 @@ export async function fixScriptBlockGrammar(
   Верни ТОЛЬКО исправленный текст без комментариев и оформления.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
   });
 
@@ -299,7 +301,7 @@ export async function parseUploadedScript(rawText: string, options?: AnalysisOpt
   Верни JSON массив объектов с полями "phase" (заголовок части) и "content" (текст этой части).`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -346,53 +348,67 @@ ${wishes}
   const numDuration = parseDurationInMinutes(duration);
   
   const systemInstruction = validateAndEnrichSystemPrompt(
-    `Ты - экспертный сценарист YouTube. Твоя задача - создать структуру сценария, которая будет максимально виральной и качественной.`,
+    `Ты — ведущий сценарист и шоураннер документальных, кинематографических и экспертных YouTube-проектов мирового уровня (уровень Netflix / BBC Storyville / HBO).
+Твоя задача — создать захватывающую драматургическую структуру сценария, которая удерживает неослабевающее внимание зрителя от первой до последней секунды, решает глубинную проблему, раскрывает неочевидные истины и СТРОГО соблюдает хронометраж.
+Избегай шаблонных и банальных структур: каждый блок обязан иметь свой драматургический конфликт, эмоциональный пик и логический мостик к следующему блоку.`,
     wishes,
     customInst,
     { ...options, isScript: true }
   );
 
+  let recommendedBlocksCount = 6;
+  if (numDuration <= 0.6) recommendedBlocksCount = 3;
+  else if (numDuration <= 1.2) recommendedBlocksCount = 4;
+  else if (numDuration <= 3.5) recommendedBlocksCount = 5;
+  else if (numDuration <= 7) recommendedBlocksCount = 6;
+  else if (numDuration <= 11) recommendedBlocksCount = 8;
+  else if (numDuration <= 16) recommendedBlocksCount = 10;
+  else if (numDuration <= 25) recommendedBlocksCount = 14;
+  else recommendedBlocksCount = Math.min(20, Math.max(12, Math.round(numDuration * 0.6)));
+
+  const targetWordsTotal = Math.round(numDuration * 140);
+  const targetCharsTotal = Math.round(numDuration * 1050);
+  const avgWordsPerBlock = Math.round(targetWordsTotal / recommendedBlocksCount);
+  const avgCharsPerBlock = Math.round(targetCharsTotal / recommendedBlocksCount);
+
   let prompt = "";
   if (options?.noVoiceover) {
     prompt = `Сгенерируй структуру видео БЕЗ ДИКТОРСКОЙ ОЗВУЧКИ на тему "${idea}".
-СТРОГОЕ ТРЕБОВАНИЕ ПО ДЛИТЕЛЬНОСТИ: ${duration} мин. 
+СТРОГОЕ ТРЕБОВАНИЕ ПО ДЛИТЕЛЬНОСТИ: ${numDuration} мин. (всего ${Math.round(numDuration * 60)} секунд).
 Режим: ${mode}.
 ${toneContext}${competitorContext}
 
-Поскольку в видео нет диктора и озвучки, разбей его на логические визуально-музыкальные эпизоды/блоки.
-Для каждого блока укажи название, тип, примерное время, описание визуальной атмосферы и примерное количество символов для описания (estimatedChars - около 300-500).
+Поскольку в видео нет диктора и озвучки, разбей его на ${recommendedBlocksCount} логических визуально-музыкальных эпизодов/блоков.
+Для каждого блока укажи название, тип, примерное время, описание визуальной атмосферы и примерное количество символов для описания (estimatedChars - около ${Math.round(targetCharsTotal / recommendedBlocksCount)}).
 
-Верни JSON массив объектов ScriptBlockStructure { title: string, type: string, description: string, estimatedTime: string, estimatedChars: number }.`;
+Верни JSON массив из ${recommendedBlocksCount} объектов ScriptBlockStructure { title: string, type: string, description: string, estimatedTime: string, estimatedChars: number }.`;
   } else {
-    const shortsRule = mode === "Shorts" ? "\nВАЖНО ДЛЯ SHORTS: В последнем блоке ОБЯЗАТЕЛЬНО добавь призыв перейти на канал!" : "";
-    const targetWordsTotal = Math.round(numDuration * 140);
-    const targetCharsTotal = Math.round(numDuration * 1050);
+    const shortsRule = mode === "Shorts" || numDuration <= 1.2 ? "\nВАЖНО ДЛЯ SHORTS: В последнем блоке ОБЯЗАТЕЛЬНО добавь призыв перейти на канал или подписаться!" : "";
+    
     prompt = `Сгенерируй структуру сценария для YouTube видео на тему "${idea}".
-СТРОГОЕ ТРЕБОВАНИЕ ПО ХРОНОМЕТРАЖУ: ровно ${numDuration} мин. (${targetWordsTotal} слов текста).
+СТРОГОЕ ТРЕБОВАНИЕ ПО ХРОНОМЕТРАЖУ: ровно ${numDuration} мин. (общий объем текста всего сценария ~${targetWordsTotal} слов / ~${targetCharsTotal} знаков).
 Режим: ${mode}.
 ${toneContext}${competitorContext}${shortsRule}
 
 РАЗБИЕНИЕ НА БЛОКИ (КРИТИЧЕСКИ ВАЖНО):
-Разбей сценарий на смысловые блоки (главы/секции), соответствующие логике повествования (например: Вступление, Проблема, Основная часть (несколько блоков), Решение, Опыт, Заключение).
+Создай ровно ${recommendedBlocksCount} смысловых блоков (глав/секций), последовательно раскрывающих тему (Хук, Проблема, Основная часть (несколько блоков), Практические решения, Опыт, Кульминация, Призыв к действию).
 Каждый блок должен представлять собой законченную мысль или этап сюжета.
 
-Для каждого блока укажи:
-- title: название блока
-- type: тип блока
-- description: краткое описание, о чем говорить
-- estimatedTime: примерное время (в секундах или "M:SS", сумма по всем блокам должна составить ${Math.round(numDuration * 60)} сек)
-- estimatedChars: количество символов для блока (в сумме по всем блокам ровно ~${targetCharsTotal} знаков или ~${targetWordsTotal} слов)
+ТРЕБОВАНИЯ К КАЖДОМУ БЛОКУ:
+- title: емкое название блока
+- type: тип блока (Хук / Вступление / Основная мысль / Кейс / Анализ / Кульминация / Финал / CTA)
+- description: подробное описание того, какие тезисы, аргументы и факты диктор должен раскрыть в этом блоке
+- estimatedTime: таймкод блока в формате "M:SS - M:SS (XX сек)", сумма по всем блокам должна составить ${Math.round(numDuration * 60)} сек
+- estimatedChars: количество символов текста для этого блока (в среднем ~${avgCharsPerBlock} знаков на блок, в сумме по всем блокам СТРОГО ровно ${targetCharsTotal} знаков)
 
-Суммарное количество estimatedChars для ВСЕХ блоков вместе взятых должно быть СТРОГО ${targetCharsTotal} знаков (что соответствует ${targetWordsTotal} словам текста при скорости речи 140 слов/мин).
-ЭТО ГЛАВНОЕ КРИТИЧЕСКОЕ ТРЕБОВАНИЕ. Пользователь задал хронометраж ${numDuration} минут.
-- Если видео короткое (Shorts/Reels до 1 мин): общий объем ~${targetWordsTotal} слов.
-- Если видео длинное (например, 16 минут): общий объем должен быть ~${16 * 140} = 2240 слов (~16800 знаков)! Распредели этот объем пропорционально по 6-12 блокам (по ~180-300 слов на блок).
+ЭТО ГЛАВНОЕ КРИТИЧЕСКОЕ ТРЕБОВАНИЕ: Пользователь задал хронометраж ${numDuration} минут (${targetWordsTotal} слов текста при скорости речи 140 слов/мин).
+Сумма estimatedChars по всем блокам должна составлять ровно ${targetCharsTotal} знаков!
 
-Верни JSON массив объектов ScriptBlockStructure { title: string, type: string, description: string, estimatedTime: string, estimatedChars: number }.`;
+Верни JSON массив из ${recommendedBlocksCount} объектов ScriptBlockStructure { title: string, type: string, description: string, estimatedTime: string, estimatedChars: number }.`;
   }
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction: systemInstruction,
@@ -414,7 +430,57 @@ ${toneContext}${competitorContext}${shortsRule}
     }
   });
 
-  return safeParseJSON<ScriptBlockStructure[]>(extractTextFromResponse(response), [], ScriptStructureResponseSchema as any);
+  let rawStructure = safeParseJSON<ScriptBlockStructure[]>(extractTextFromResponse(response), [], ScriptStructureResponseSchema as any);
+  if (!Array.isArray(rawStructure) || rawStructure.length === 0) {
+    return [];
+  }
+
+  // Normalize and strictly balance estimatedChars and estimatedTime across all blocks
+  const rawTotalChars = rawStructure.reduce((sum, b) => sum + (Number(b.estimatedChars) || 0), 0);
+  const totalVideoSeconds = Math.max(15, Math.round(numDuration * 60));
+  let accumulatedSeconds = 0;
+
+  const normalizedStructure: ScriptBlockStructure[] = rawStructure.map((block, idx) => {
+    let scaledChars = Number(block.estimatedChars) || 0;
+    if (rawTotalChars > 0) {
+      scaledChars = Math.round((scaledChars / rawTotalChars) * targetCharsTotal);
+    } else {
+      scaledChars = Math.round(targetCharsTotal / rawStructure.length);
+    }
+
+    // Minimum sanity floor per block
+    const minChars = numDuration < 1 ? 120 : 300;
+    scaledChars = Math.max(minChars, scaledChars);
+
+    const blockShare = scaledChars / Math.max(1, targetCharsTotal);
+    let blockSeconds = Math.max(8, Math.round(blockShare * totalVideoSeconds));
+    
+    // For the final block, adjust accumulated seconds to fit totalVideoSeconds exactly
+    const startSec = accumulatedSeconds;
+    if (idx === rawStructure.length - 1) {
+      blockSeconds = Math.max(8, totalVideoSeconds - startSec);
+    }
+    accumulatedSeconds += blockSeconds;
+    const endSec = idx === rawStructure.length - 1 ? totalVideoSeconds : accumulatedSeconds;
+
+    const formatTime = (s: number) => {
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+    };
+
+    const calculatedTimeRange = `${formatTime(startSec)} - ${formatTime(endSec)} (${blockSeconds} сек)`;
+
+    return {
+      title: block.title || `Блок ${idx + 1}`,
+      type: block.type || (idx === 0 ? "Вступление" : idx === rawStructure.length - 1 ? "Финал" : "Основная часть"),
+      description: block.description || "",
+      estimatedTime: calculatedTimeRange,
+      estimatedChars: scaledChars,
+    };
+  });
+
+  return normalizedStructure;
 }
 
 
@@ -437,9 +503,21 @@ ${wishes}
 [КОНЕЦ КРИТИЧЕСКИХ ТРЕБОВАНИЙ]` : "";
   const toneContext = getToneContext(options);
   const customInst = getCustomInstructions(options, true);
+  const numDuration = parseDurationInMinutes(totalDuration);
+  const totalTargetWords = Math.round(numDuration * 140);
   
   const systemInstruction = validateAndEnrichSystemPrompt(
-    `Ты - экспертный сценарист YouTube. Твоя задача - написать максимально вовлекающий текст для конкретного блока сценария.`,
+    `Ты — выдающийся сценарист, драматург и эссеист мирового уровня (уровень лучших документальных нарративов Netflix, HBO и глубоких кинематографических эссе).
+Твоя задача — написать глубокий, живой, кинематографичный текст диктора для блока сценария, СТРОГО соблюдая заданный хронометраж и количество слов.
+
+ЗОЛОТЫЕ ПРАВИЛА НАПИСАНИЯ СЦЕНАРИЯ (ВЫСШИЙ СТАНДАРТ):
+1. НИКАКОЙ ВОДЫ И ШТАМПОВ: Запрещены шаблонные зачины («В современном мире...», «Каждый из нас хоть раз...», «Сегодня мы разберем...»). Начинай блок сразу с психологического напряжения, парадокса, осязаемой детали или живого человеческого действия.
+2. ГЛУБИНА МЫСЛИ И СЕНСОРНЫЙ ЯЗЫК: Используй образный, тактильный язык. Говори о конкретных вещах, звуках, запахах, психологических состояниях, а не абстрактных банальностях.
+3. ЖАНРОВАЯ АУТЕНТИЧНОСТЬ:
+   - В духовных и исторических темах: избегай слащавого пафоса и клише. Герои — живые люди с сомнениями, усталостью, пылью дорог и настоящей внутренней борьбой.
+   - В психологических и философских темах: показывай внутренние механизмы психики через реальные жизненные ситуации, а не сухие мотивационные лозунги.
+   - В аналитике и науке: раскрывай неочевидные причинно-следственные связи и законы реальности.
+4. ОРГАНИЧНЫЙ РИТМ ДЛЯ ДИКТОРСКОЙ ОЗВУЧКИ: Фразы должны звучать естественно при чтении вслух, с паузами на обдумывание и логическими акцентами.`,
     wishes,
     customInst,
     { ...options, isScript: true }
@@ -457,7 +535,7 @@ ${wishes}
   if (options?.noVoiceover) {
     prompt = `Напиши plan для конкретного блока БЕЗ ДИКТОРСКОЙ ОЗВУЧКИ (релакс-музыка, ASMR, lofi, пейзажи).
 ТЕМА ВИДЕО: "${idea}"
-ОБЩАЯ ДЛИТЕЛЬНОСТЬ ВИДЕО: ${totalDuration} мин.
+ОБЩАЯ ДЛИТЕЛЬНОСТЬ ВИДЕО: ${numDuration} мин.
 ТЕКУЩИЙ БЛОК: "${block.title}" (Тип: ${block.type})
 ОПИСАНИЕ БЛОКА: "${block.description}"
 ${wishesContext}
@@ -466,41 +544,43 @@ ${globalAudioContext}
 ВАЖНО (ОЧЕНЬ ВАЖНО):
 1. Если в блоке "ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ" указаны факты или идеи для этого видео - ОБЯЗАТЕЛЬНО учти их при описании атмосферы и музыки.
 2. Поскольку озвучки диктора нет, поле "text" СТРОГО должно быть пустым: "" или содержать прочерк "-".
-2. Опиши звуковые эффекты (sfx) (например: шелест травы, пение птиц, шум ветра, волны).
-3. Опиши фоновое настроение (mood) (например: мягкий космический эмбиент, теплая lo-fi гитара, медитативная флейта).
-4. Заполни musicPrompt: создай короткую точную подсказку фоновой музыки / стилей (для Treblo/Suno/Udio), строго учитывающую выбранное Звуковое Окружение (музыкальный фон, темп и характер).
-5. Заполни soundLinks (ссылки на звуки или точные названия звуковых эффектов).
-6. Заполни scene: опиши визуальное/физическое окружение и общую атмосферу сцены (Sets the stage. Describes both the physical environment and the mood or atmosphere of the scene).
-7. Заполни sampleContext: задай контекстную отправную точку для сцены (Gives the model a contextual starting point, so the scene feels natural).
+3. Опиши звуковые эффекты (sfx) (например: шелест травы, пение птиц, шум ветра, волны).
+4. Опиши фоновое настроение (mood) (например: мягкий космический эмбиент, теплая lo-fi гитара, медитативная флейта).
+5. Заполни musicPrompt: создай короткую точную подсказку фоновой музыки / стилей (для Treblo/Suno/Udio), строго учитывающую выбранное Звуковое Окружение (музыкальный фон, темп и характер).
+6. Заполни soundLinks (ссылки на звуки или точные названия звуковых эффектов).
+7. Заполни scene: опиши визуальное/физическое окружение и общую атмосферу сцены (Sets the stage. Describes both the physical environment and the mood or atmosphere of the scene).
+8. Заполни sampleContext: задай контекстную отправную точку для сцены (Gives the model a contextual starting point, so the scene feels natural).
 
 Верни JSON объект GeneratedBlock { title: string, text: string, sfx: string, mood: string, musicPrompt: string, soundLinks: string[], scene: string, sampleContext: string } c text: "".`;
   } else {
-    // 140 WPM = 2.33 words per sec.
-    // Calculate targeted words from estimatedChars (approx 6.5 chars per word) or duration
+    // 140 WPM = 2.33 words per sec. ~7 characters per word.
     const targetWords = Math.max(
-      35,
-      block.estimatedChars ? Math.round(block.estimatedChars / 6.5) : Math.round((parseDurationInMinutes(totalDuration) * 140) / 6)
+      numDuration < 1 ? 25 : 50,
+      block.estimatedChars ? Math.round(block.estimatedChars / 7) : Math.round(totalTargetWords / 6)
     );
-    const targetChars = block.estimatedChars || Math.round(targetWords * 6.5);
+    const targetChars = block.estimatedChars || Math.round(targetWords * 7);
+    const blockTimeSec = Math.max(10, Math.round((targetWords / 140) * 60));
 
-    prompt = `Напиши текст для конкретного блока сценария YouTube видео.
+    prompt = `Напиши подробный текст для конкретного блока сценария YouTube видео.
 ТЕМА ВИДЕО: "${idea}"
-ОБЩАЯ ДЛИТЕЛЬНОСТЬ ВИДЕО: ${totalDuration} мин.
+ОБЩИЙ ХРОНОМЕТРАЖ РОЛИКА: ${numDuration} мин. (всего ~${totalTargetWords} слов).
 ТЕКУЩИЙ БЛОК: "${block.title}" (Тип: ${block.type})
+ХРОНОМЕТРАЖ ЭТОГО БЛОКА: ~${blockTimeSec} сек (${block.estimatedTime || `${blockTimeSec} сек`}).
 ОПИСАНИЕ БЛОКА: "${block.description || ""}"
-СТРОГО ТРЕБУЕМЫЙ ОБЪЕМ ТЕКСТА ДЛЯ ЭТОГО БЛОКА: МИНИМУМ ${targetWords} СЛОВ (около ${targetChars} знаков).
+СТРОГО ТРЕБУЕМЫЙ ОБЪЕМ ТЕКСТА ДИКТОРА ДЛЯ ЭТОГО БЛОКА: РОВНО ${targetWords} СЛОВ (около ${targetChars} знаков).
 
 ${wishesContext}
 ${globalAudioContext}
 
-ВАЖНО (ПРИОРИТЕТ №1): Если в блоке "КРИТИЧЕСКИЕ СИСТЕМНЫЕ ТРЕБОВАНИЯ" выше указаны конкретные факты, цитаты, статистика или структура - ты ОБЯЗАН внедрить их в текст этого блока, если они к нему относятся по смыслу! Игнорирование этих данных является критической ошибкой.
-ВАЖНО: Текст должен СТРОГО соответствовать заявленному объему (НЕ МЕНЕЕ ${targetWords} слов / ~${targetChars} знаков). Это КРИТИЧЕСКОЕ ТРЕБОВАНИЕ пользователя. 
-Пользователь установил общее время видео (${totalDuration} мин), и если объем текста будет меньше, видео получится короче заявленного времени. 
-Поэтому пиши текст МАКСИМАЛЬНО ПОДРОБНО, обстоятельно разворачивая каждую мысль, приводя яркие примеры, аргументы и детали, чтобы достичь именно ${targetWords} слов. НЕ СОКРАЩАЙ! ЕСЛИ СДЕЛАЕШЬ МЕНЬШЕ ${targetWords} СЛОВ - ЭТО БУДЕТ КРИТИЧЕСКОЙ ОШИБКОЙ!
+ВАЖНО (ПРИОРИТЕТ №1 ПО ХРОНОМЕТРАЖУ):
+Пользователь задал хронометраж ролика ${numDuration} минут. 
+Ты ОБЯЗАН написать полноценный, развернутый текст диктора объемом НЕ МЕНЕЕ ${targetWords} слов (~${targetChars} знаков).
+Если ты напишешь меньше ${targetWords} слов, диктор закончит читать раньше времени, и видео получится слишком коротким!
+Пиши МАКСИМАЛЬНО ПОДРОБНО и ОБСТОЯТЕЛЬНО: разворачивай мысли, приводи глубокие примеры, аргументы, факты, аналогии и эмоциональные переходы, чтобы заполнить все ${blockTimeSec} секунд блока. НЕ СОКРАЩАЙ!
 
 ПРАВИЛА РАЗБИВКИ И ФОРМАТИРОВАНИЯ ТЕКСТА (ОЧЕНЬ ВАЖНО — ТЕКСТ ДОЛЖЕН «ДЫШАТЬ»):
 1. Разделяй текст на короткие логические и смысловые абзацы по 1-3 предложения (используй двойной перенос строки \\n\\n). Никаких сплошных нечитаемых «простыней» текста.
-2. ЦИТАТЫ (стихи из Библии, цитаты экспертов, крылатые фразы) ОБЯЗАТЕЛЬНО выноси на отдельную строку с двойным переносом и торжественным или мудрым тегом:
+2. ЦИТАТЫ (стихи, цитаты экспертов, крылатые фразы) ОБЯЗАТЕЛЬНО выноси на отдельную строку с двойным переносом и торжественным или мудрым тегом:
    Пример:
    В Послании к Ефесянам, глава вторая, стих десятый, апостол Павел пишет: (600ms)
 
@@ -530,11 +610,11 @@ ${toneContext}${wishesContext}${competitorContext}
 - sampleContext: Задай контекстную отправную точку для естественного входа голоса (Gives the model a contextual starting point, so the voice enters the scene naturally).
 ВАЖНО: Для soundLinks старайся возвращать полные URL-адреса на библиотеки звуков (например, YouTube Audio Library, Freesound.org, Epidemic Sound), а не просто названия. Если URL неизвестен, верни точное название для поиска.
 
-Верни JSON объект GeneratedBlock { title: string, text: string, sfx: string, mood: string, musicPrompt: string, soundLinks: string[], wordCount: number, scene: string, sampleContext: string }. Поле wordCount должно содержать точное количество сгенерированных слов в поле text. ЕСЛИ ТЫ НАПИСАЛ МЕНЬШЕ СЛОВ, ЧЕМ ТРЕБУЕТСЯ (${targetWords}), ДОБАВЬ БОЛЬШЕ ТЕКСТА ДО ДОСТИЖЕНИЯ ЛИМИТА!`;
+Верни JSON объект GeneratedBlock { title: string, text: string, sfx: string, mood: string, musicPrompt: string, soundLinks: string[], wordCount: number, scene: string, sampleContext: string }. Поле wordCount должно содержать точное количество сгенерированных слов в поле text. ТРЕБУЕМЫЙ ОБЪЕМ: ${targetWords} слов!`;
   }
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction: systemInstruction,
@@ -559,26 +639,35 @@ ${toneContext}${wishesContext}${competitorContext}
 
   const parsedBlock = safeParseJSON<GeneratedBlock>(extractTextFromResponse(response), { title: block.title, text: "", sfx: "", mood: "", soundLinks: [], scene: "", sampleContext: "" }, GeneratedScriptBlockSchema as any);
 
-  // If text was generated and is significantly shorter than required target words, expand it
+  // If text was generated and is significantly shorter than required target words, automatically expand it
   if (!options?.noVoiceover && parsedBlock.text && parsedBlock.text.trim()) {
     const cleanWords = parsedBlock.text.replace(/\([^)]+\)|\[[^\]]+\]|\*[^*]+\*/g, '').trim().split(/\s+/).filter(Boolean).length;
-    const requiredTargetWords = block.estimatedChars ? Math.round(block.estimatedChars / 6.5) : 0;
+    const targetWords = Math.max(
+      numDuration < 1 ? 25 : 50,
+      block.estimatedChars ? Math.round(block.estimatedChars / 7) : Math.round(totalTargetWords / 6)
+    );
+    const minRequiredWords = Math.round(targetWords * 0.82);
     
-    // If the model produced less than 75% of the target words for this block, make a fast expansion call
-    if (requiredTargetWords > 50 && cleanWords < requiredTargetWords * 0.75) {
+    // If the model produced less than 82% of target words for this block, make an expansion call to fulfill timing
+    if (targetWords > 45 && cleanWords < minRequiredWords) {
       try {
-        const expandPrompt = `Текст блока "${block.title}" получился слишком коротким (${cleanWords} слов из целевых ${requiredTargetWords} слов).
-Расширь и детализируй текст этого блока сценария, сохраняя стилистику и мысль, чтобы в нем было около ${requiredTargetWords} слов.
+        const wordsNeeded = targetWords - cleanWords;
+        const expandPrompt = `Текст блока сценария "${block.title}" получился короче заданного хронометража: всего ${cleanWords} слов из требуемых ${targetWords} слов (не хватает ~${wordsNeeded} слов).
+Хронометраж ролика нарушен, диктор закончит читать раньше времени.
+
+Расширь, углуби и дополни текст этого блока сценария, добавив подробные пояснения, яркие примеры, аргументы и детали, чтобы довести объем текста диктора ровно до ${targetWords} слов.
+Сохрани авторский стиль, контекст и форматирование (с абзацами, паузами и эмоциями).
+
 Текущий текст:
 "${parsedBlock.text}"
 
-Верни ТОЛЬКО готовый расширенный текст диктора без кавычек и комментариев.`;
+Верни ТОЛЬКО готовый расширенный текст диктора на русском языке без кавычек и комментариев.`;
 
         const expandResponse = await callGeminiWithRetry({
-          model: options?.model || "gemini-3.7-flash",
+          model: options?.model || "gemini-3.1-flash-lite",
           contents: expandPrompt,
           config: {
-            systemInstruction: "Ты профессиональный YouTube-сценарист. Ты мастерски расширяешь текст сценария до требуемого объема слов без потери качества.",
+            systemInstruction: validateAndEnrichSystemPrompt("Ты профессиональный YouTube-сценарист. Ты мастерски расширяешь и углубляешь текст сценария до точного хронометража без воды и потери качества.", "", customInst, { ...options, isScript: true }),
           }
         });
 
@@ -607,7 +696,7 @@ export async function generateScriptContinuations(
   topic: string,
   options?: AnalysisOptions
 ): Promise<string[]> {
-  const modelName = options?.model || "gemini-3.7-flash";
+  const modelName = options?.model || "gemini-3.1-flash-lite";
   const systemInstruction = "Ты — эксперт по YouTube нарративу и сценариям. На основе контекста предложи 3 коротких, емких и вовлекающих варианта продолжения мысли (по 1-2 предложения или короткой фразе каждый).";
   const prompt = `ТЕМА СЦЕНАРИЯ: "${topic}"
 ${prevContext ? `ПРЕДЫДУЩИЙ КОНТЕКСТ СЦЕНАРИЯ:
@@ -651,6 +740,178 @@ ${prevContext}
 
 
 
+/**
+ * Нарезка текста сценария строго на кинематографичные сцены хронометражем ~10 секунд (150-170 символов).
+ * Гарантирует изоляцию смысловых блоков сценария: фразы из одного блока ни при каких условиях не переносятся в другой.
+ * Сохраняет семантическую целостность фраз: делит сначала по предложениям, затем по знакам препинания
+ * (; : — , союзы), исключая обрывы мысли и гарантируя попадание в 10-секундное окно генерации Veo 3 / Sora.
+ */
+function splitSingleBlockIntoSceneChunks(
+  blockText: string,
+  targetMinChars: number = 135,
+  targetMaxChars: number = 175
+): string[] {
+  if (!blockText || !blockText.trim()) return [];
+
+  // 1. Очистка технических пометок и нормализация пробелов
+  const cleanFull = blockText
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
+    .replace(/[ \t]+/g, " ");
+
+  const rawParagraphs = cleanFull.split(/\n+/).map(p => p.trim()).filter(Boolean);
+  const atomicSegments: string[] = [];
+
+  for (const para of rawParagraphs) {
+    // Делим абзац на предложения с сохранением закрывающей пунктуации (. ! ? …)
+    const rawSentences: string[] = [];
+    const sentenceRegex = /[^.!?…]+(?:[.!?…]+['"»”)]*|$)/g;
+    let match: RegExpExecArray | null;
+    while ((match = sentenceRegex.exec(para)) !== null) {
+      const s = match[0].trim();
+      if (s) rawSentences.push(s);
+    }
+    if (rawSentences.length === 0 && para.trim()) {
+      rawSentences.push(para.trim());
+    }
+
+    for (const sentence of rawSentences) {
+      if (sentence.length <= targetMaxChars) {
+        atomicSegments.push(sentence);
+      } else {
+        // Предложение длиннее 175 символов (сложная конструкция).
+        // Разбиваем на подфразы по смысловым паузам: ; : — ,
+        const subClauseRegex = /[^,;:—\-]+(?:[,;:—\-]+['"»”)]*|$)/g;
+        const clauses: string[] = [];
+        let clauseMatch: RegExpExecArray | null;
+        while ((clauseMatch = subClauseRegex.exec(sentence)) !== null) {
+          const c = clauseMatch[0].trim();
+          if (c) clauses.push(c);
+        }
+
+        if (clauses.length <= 1) {
+          // Нет внутренней пунктуации: делим по границе слов около targetMaxChars
+          const words = sentence.split(/\s+/);
+          let temp = "";
+          for (const w of words) {
+            if (temp && (temp.length + 1 + w.length) > targetMaxChars) {
+              atomicSegments.push(temp.trim());
+              temp = w;
+            } else {
+              temp = temp ? temp + " " + w : w;
+            }
+          }
+          if (temp.trim()) atomicSegments.push(temp.trim());
+        } else {
+          // Склеиваем мелкие подфразы до целевого размера <= targetMaxChars
+          let tempClause = "";
+          for (const c of clauses) {
+            if (tempClause && (tempClause.length + 1 + c.length) > targetMaxChars) {
+              atomicSegments.push(tempClause.trim());
+              tempClause = c;
+            } else {
+              tempClause = tempClause ? tempClause + " " + c : c;
+            }
+          }
+          if (tempClause.trim()) atomicSegments.push(tempClause.trim());
+        }
+      }
+    }
+  }
+
+  // 2. Накапливаем атомарные сегменты в сцены по 150-170 символов внутри ЭТОГО блока
+  const textChunks: string[] = [];
+  let currentChunk = "";
+
+  for (let i = 0; i < atomicSegments.length; i++) {
+    const seg = atomicSegments[i].trim();
+    if (!seg) continue;
+
+    if (!currentChunk) {
+      currentChunk = seg;
+      continue;
+    }
+
+    const testLen = currentChunk.length + 1 + seg.length;
+
+    // Если объединение укладывается в порог (до 175 символов), соединяем
+    if (testLen <= targetMaxChars) {
+      currentChunk = currentChunk + " " + seg;
+    } else {
+      // Завершаем текущую сцену и начинаем следующую
+      textChunks.push(currentChunk.trim());
+      currentChunk = seg;
+    }
+  }
+
+  if (currentChunk.trim()) {
+    // Если финальный хвост слишком короткий (< 65 символов), объединяем с предыдущей сценой при запасе места
+    if (textChunks.length > 0 && currentChunk.trim().length < 65) {
+      const lastIdx = textChunks.length - 1;
+      if (textChunks[lastIdx].length + 1 + currentChunk.length <= 190) {
+        textChunks[lastIdx] = textChunks[lastIdx] + " " + currentChunk.trim();
+      } else {
+        textChunks.push(currentChunk.trim());
+      }
+    } else {
+      textChunks.push(currentChunk.trim());
+    }
+  }
+
+  return textChunks;
+}
+
+export function splitScriptTextIntoSceneChunks(
+  scriptText: string,
+  targetMinChars: number = 135,
+  targetMaxChars: number = 175
+): string[] {
+  if (!scriptText || !scriptText.trim()) return [];
+
+  // Проверяем, есть ли явные разделители блоков или заголовки разделов в тексте
+  const blockDelimiterRegex = /(?:<!--\s*BLOCK_SEPARATOR\s*-->|===+\s*(?:Блок|Block|Section|Часть)[^=]*===+|\n\s*(?:#+\s+|\[(?:Блок|Глава|Сцена|Часть|Block|Scene)\s+\d+[^\]]*\]|(?:\bБлок|\bГлава|\bСцена|\bЧасть|\bBlock)\s+\d+[:.\s]))/i;
+
+  if (blockDelimiterRegex.test(scriptText)) {
+    // Делим на разделы и режем каждый раздел СТРОГО изолированно, предотвращая перетекание текста между блоками
+    const rawSections = scriptText.split(/(?=<!--\s*BLOCK_SEPARATOR\s*-->|===+\s*(?:Блок|Block|Section|Часть)[^=]*===+|\n\s*(?:#+\s+|\[(?:Блок|Глава|Сцена|Часть|Block|Scene)\s+\d+[^\]]*\]|(?:\bБлок|\bГлава|\bСцена|\bЧасть|\bBlock)\s+\d+[:.\s]))/i);
+
+    const allChunks: string[] = [];
+    for (const section of rawSections) {
+      const cleanedSection = section
+        .replace(/<!--\s*BLOCK_SEPARATOR\s*-->/gi, '')
+        .replace(/===+\s*(?:Блок|Block|Section|Часть)[^=]*===+/gi, '')
+        .replace(/^[#\s]*\[?(?:Блок|Глава|Сцена|Часть|Block|Scene)\s+\d+[^\]\n]*\]?[:.]?\s*/i, '')
+        .trim();
+      if (!cleanedSection) continue;
+      const sectionChunks = splitSingleBlockIntoSceneChunks(cleanedSection, targetMinChars, targetMaxChars);
+      allChunks.push(...sectionChunks);
+    }
+    if (allChunks.length > 0) {
+      return allChunks;
+    }
+  }
+
+  const textChunks = splitSingleBlockIntoSceneChunks(scriptText, targetMinChars, targetMaxChars);
+
+  // 3. Жесткий потолок до 120 сцен для сверхдлинных сценариев
+  const MAX_SCRIPT_SCENES = 120;
+  while (textChunks.length > MAX_SCRIPT_SCENES) {
+    let minLen = Infinity;
+    let minIdx = 0;
+    for (let i = 0; i < textChunks.length - 1; i++) {
+      const combinedLen = textChunks[i].length + textChunks[i + 1].length;
+      if (combinedLen < minLen) {
+        minLen = combinedLen;
+        minIdx = i;
+      }
+    }
+    textChunks[minIdx] = textChunks[minIdx] + " " + textChunks[minIdx + 1];
+    textChunks.splice(minIdx + 1, 1);
+  }
+
+  return textChunks;
+}
+
 export async function generateScriptBreakdown(
   scriptText: string,
   niche: string,
@@ -659,64 +920,10 @@ export async function generateScriptBreakdown(
   targetDuration: string,
   options?: AnalysisOptions & { customInstructions?: string; branding?: string }
 ): Promise<SceneBreakdown[]> {
-  const lines = scriptText.split('\n');
-  const allSentences: string[] = [];
-  
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cleanLine = line.replace(/\[[^\]]*\]/g, " ").replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ").replace(/\s+/g, " ").trim();
-    if (!cleanLine) continue;
-    const words = cleanLine.split(/\s+/).filter(Boolean);
-    if (words.length <= 25) {
-      allSentences.push(cleanLine);
-    } else {
-      const parts = cleanLine.split(/([.!?]+['"»”*)]*\s+)/);
-      let built = '';
-      for (let i = 0; i < parts.length; i++) {
-        built += parts[i];
-        if (i % 2 === 1) { // this was a delimiter
-           if (i + 1 < parts.length && /^[A-ZА-ЯЁ\[(]/.test(parts[i+1].trim())) {
-             allSentences.push(built.trim());
-             built = '';
-           }
-        }
-      }
-      if (built.trim()) allSentences.push(built.trim());
-    }
-  }
-
-  const textChunks: string[] = [];
-  let currentChunk = '';
-  
-  for (const sentence of allSentences) {
-    const currentWords = currentChunk.trim().split(/\s+/).filter(Boolean).length;
-    const sentenceWords = sentence.trim().split(/\s+/).filter(Boolean).length;
-    
-    if (currentWords === 0) {
-      currentChunk = sentence;
-    } else if (currentWords + sentenceWords <= 25 || (sentenceWords < 5 && currentWords + sentenceWords <= 35)) {
-      currentChunk += '\n' + sentence; 
-    } else {
-      textChunks.push(currentChunk.trim());
-      currentChunk = sentence;
-    }
-  }
-  if (currentChunk) textChunks.push(currentChunk.trim());
-
-  // Максимальный жесткий потолок ДО 120 сцен для длинных сценариев
-  const MAX_SCRIPT_SCENES = 120;
-  while (textChunks.length > MAX_SCRIPT_SCENES) {
-    let minWords = Infinity;
-    let minIdx = 0;
-    for (let i = 0; i < textChunks.length - 1; i++) {
-      const combinedWords = (textChunks[i] + ' ' + textChunks[i + 1]).split(/\s+/).filter(Boolean).length;
-      if (combinedWords < minWords) {
-        minWords = combinedWords;
-        minIdx = i;
-      }
-    }
-    textChunks[minIdx] = textChunks[minIdx] + '\n' + textChunks[minIdx + 1];
-    textChunks.splice(minIdx + 1, 1);
+  // Нарезка сценария строго на 150-170 символов (~10 секунд)
+  const textChunks = splitScriptTextIntoSceneChunks(scriptText, 135, 175);
+  if (textChunks.length === 0) {
+    return [];
   }
 
   const wishesContext = wishes ? `
@@ -737,31 +944,36 @@ ${options.branding}
 ${customInst}
 ` : '';
   
-  const prompt = `Проанализируй текст сценария, который разбит на ${textChunks.length} сценарных сегментов (каждый строго до 10 секунд хронометража).
-Как профессиональный кинорежиссер, создай живой, выразительный и глубоко разнообразный визуальный ряд для каждой сцены, точно передающий смысл слов диктора (чередуй ракурсы, планы, окружение и действия).
+  const prompt = `Проанализируй текст сценария, который разбит на ${textChunks.length} сценарных сегментов (каждый строго около 150-170 символов, хронометраж ~10 секунд под генерацию в Veo 3 / Sora).
+Как ведущий кинорежиссер мирового уровня (HBO / Netflix / A24), создай аутентичный, кинематографичный и глубоко осмысленный визуальный ряд для каждой сцены, точно передающий эмоциональный подтекст слов диктора.
 
 ${VISUAL_DIVERSITY_RULES}
 
-Для звука (audio) укажи звуки окружения и фоновую музыку, идеально подходящие под настроение сцены.
+ТРЕБОВАНИЯ К ВИЗУАЛЬНОМУ РЯДУ КАЖДОЙ СЦЕНЫ (description и visuals.description):
+1. АУТЕНТИЧНОСТЬ СЕТТИНГА: Полное соответствие эпохе и жанру ролика (древность, природа, современный город, наука, психология). Подбирай материалы (камень, дерево, ткань, стекло, металл), естественный свет (golden hour, volumetric light, deep shadows) и осязаемые предметы мира этого видео.
+2. СТРОГИЙ ЗАПРЕТ НА СТОКОВЫЕ ШТАМПЫ: Никаких случайных столов, ноутбуков, чернильных перьев и свитков, если они не требуются по сюжету!
+3. БЕЗЛИКОЕ КАДРИРОВАНИЕ (Anti-plastic): Задавай ракурсы со спины, силуэты в контровом свете, эмоциональные пустые пространства (empty space storytelling) или выразительные руки/предметный мир — чтобы кадр был готов к генерации в Veo/Sora без деформации лиц.
+4. РАЗНООБРАЗИЕ ПЛАНОВ: Варьируй shotType под смысл сцены ("Крупный план", "Средний план", "Общий план", "Macro", "Drone Shot", "Детальный план", "ECU", "POV", "Low-angle", "Top-down", "Silhouette").
+
+Для звука (audio) укажи аутентичные звуки окружения и фоновую музыку, идеально подходящие под настроение сцены.
 ${wishesContext}
 ${brandContext}
 ${instructionsContext}
-ВАЖНО: Каждый кадр строго ограничен длительностью до 10 секунд (рекомендуется 3-8 секунд).
-ВАЖНО: Указывай тип кадра (shotType): "Крупный план", "Средний план", "Общий план", "Macro", "Drone Shot", "Детальный план", "ECU", "POV", "Low-angle", "Top-down", "Silhouette".
+ВАЖНО: Каждый кадр строго соответствует хронометражу около 10 секунд (текст около 150-170 символов, длительность 9-11 секунд).
 ${topicContext}
 
 Текст по сценам:
-${textChunks.map((chunk, i) => `Сцена ${i + 1}:
+${textChunks.map((chunk, i) => `Сцена ${i + 1} (${chunk.length} симв):
 ${chunk}`).join('\n\n')}
 
 Верни JSON массив объектов со следующей структурой:
 [
   {
     "text": "размеченный текст сцены",
-    "description": "описание визуального ряда",
+    "description": "кинематографичное режиссерское описание визуального ряда сцены (пространство, свет, материалы, действие, ракурс)",
     "shotType": "Средний план",
-    "duration": 5,
-    "visuals": { "description": "описание визуального ряда", "searchQuery": "запрос для поиска", "shotType": "Средний план", "resourceLinks": [] },
+    "duration": 10,
+    "visuals": { "description": "кинематографичное режиссерское описание визуального ряда сцены", "searchQuery": "запрос для поиска", "shotType": "Средний план", "resourceLinks": [] },
     "audio": { "soundsAndNoises": "звуки", "backgroundMusic": "настроение музыки" },
     "voiceover": { "voiceName": "Aoede", "settings": "Средний темп", "intonation": "Нейтральная", "mood": "Спокойное", "timbre": "Нейтральный" }
   }
@@ -769,7 +981,7 @@ ${chunk}`).join('\n\n')}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         responseMimeType: "application/json",
@@ -825,7 +1037,15 @@ ${chunk}`).join('\n\n')}
     let cumulativeSec = 0;
     return textChunks.map((chunk, index) => {
       const meta = parsed[index] || {};
-      const dur = Math.min(10, Math.max(1, Number(meta.duration) || 5));
+      const cleanChunk = (meta.text || chunk || '').replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '').trim();
+      const charLen = cleanChunk.length;
+      // В естественной дикторской речи средний темп ~15-16 символов в секунду (с микропаузами)
+      // 150-170 символов идеально соответствуют 9-11 секундам (целевые 10с под Veo 3 / Sora)
+      const charDuration = Math.round(charLen / 16);
+      const wordsCount = cleanChunk.split(/\s+/).filter(Boolean).length;
+      const wordDuration = Math.round(wordsCount / 2.33);
+      const naturalDuration = Math.max(3, Math.min(12, Math.round((charDuration * 0.7) + (wordDuration * 0.3)) || 10));
+      const dur = Math.min(12, Math.max(3, Number(meta.duration) || naturalDuration || 10));
       const startSec = cumulativeSec;
       const endSec = cumulativeSec + dur;
       cumulativeSec = endSec;
@@ -834,7 +1054,6 @@ ${chunk}`).join('\n\n')}
         const s = Math.floor(sec % 60);
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
       };
-      const cleanChunk = (meta.text || chunk || '').replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '').trim();
       const dynamicVis = cleanChunk 
         ? `${meta.shotType || meta.visuals?.shotType || "Средний план"}: Кадр под текст — "${cleanChunk.slice(0, 75)}${cleanChunk.length > 75 ? '...' : ''}"`
         : "Динамичный кадр в стиле темы видео";
@@ -844,7 +1063,8 @@ ${chunk}`).join('\n\n')}
           ? meta.visuals.description.trim()
           : dynamicVis);
 
-      const sceneText = (meta.text || chunk || '').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+      // Текст сцены берется строго из исходного чанка сценария (гарантия аутентичности и отсутствия смещения фраз)
+      const sceneText = (chunk || '').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
 
       return {
         text: sceneText || cleanChunk || chunk,
@@ -867,7 +1087,12 @@ ${chunk}`).join('\n\n')}
     logger.error("Error generating script breakdown", error);
     let cumulativeSec = 0;
     return textChunks.map((chunk) => {
-      const dur = 5;
+      const cleanChunk = (chunk || '').replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '').trim();
+      const charLen = cleanChunk.length;
+      const charDuration = Math.round(charLen / 16);
+      const wordsCount = cleanChunk.split(/\s+/).filter(Boolean).length;
+      const wordDuration = Math.round(wordsCount / 2.33);
+      const dur = Math.max(3, Math.min(12, Math.round((charDuration * 0.7) + (wordDuration * 0.3)) || 10));
       const startSec = cumulativeSec;
       const endSec = cumulativeSec + dur;
       cumulativeSec = endSec;
@@ -876,7 +1101,6 @@ ${chunk}`).join('\n\n')}
         const s = Math.floor(sec % 60);
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
       };
-      const cleanChunk = (chunk || '').replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '').trim();
       const fallbackVis = cleanChunk
         ? `Средний план: Кадр под текст — "${cleanChunk.slice(0, 75)}${cleanChunk.length > 75 ? '...' : ''}"`
         : "Динамичный кадр с выразительной композицией";
@@ -919,7 +1143,7 @@ ${competitorAnalysis}` : "";
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: validateAndEnrichSystemPrompt("Ты — топовый YouTube-сценарист.", "", customInst, { ...options, isScript: true }),
@@ -978,7 +1202,7 @@ export async function analyzeAndImproveScript(
   Твой ответ должен быть только JSON массивом, без комментариев, markdown и текста вокруг.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -1021,7 +1245,7 @@ export async function analyzeScriptSentiment(scriptText: string, options?: Analy
   Убедитесь, что точки расположены в хронологическом порядке повествования. Все тексты пишите на русском языке.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     generationConfig: {
       responseMimeType: "application/json",
@@ -1055,7 +1279,7 @@ export async function generateTimestampsFromStructure(structure: ScriptBlockStru
   Верни только список таймкодов, каждый с новой строки.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
   });
 
@@ -1087,7 +1311,7 @@ export async function applyScriptImprovements(
   Верни только обновленный текст сценария без лишних комментариев.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
   });
 
@@ -1098,6 +1322,60 @@ export async function applyScriptImprovements(
 
 
 
+
+function applyParsedBlocksToOriginal(
+  originalBlocks: Record<number, GeneratedBlock>,
+  parsedItems: any
+): Record<number, GeneratedBlock> {
+  let items: any[] = [];
+  if (Array.isArray(parsedItems)) {
+    items = parsedItems;
+  } else if (parsedItems && typeof parsedItems === 'object') {
+    if (Array.isArray(parsedItems.blocks)) items = parsedItems.blocks;
+    else if (Array.isArray(parsedItems.updatedBlocks)) items = parsedItems.updatedBlocks;
+    else if (Array.isArray(parsedItems.items)) items = parsedItems.items;
+    else if (parsedItems.index !== undefined && parsedItems.text) items = [parsedItems];
+  }
+
+  if (items.length === 0) {
+    logger.warn("applyParsedBlocksToOriginal: no valid items found in parsed response", parsedItems);
+    return originalBlocks;
+  }
+
+  const updatedBlocks = { ...originalBlocks };
+  const originalKeys = Object.keys(originalBlocks).map(Number).sort((a, b) => a - b);
+  const minKey = originalKeys.length > 0 ? originalKeys[0] : 0;
+  const maxKey = originalKeys.length > 0 ? originalKeys[originalKeys.length - 1] : 0;
+
+  // Detect if model used 1-based indexing when original keys start at 0
+  const containsMaxPlusOne = items.some(it => Number(it.index) === maxKey + 1);
+  const containsZero = items.some(it => Number(it.index) === 0);
+  const isOneBasedShift = minKey === 0 && containsMaxPlusOne && !containsZero;
+
+  for (const item of items) {
+    if (!item || item.text === undefined || item.text === null) continue;
+    let targetIdx = Number(item.index);
+    if (isNaN(targetIdx)) continue;
+
+    if (isOneBasedShift) {
+      targetIdx -= 1;
+    }
+
+    if (updatedBlocks[targetIdx]) {
+      updatedBlocks[targetIdx] = {
+        ...updatedBlocks[targetIdx],
+        text: String(item.text).trim(),
+      };
+    } else if (minKey === 0 && !updatedBlocks[targetIdx] && updatedBlocks[targetIdx - 1]) {
+      updatedBlocks[targetIdx - 1] = {
+        ...updatedBlocks[targetIdx - 1],
+        text: String(item.text).trim(),
+      };
+    }
+  }
+
+  return updatedBlocks;
+}
 
 export async function applyRetentionImprovementToBlocks(
   blocks: Record<number, GeneratedBlock>,
@@ -1130,14 +1408,15 @@ ${JSON.stringify(blocksList, null, 2)}
 1. Проанализируй весь сценарий и внедри рекомендацию в НАИБОЛЕЕ подходящие для этого блоки (например, если рекомендация касается хука/начала, измени блок "Вступление/Хук"; если касается переходов или динамики, сделай текст более емким в соответствующих местах; если призыва к действию, улучши концовку). Не нужно пихать рекомендацию в каждый блок, если это разрушит структуру! Внедряй органично.
 2. Сохраняй стиль, оригинальный контекст и разметку пауз и стилей (типа *акценты*, (1s), [стиль]), где это возможно, но адаптируй текст под рекомендацию. ВАЖНО: Ударения (знак '+') ставить КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО. Сосредоточься на интонациях и пунктуации.
 3. Обязательно используй букву "ё" во всех измененных местах.
-4. Верни обновленные блоки в виде строгого JSON-массива объектов с полями:
+4. В поле "index" обязательно используй исходный точный номер блока (0-based: 0, 1, 2...).
+5. Верни обновленные блоки в виде строгого JSON-массива объектов с полями:
    - index: число (соответствующее исходному index блока)
    - text: строка (новый, улучшенный текст блока)
 
 ВАЖНО: Верни ТОЛЬКО валидный JSON-массив объектов и ничего больше. Не используй markdown-разметку, кроме как в формате JSON.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction: validateAndEnrichSystemPrompt("Ты — профессиональный YouTube-сценарист. Твоя задача — улучшить сценарий, внедрив рекомендацию по удержанию аудитории (Audience Retention).", "", "", options),
@@ -1156,19 +1435,8 @@ ${JSON.stringify(blocksList, null, 2)}
     }
   });
 
-  const updatedBlocksList = safeParseJSON<{ index: number; text: string }[]>(extractTextFromResponse(response), []);
-  
-  const updatedBlocks = { ...blocks };
-  for (const item of updatedBlocksList) {
-    if (updatedBlocks[item.index]) {
-      updatedBlocks[item.index] = {
-        ...updatedBlocks[item.index],
-        text: item.text,
-      };
-    }
-  }
-
-  return updatedBlocks;
+  const rawParsed = safeParseJSON<any>(extractTextFromResponse(response), []);
+  return applyParsedBlocksToOriginal(blocks, rawParsed);
 }
 
 
@@ -1195,7 +1463,7 @@ ${fixSnippet}
 4. Верни ТОЛЬКО обновленный текст этого блока. Не пиши никаких вводных слов, пояснений или markdown-разметки (типа \`\`\`html или \`\`\`text). Только сам текст.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction: validateAndEnrichSystemPrompt("Ты — профессиональный YouTube-сценарист. Твоя задача — улучшить текст конкретного блока сценария, внедрив в него предложенную правку для устранения просадки удержания аудитории.", "", "", options)
@@ -1244,14 +1512,15 @@ ${JSON.stringify(blocksList, null, 2)}
 1. Проанализируй весь сценарий и внедри рекомендации в НАИБОЛЕЕ подходящие для этого блоки.
 2. Сохраняй стиль, оригинальный контекст и разметку пауз и стилей (типа *акценты*, (1s), [стиль]), где это возможно, но адаптируй текст под все полученные рекомендации.
 3. Обязательно используй букву "ё" во всех измененных местах. Ударные знаки '+' ставить КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО.
-4. Верни обновленные блоки в виде строгого JSON-массива объектов с полями:
+4. В поле "index" обязательно используй исходный точный номер блока (0-based: 0, 1, 2...).
+5. Верни обновленные блоки в виде строгого JSON-массива объектов с полями:
    - index: число (соответствующее исходному index блока)
    - text: строка (новый, улучшенный текст блока)
 
 Верни ТОЛЬКО валидный JSON-массив объектов и ничего больше.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction: validateAndEnrichSystemPrompt("Ты — профессиональный YouTube-сценарист. Твоя задача — переписать и улучшить сценарий, органично внедрив в него ВСЕ указанные рекомендации и правки.", "", "", options),
@@ -1270,22 +1539,8 @@ ${JSON.stringify(blocksList, null, 2)}
     },
   });
 
-  const updatedBlocksList = safeParseJSON<{ index: number; text: string }[]>(
-    extractTextFromResponse(response),
-    []
-  );
-
-  const updatedBlocks = { ...blocks };
-  for (const item of updatedBlocksList) {
-    if (updatedBlocks[item.index]) {
-      updatedBlocks[item.index] = {
-        ...updatedBlocks[item.index],
-        text: item.text,
-      };
-    }
-  }
-
-  return updatedBlocks;
+  const rawParsed = safeParseJSON<any>(extractTextFromResponse(response), []);
+  return applyParsedBlocksToOriginal(blocks, rawParsed);
 }
 
 
@@ -1311,7 +1566,7 @@ export async function analyzeInstructionsCompliance(instructions: string, option
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         responseMimeType: "application/json",
@@ -1423,7 +1678,7 @@ ${scriptFormatted}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: validateAndEnrichSystemPrompt(
@@ -1570,14 +1825,17 @@ export async function rewriteScriptBlock(
   ${customInst}
   
   ПРАВИЛА ИЗМЕНЕНИЯ ТЕКСТА:
-  1. Измени текст согласно требованию, сохранив общую тему блока.
-  2. Разметку TTS (например, "[шепот]", "*акцент*", "(500ms)") ОБЯЗАТЕЛЬНО сохрани или адаптируй под новый текст.
-  3. Используй букву "ё" во всех словах, где она пишется (всегда, ещё, всё, своё).
+  1. 🚨 ВЫСШИЙ ЗАКОН: ПРАВИЛА ИЗ МОДАЛЬНОГО ОКНА «Инструкции для ИИ Ассистента» (если они заданы выше) ОБЯЗАТЕЛЬНЫ К СТРОГОМУ СОБЛЮДЕНИЮ ДАЖЕ ПОСЛЕ ВНЕСЕНИЯ ЭТИХ ИЗМЕНЕНИЙ!
+     - Все запреты, обязательные фразы, стиль обращения (на Вы / на ты), формат хуков, ключевые слова, ограничения и правила ассистента НЕ МОГУТ быть нарушены или отброшены ради локального требования.
+     - Интегрируй требование пользователя строго В РАМКАХ правил ассистента.
+  2. Измени текст согласно требованию пользователя ("${refinementOrMode}"), сохранив общую тему и глубину блока.
+  3. Разметку TTS (например, "[шепот]", "*акцент*", "(500ms)") ОБЯЗАТЕЛЬНО сохрани или адаптируй под новый текст.
+  4. Используй букву "ё" во всех словах, где она пишется (всегда, ещё, всё, своё).
   
   ВЕРНИ ТОЛЬКО ИСПРАВЛЕННЫЙ ТЕКСТ СЦЕНАРИЯ БЕЗ ЛИШНИХ ОБЪЯСНЕНИЙ, СЛУЖЕБНЫХ ТЕГОВ И КОНТЕЙНЕРОВ JSON.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
   });
 

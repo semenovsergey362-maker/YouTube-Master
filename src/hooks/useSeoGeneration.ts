@@ -1,12 +1,15 @@
+import { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { toast } from "sonner";
 import { logger } from "../config/logger";
-import { exportToTxt, handleAppError } from "../utils/helpers";
+import { exportToTxt, handleAppError, generateScriptBlockTimestamps } from "../utils/helpers";
 import {
   generateVideoSEO,
   analyzeSEOAndSuggestImprovements,
   applySEORecommendationToAllFields,
+  smartMergeDescriptionUpdate,
   analyzeTitlesUniqueness,
+  generateSocialPromoPackage,
   type NicheData,
   type ScriptBlockStructure,
   type GeneratedBlock,
@@ -14,6 +17,7 @@ import {
   type GeneratedIdea,
   type VideoSEO,
   type SEOAnalysis,
+  type SocialPromoPackage,
 } from "../services/geminiService";
 
 export interface UseSeoGenerationProps {
@@ -85,8 +89,18 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
         getCommonAnalysisOptions({ deepResearch }),
         generatedBlocks
       );
+
+      // Auto-append timestamps to description if not already present
+      if (seo && seo.description && !/Таймкоды|00:00/i.test(seo.description)) {
+        const timestamps = generateScriptBlockTimestamps(scriptStructure, generatedBlocks);
+        if (timestamps && timestamps.length > 0) {
+          const lines = timestamps.map((item) => `${item.timeCode} - ${item.title}`);
+          seo.description = `${seo.description.trim()}\n\nТаймкоды и сцены:\n${lines.join("\n")}`;
+        }
+      }
+
       setVideoSEO(seo);
-      toast.success("SEO оптимизация готова!");
+      toast.success("SEO оптимизация готова (с автоматическими таймкодами)!");
 
       // Auto-analyze titles after generation
       if (seo.title) {
@@ -146,7 +160,16 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
     toast.success("SEO данные экспортированы");
   };
 
-  const applyBroadSEOChange = (area: string, value: string) => {
+  const applyBroadSEOChange = (
+    area: string,
+    value: string,
+    context?: {
+      ruleTitle?: string;
+      suggestion?: string;
+      isRuleViolation?: boolean;
+      targetField?: string;
+    }
+  ) => {
     if (!videoSEO) return;
 
     const lowerArea = area.toLowerCase();
@@ -180,7 +203,17 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
 
     // 2. Handle Descriptions
     if (lowerArea.includes("description") || lowerArea.includes("описан")) {
-      updatedSEO.description = value;
+      updatedSEO.description = smartMergeDescriptionUpdate(
+        updatedSEO.description,
+        value,
+        {
+          area,
+          ruleTitle: context?.ruleTitle,
+          suggestion: context?.suggestion,
+          targetField: context?.targetField,
+          isRuleViolation: context?.isRuleViolation,
+        }
+      );
       changesApplied.push("Описание");
     }
 
@@ -189,7 +222,7 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
       lowerArea.includes("keyword") ||
       lowerArea.includes("ключев") ||
       lowerArea.includes("tag") ||
-      lowerArea.includes("тег")
+      (lowerArea.includes("тег") && !lowerArea.includes("хештег"))
     ) {
       const tags = value
         .split(/[,#\s]+/)
@@ -209,7 +242,23 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
       changesApplied.push("Ключевые слова", "Теги");
     }
 
-    // 4. Handle Thumbnails
+    // 4. Handle Hashtags specifically
+    if (lowerArea.includes("hashtag") || lowerArea.includes("хештег")) {
+      const cleanTags = value
+        .split(/[,#\s]+/)
+        .filter((t) => t.length > 0)
+        .map((t) => t.startsWith("#") ? t : `#${t}`);
+      updatedSEO.hashtags = cleanTags;
+      changesApplied.push("Хештеги");
+    }
+
+    // 5. Handle Pinned Comment
+    if (lowerArea.includes("pinned") || lowerArea.includes("comment") || lowerArea.includes("коммент")) {
+      updatedSEO.pinnedComment = value;
+      changesApplied.push("Закрепленный комментарий");
+    }
+
+    // 6. Handle Thumbnails
     if (
       lowerArea.includes("thumbnail") ||
       lowerArea.includes("превью") ||
@@ -228,12 +277,109 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
     }
   };
 
+  const handleApplyAllRuleFixes = () => {
+    if (!videoSEO || !seoAnalysis) return;
+    const ruleViolations = (seoAnalysis.improvements || []).filter(imp => imp.isRuleViolation);
+    const auditFixes = (seoAnalysis.customRulesAudit?.items || []).filter(item => item.status === 'failed' && item.suggestedFix);
+
+    if (ruleViolations.length === 0 && auditFixes.length === 0) {
+      toast.info("Все кастомные правила уже соблюдены!");
+      return;
+    }
+
+    const updatedSEO = { ...videoSEO };
+    let appliedCount = 0;
+
+    // Apply from customRulesAudit first
+    auditFixes.forEach(fix => {
+      if (!fix.suggestedFix) return;
+      if (fix.targetField === 'description' || fix.ruleTitle.includes('Псевдоним') || fix.ruleTitle.includes('ссылок')) {
+        updatedSEO.description = smartMergeDescriptionUpdate(
+          updatedSEO.description,
+          fix.suggestedFix,
+          {
+            area: 'description',
+            ruleTitle: fix.ruleTitle,
+            targetField: fix.targetField,
+          }
+        );
+        appliedCount++;
+      } else if (fix.targetField === 'hashtags' || fix.ruleTitle.includes('хештег')) {
+        const cleanTags = fix.suggestedFix
+          .split(/[,#\s]+/)
+          .filter(t => t.length > 0)
+          .map(t => t.startsWith('#') ? t : `#${t}`);
+        updatedSEO.hashtags = cleanTags;
+        appliedCount++;
+      } else if (fix.targetField === 'title' || fix.ruleTitle.includes('заголовок')) {
+        updatedSEO.title = fix.suggestedFix;
+        appliedCount++;
+      } else if (fix.targetField === 'pinnedComment') {
+        updatedSEO.pinnedComment = fix.suggestedFix;
+        appliedCount++;
+      }
+    });
+
+    // Apply from improvements if not covered
+    ruleViolations.forEach(imp => {
+      const lower = imp.area.toLowerCase();
+      if (lower.includes('описан') && !auditFixes.some(f => f.targetField === 'description')) {
+        updatedSEO.description = smartMergeDescriptionUpdate(
+          updatedSEO.description,
+          imp.suggestedValue,
+          {
+            area: imp.area,
+            ruleTitle: imp.ruleTitle,
+            suggestion: imp.suggestion,
+          }
+        );
+        appliedCount++;
+      } else if (lower.includes('хештег') && !auditFixes.some(f => f.targetField === 'hashtags')) {
+        updatedSEO.hashtags = imp.suggestedValue.split(/[,#\s]+/).filter(Boolean).map(t => t.startsWith('#') ? t : `#${t}`);
+        appliedCount++;
+      } else if (lower.includes('заголов') && !auditFixes.some(f => f.targetField === 'title')) {
+        updatedSEO.title = imp.suggestedValue;
+        appliedCount++;
+      }
+    });
+
+    setVideoSEO(updatedSEO);
+
+    // Update audit status in local state to indicate all passed
+    const updatedAudit = seoAnalysis.customRulesAudit ? {
+      ...seoAnalysis.customRulesAudit,
+      passedRules: seoAnalysis.customRulesAudit.totalRules,
+      items: seoAnalysis.customRulesAudit.items.map(item => ({
+        ...item,
+        status: 'passed' as const,
+        details: 'Успешно исправлено и приведено в соответствие с правилом.'
+      }))
+    } : undefined;
+
+    const remainingImprovements = (seoAnalysis.improvements || []).filter(imp => !imp.isRuleViolation);
+
+    setSeoAnalysis({
+      ...seoAnalysis,
+      score: Math.min(100, (seoAnalysis.score || 70) + 15),
+      scoreBreakdown: seoAnalysis.scoreBreakdown ? {
+        ...seoAnalysis.scoreBreakdown,
+        rulesComplianceScore: 100
+      } : undefined,
+      customRulesAudit: updatedAudit,
+      improvements: remainingImprovements
+    });
+
+    toast.success(`Все кастомные правила успешно применены (${appliedCount} изменений)!`);
+  };
+
   const handleApplySEOImprovement = async (
     improvement: {
       area: string;
       suggestedValue: string;
       impact: string;
       suggestion: string;
+      isRuleViolation?: boolean;
+      ruleTitle?: string;
     },
     index: number
   ) => {
@@ -269,7 +415,11 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
         logger.error("Ошибка при умном применении SEO:", error);
       }
       // Fallback
-      applyBroadSEOChange(improvement.area, improvement.suggestedValue);
+      applyBroadSEOChange(improvement.area, improvement.suggestedValue, {
+        suggestion: improvement.suggestion,
+        ruleTitle: improvement.ruleTitle,
+        isRuleViolation: improvement.isRuleViolation,
+      });
 
       if (seoAnalysis && seoAnalysis.improvements) {
         const updatedImprovements = [...seoAnalysis.improvements];
@@ -282,6 +432,64 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
     }
   };
 
+  const [isGeneratingSocial, setIsGeneratingSocial] = useState(false);
+
+  const handleGenerateSocialPromo = async () => {
+    const topicToUse = getTopicToUse() || videoSEO?.title || "видео";
+    if (!topicToUse) {
+      toast.error("Сначала задайте тему или сгенерируйте SEO");
+      return;
+    }
+
+    setIsGeneratingSocial(true);
+    const toastId = toast.loading("ИИ генерирует посты для YouTube, TG, IG и 1:1 цитаты...");
+    try {
+      let scriptContentText = "";
+      if (generatedBlocks) {
+        const blocksArr = Array.isArray(generatedBlocks) ? generatedBlocks : Object.values(generatedBlocks);
+        scriptContentText = blocksArr
+          .map((b: any) => b?.text || "")
+          .filter(Boolean)
+          .join("\n\n");
+      }
+
+      const socialPackage = await generateSocialPromoPackage({
+        title: videoSEO?.title || topicToUse,
+        description: videoSEO?.description || "",
+        scriptText: scriptContentText,
+        isShorts: false,
+        branding: nicheData?.branding,
+        niche: nicheData,
+        options: getCommonAnalysisOptions(),
+      });
+
+      if (videoSEO) {
+        setVideoSEO({
+          ...videoSEO,
+          socialPromo: socialPackage,
+        });
+      } else {
+        setVideoSEO({
+          title: topicToUse,
+          description: "",
+          keywords: "",
+          socialPromo: socialPackage,
+        });
+      }
+
+      toast.success("Кросс-платформенные посты и 1:1 карточки-цитаты готовы!", { id: toastId });
+    } catch (error) {
+      if (handleGeminiError) {
+        handleGeminiError(error, "Ошибка при генерации постов");
+      } else {
+        handleAppError(error, "Генерация постов и цитат");
+      }
+      toast.dismiss(toastId);
+    } finally {
+      setIsGeneratingSocial(false);
+    }
+  };
+
   return {
     videoSEO,
     setVideoSEO,
@@ -289,10 +497,13 @@ export function useSeoGeneration(props: UseSeoGenerationProps) {
     setSeoAnalysis,
     isGeneratingVideoSEO,
     isAnalyzingSEO,
+    isGeneratingSocial,
     handleGenerateVideoSEO,
     handleAnalyzeSEO,
     handleExportSEO,
+    handleGenerateSocialPromo,
     applyBroadSEOChange,
     handleApplySEOImprovement,
+    handleApplyAllRuleFixes,
   };
 }

@@ -14,6 +14,11 @@ import {
   ShortsCtrAnalysisResult,
   ShortsHashtagsResult,
   IdeaDeepAnalysis,
+  ShortsOutlierAnalysis,
+  ShortsOutlierIdea,
+  ShortsOutlierGenerationResult,
+  CompetitorChannel,
+  CompetitorVideo,
 } from "../../types";
 import {
   callGeminiWithRetry,
@@ -30,7 +35,286 @@ import {
   getToneContext,
 } from "./aiConfig";
 import { getCustomInstructions } from "./scriptService";
-import { VISUAL_DIVERSITY_RULES } from "./visualPromptService";
+import { VISUAL_DIVERSITY_RULES, CUSTOM_INSTRUCTIONS_SUPREMACY_RULE, BANNED_AI_VISUAL_CLICHES } from "./visualPromptService";
+
+/**
+ * Instruction for TTS text markup for expressive voiceovers and visual captions in Shorts
+ */
+export const SHORTS_TTS_MARKUP_INSTRUCTION = `
+ИНСТРУКЦИЯ ПО РАЗМЕТКЕ ТЕКСТА ДЛЯ ОЗВУЧКИ (TTS):
+Разметка помогает ИИ-движкам озвучки воспроизводить текст более выразительно, естественно расставлять логические ударения, брать дыхание и выдерживать паузы.
+- Паузы: используй (500ms) или (1s) для задания точных пауз между мыслями и предложениями.
+- Логический акцент: Окружи ключевое слово звездочками *слово* для выделения логического ударения.
+- Эмоция/Стиль: Теги в квадратных скобках вроде [шепот], [интригующе], [с удивлением], [уверенно], [пауза] задают настроение и подачу фразы.
+- Текст на экране: Делай явную разметку, если на экране должен появляться текст, например: [ТЕКСТ НА ЭКРАНЕ: "Ключевая мысль"].
+`.trim();
+
+/**
+ * Clean subscription, like and bell requests from Shorts scripts/metadata.
+ */
+export function removeSubscriptionCalls(text: string): string {
+  if (!text) return "";
+  let res = text;
+  // 1. Tagged visual/sound notes for subscription, likes, bell
+  res = res.replace(/\[(?:ЭФФЕКТ|АНИМАЦИЯ|КАДР|ВИЗУАЛ|ЗВУК|ДИКТОР|AUDIO|SFX|PROMPT):[^\s\]]*\s*[^\]]*(?:кнопка\s+подписки|подписк[а-я]|колокольчик|подпишись|подписывайся|лайк|subscribe|bell)[^\]]*\]/gi, "");
+  
+  // 2. Direct sentences with subscribe / like / bell calls (Russian)
+  res = res.replace(/(?:\[[^\]]*\]\s*)?[^.!?\n]*?(?:подпишись|подпишитесь|подписывайся|подписывайтесь|подписка|подписку|подписки)[^.!?\n]*(?:на\s+(?:наш\s+|мой\s+)?канал|кнопк|колокольчик|видео|обновлен|чтобы\s+не\s+пропустить|буду\s+рад|жду)?[^.!?\n]*[.!?]?/gi, "");
+  res = res.replace(/(?:\[[^\]]*\]\s*)?[^.!?\n]*?(?:ставьте|ставь|поставь|поставьте|жми|жмите|нажми|нажмите)\s+(?:лайк|лайки|сердечко|колокольчик|подписаться)[^.!?\n]*[.!?]?/gi, "");
+  res = res.replace(/(?:\[[^\]]*\]\s*)?[^.!?\n]*?(?:не\s+забудь(?:те)?\s+(?:поставить\s+лайк|подписаться|нажать\s+на\s+колокольчик))[^.!?\n]*[.!?]?/gi, "");
+  res = res.replace(/(?:\[[^\]]*\]\s*)?[^.!?\n]*?(?:лайк\s+и\s+подписк[а-я]|подписк[а-я]\s+и\s+лайк)[^.!?\n]*[.!?]?/gi, "");
+
+  // 3. English subscribe / like calls
+  res = res.replace(/(?:\[[^\]]*\]\s*)?[^.!?\n]*?(?:subscribe|subscribing|hit\s+the\s+bell|leave\s+a\s+like|don't\s+forget\s+to\s+subscribe)[^.!?\n]*[.!?]?/gi, "");
+
+  // 4. Standalone phrases
+  res = res.replace(/\b(?:подпишись|подпишитесь|подписывайтесь|подписывайся)\b[!.,]?/gi, "");
+  res = res.replace(/\b(?:subscribe|sub)\b[!.,]?/gi, "");
+
+  // 5. Clean up hanging empty pauses or extra newlines
+  res = res.replace(/\[пауза\]\s*(?:\[пауза\]\s*)+/gi, "[пауза]\n");
+  res = res.replace(/[ \t]+/g, " ");
+  res = res.replace(/\n\s*\n\s*\n+/g, "\n\n").trim();
+  return res;
+}
+
+/**
+ * Check if text already contains a call or mention of the main/related video.
+ */
+export function hasRelatedVideoCall(text: string): boolean {
+  if (!text) return false;
+  return /(?:связанн[а-я]*\s+видео|основн[а-я]*\s+видео|полн[а-я]*\s+(?:разбор|видео|верси[а-я]|ролик)|длинн[а-я]*\s+видео|видео\s+внизу|ссылк[а-я]*\s+(?:внизу|в\s+описании|в\s+связанном|под\s+роликом)|смотреть\s+полн|переходи\s+на\s+(?:полное|основное)|упоминани[ея]\s+(?:основного|связанного)\s+видео|related\s*video)/i.test(text || "");
+}
+
+/**
+ * Post-processing enforcement of custom rules on a single Shorts item.
+ * Guarantees that forbidden subscription pleas are stripped and the mandatory
+ * reference to the main/related video is properly inserted into the script and CTA.
+ */
+export function enforceCustomRulesOnShortsItem(
+  item: CutShortItem,
+  customInstructionsText?: string
+): CutShortItem {
+  const effectiveRules = (customInstructionsText && customInstructionsText.trim()) 
+    ? customInstructionsText.trim() 
+    : getActiveCustomInstructionsText();
+
+  if (!effectiveRules) return item;
+
+  // 1. Check if user wants to mention related/main/full video
+  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|упоминани[ея]\s+видео\s+на\s+канале|shorts_link)/i.test(effectiveRules);
+
+  // 2. Check if subscribe call is forbidden (or if related video rule requires replacing CTA)
+  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис|убрать\s+подпис|без\s+призывов\s+к\s+подпис)/i.test(effectiveRules);
+
+  // 3. Check hook rule (forbid starting with greeting)
+  const forbidsGreetingHook = /(?:мастер\s+хуков|запрещено.*начинать.*привет|без.*привет|hook_master)/i.test(effectiveRules);
+
+  // Determine phrase to add for related video
+  let phraseToAdd = "Полный разбор этой темы смотри в связанном видео внизу!";
+  const matchExample = effectiveRules.match(/(?:пример[ы]?|фраза|текст):\s*[«"']([^»"'\n]+)[»"']/i);
+  if (matchExample && matchExample[1] && matchExample[1].trim().length > 10) {
+    phraseToAdd = matchExample[1].trim();
+  }
+
+  let cleanScript = item.script || "";
+  let cleanHook = item.hook || "";
+
+  // Strip greetings from hook if rule active
+  if (forbidsGreetingHook) {
+    cleanHook = cleanHook.replace(/^(?:\[[^\]]*\]\s*)?(?:Привет|Здравствуйте|Всем привет|Приветствую|В этом видео|В этом ролике)[,!\.\s—-]+/i, "").trim();
+    cleanScript = cleanScript.replace(/^(?:\[[^\]]*\]\s*)?(?:Привет|Здравствуйте|Всем привет|Приветствую|В этом видео|В этом ролике)[,!\.\s—-]+/i, "").trim();
+  }
+
+  // Strip subscription CTA if forbidden
+  if (forbidsSubscription) {
+    cleanScript = removeSubscriptionCalls(cleanScript);
+    cleanHook = removeSubscriptionCalls(cleanHook);
+  }
+
+  // Ensure related video mention if required
+  if (wantsRelatedVideo) {
+    const endSlice = cleanScript.slice(-250);
+    if (!hasRelatedVideoCall(endSlice)) {
+      if (cleanScript.endsWith("[пауза]")) {
+        cleanScript = `${cleanScript}\n${phraseToAdd}`;
+      } else {
+        cleanScript = `${cleanScript.trim()}\n\n[пауза]\n${phraseToAdd}`;
+      }
+    }
+  }
+
+  // Handle loopEnding if present
+  let cleanLoopEnding = item.loopEnding ? { ...item.loopEnding } : undefined;
+  if (cleanLoopEnding) {
+    if (forbidsSubscription) {
+      cleanLoopEnding.loopedFullScript = removeSubscriptionCalls(cleanLoopEnding.loopedFullScript);
+      cleanLoopEnding.loopEndingPhrase = removeSubscriptionCalls(cleanLoopEnding.loopEndingPhrase);
+    }
+    if (wantsRelatedVideo) {
+      const loopEndSlice = cleanLoopEnding.loopedFullScript.slice(-250);
+      if (!hasRelatedVideoCall(loopEndSlice)) {
+        if (cleanLoopEnding.loopEndingPhrase && cleanLoopEnding.loopedFullScript.includes(cleanLoopEnding.loopEndingPhrase)) {
+          const parts = cleanLoopEnding.loopedFullScript.split(cleanLoopEnding.loopEndingPhrase);
+          cleanLoopEnding.loopedFullScript = `${parts[0].trim()}\n\n[пауза]\n${phraseToAdd}\n\n${cleanLoopEnding.loopEndingPhrase}${parts.slice(1).join(cleanLoopEnding.loopEndingPhrase)}`.trim();
+        } else {
+          cleanLoopEnding.loopedFullScript = `${cleanLoopEnding.loopedFullScript.trim()}\n\n[пауза]\n${phraseToAdd}`;
+        }
+      }
+    }
+  }
+
+  // Handle SEO if present
+  const cleanSeo = item.seo ? enforceCustomRulesOnShortsSEO(item.seo, effectiveRules) : undefined;
+
+  return {
+    ...item,
+    hook: cleanHook,
+    script: cleanScript,
+    loopEnding: cleanLoopEnding,
+    seo: cleanSeo,
+    viral_potential: wantsRelatedVideo && !item.viral_potential.includes("связанном видео")
+      ? `${item.viral_potential} (Внедрена отсылка на основное видео)`
+      : item.viral_potential
+  };
+}
+
+/**
+ * Formats a Shorts SEO description with clean, readable paragraph breaks (\n\n)
+ * so it never renders as an unreadable monolithic wall of text.
+ */
+export function formatShortsDescriptionWithParagraphs(text: string): string {
+  if (!text) return "";
+  let cleaned = text.trim();
+
+  // If already cleanly formatted with 3+ paragraphs separated by double newlines, normalize spacing
+  const existingParagraphs = cleaned
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (existingParagraphs.length >= 3) {
+    return existingParagraphs.join("\n\n");
+  }
+
+  // If it was formatted with single newlines, split them
+  const singleLines = cleaned
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (singleLines.length >= 3) {
+    return singleLines.join("\n\n");
+  }
+
+  // If it's a monolithic block of text, split by emoji markers or key structural headers
+  const emojiSplitPattern = /(?=[📌💡🎬🔍🚀❓💬🎯🔥✨👇⚡▶️⭐•—])/u;
+  const emojiBlocks = cleaned
+    .split(emojiSplitPattern)
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  if (emojiBlocks.length >= 3) {
+    return emojiBlocks.join("\n\n");
+  }
+
+  // Fallback: group sentences into readable paragraphs of ~250-400 characters
+  const sentences = cleaned.match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [cleaned];
+  const paragraphs: string[] = [];
+  let currentP = "";
+
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (!trimmed) continue;
+    if (!currentP) {
+      currentP = trimmed;
+    } else if (currentP.length + trimmed.length > 350) {
+      paragraphs.push(currentP);
+      currentP = trimmed;
+    } else {
+      currentP += " " + trimmed;
+    }
+  }
+  if (currentP) {
+    paragraphs.push(currentP);
+  }
+
+  return paragraphs.length > 0 ? paragraphs.join("\n\n") : cleaned;
+}
+
+/**
+ * Removes mentions of playlists and specific main/full/related videos from Shorts descriptions and comments,
+ * ensuring clean, generalized channel mentions instead.
+ */
+export function removePlaylistAndMainVideoMentionsFromShorts(text: string): string {
+  if (!text) return "";
+  let res = text;
+
+  // 1. Remove raw playlist placeholders & mentions
+  res = res.replace(/\[?ССЫЛКА\s+НА\s+(?:ТЕМАТИЧЕСКИЙ\s+)?ПЛЕЙЛИСТ\]?/gi, "");
+  res = res.replace(/\[?ССЫЛКА\s+НА\s+(?:ПОЛНОЕ|ОСНОВНОЕ|СВЯЗАННОЕ|ДЛИННОЕ)\s+ВИДЕО\]?/gi, "");
+  res = res.replace(/(?:Все\s+видео\s+по\s+теме|Смотрите\s+все\s+выпуски|Серия\s+роликов)[^\n.!?]*в\s+плейлисте[^\n.!?]*[.!?:]?/gi, "");
+  res = res.replace(/(?:Ссылка\s+на|Смотрите\s+в)\s+(?:тематический\s+)?плейлист[^\n.!?]*[.!?:]?/gi, "");
+  res = res.replace(/(?:в|из|наш(?:ем)?)\s+плейлист[а-я]*[^\n.!?]*[.!?:]?/gi, "");
+  res = res.replace(/\b(?:плейлист[а-я]*|playlist)\b\s*:[^\n.!?]*[.!?:]?/gi, "");
+
+  // 2. Remove references to main/long/related videos
+  res = res.replace(/(?:🎬\s*)?(?:Полный\s+разбор\s+и\s+подробности\s+смотрите\s+в\s+основном\s+видео\s+на\s+канале[^\n.!?]*[.!?:]?)/gi, "");
+  res = res.replace(/(?:👇\s*)?(?:Полный\s+разбор\s+этой\s+темы\s+смотрите\s+в\s+связанном\s+видео[^\n.!?]*[.!?:]?)/gi, "");
+  res = res.replace(/(?:смотрите|смотри|переходите|переходи)\s+(?:в|на)\s+(?:основн[а-я]*|полн[а-я]*|связанн[а-я]*|длинн[а-я]*)\s+видео[^\n.!?]*[.!?:]?/gi, "");
+  res = res.replace(/полн(?:ый|ую|ое)\s+(?:разбор|версию|видео)\s+(?:этой\s+темы\s+)?смотри(?:те)?\s+(?:в\s+)?(?:связанном|основном|длинном)\s+видео[^\n.!?]*[.!?:]?/gi, "");
+  res = res.replace(/(?:ссылка\s+на|разбор\s+в)\s+(?:основн[а-я]*|полн[а-я]*|связанн[а-я]*|длинн[а-я]*)\s+видео[^\n.!?]*[.!?:]?/gi, "");
+  res = res.replace(/\(ссылка\s+внизу\s+shorts\)/gi, "");
+  res = res.replace(/\(ссылка\s+под\s+роликом\)/gi, "");
+
+  // 3. Clean up hanging empty emojis or orphan punctuation
+  res = res.replace(/(?:🎬|👇|▶️|🔗)\s*(?=\n|$)/g, "");
+  res = res.replace(/[ \t]+/g, " ");
+  res = res.replace(/\n\s*\n\s*\n+/g, "\n\n").trim();
+
+  return res;
+}
+
+/**
+ * Post-processing enforcement of custom rules on Shorts SEO metadata.
+ */
+export function enforceCustomRulesOnShortsSEO(
+  seo: ShortsSEO,
+  customInstructionsText?: string
+): ShortsSEO {
+  const effectiveRules = (customInstructionsText && customInstructionsText.trim()) 
+    ? customInstructionsText.trim() 
+    : getActiveCustomInstructionsText();
+
+  if (!seo) return seo;
+
+  const forbidsSubscription = /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис|убрать\s+подпис|без\s+призывов\s+к\s+подпис)/i.test(effectiveRules || "");
+
+  let desc = seo.description || "";
+  let pinned = seo.pinnedComment || "";
+
+  if (forbidsSubscription) {
+    desc = removeSubscriptionCalls(desc);
+    pinned = removeSubscriptionCalls(pinned);
+  }
+
+  // Always sanitize Shorts description and pinned comment from playlist & specific main video references
+  desc = removePlaylistAndMainVideoMentionsFromShorts(desc);
+  pinned = removePlaylistAndMainVideoMentionsFromShorts(pinned);
+
+  // Ensure generalized channel mention if missing
+  if (desc && !/(?:на\s+(?:нашем\s+)?канале|наш\s+канал|на\s+канале)/i.test(desc)) {
+    desc = `${desc.trim()}\n\n📢 Больше интересных фактов, разборов и полезного контента смотрите на нашем канале!`.trim();
+  }
+
+  desc = formatShortsDescriptionWithParagraphs(desc);
+
+  return {
+    ...seo,
+    description: desc,
+    pinnedComment: pinned,
+  };
+}
 
 export async function generateShortsIdeasFromLongForm(longFormIdea: string, niche: string, seoData?: any, options?: AnalysisOptions): Promise<{ title: string; hook: string; viral_potential: string }[]> {
   const keywordsStr = Array.isArray(seoData?.keywords)
@@ -58,7 +342,7 @@ export async function generateShortsIdeasFromLongForm(longFormIdea: string, nich
   Все тексты на русском языке.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     generationConfig: {
       responseMimeType: "application/json",
@@ -92,8 +376,8 @@ export async function convertScriptToShorts(scriptText: string, options?: Analys
   
   Создайте ровно 3 варианта. Для каждого варианта предоставьте:
   - hookType: Тип хука (например: "Провокационный вопрос", "Разрушение мифа", "Шокирующая статистика", "Секретный лайфхак", "Личная драма / Кликбейт")
-  - hookText: Полный текст хука (первые 3-5 секунд, максимально цепляющий)
-  - bodyText: Основная часть Shorts (компактная, энергичная, передающая ключевую суть длинного сценария, адаптированная под высокий темп речи)
+  - hookText: Полный текст хука (первые 3-5 секунд, максимально цепляющий) с разметкой для озвучки TTS (*слово* для ударения, (500ms)/(1s) для пауз, [интригующе] для эмоции)
+  - bodyText: Основная часть Shorts (компактная, энергичная, передающая ключевую суть длинного сценария, адаптированная под TTS с разметкой пауз, ударений и пометками [ТЕКСТ НА ЭКРАНЕ: "..."])
   - callToAction: Сильный призыв к действию в конце (для подписки, комментария, сохранения или досмотра)
   - estimatedDuration: Примерная длительность (например, "40-45 сек")
   - whyItWorks: Обоснование, почему этот тип хука и структура удержат внимание зрителя до конца
@@ -101,7 +385,7 @@ export async function convertScriptToShorts(scriptText: string, options?: Analys
   ВЕРНИТЕ ТОЛЬКО JSON массив из 3 объектов, соответствующих схеме. Все тексты пишите на русском языке.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     generationConfig: {
       responseMimeType: "application/json",
@@ -134,13 +418,26 @@ export async function cutLongFormScriptToShorts(
   const customInst = getActiveCustomInstructionsText(options?.customInstructions);
   const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : '';
 
+  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|shorts_link)/i.test(customInst || "");
+  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис)/i.test(customInst || "");
+
+  const ctaRule = wantsRelatedVideo
+    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- В самом конце каждого Shorts сценария диктор ОБЯЗАТЕЛЬНО должен сказать фразу-отсылку к полному/связанному видео на канале (например: «Полный разбор этой темы смотри в связанном видео внизу!»).\n- СТРОЖАЙШЕ ЗАПРЕЩЕНО добавлять призывы подписаться на канал ("подпишись", "не забудь подписаться", "лайк" и т.п.)!`
+    : forbidsSubscription
+    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- СТРОЖАЙШЕ ЗАПРЕЩЕНО добавлять любые призывы подписаться на канал или ставить лайк! Завершай ролик открытым вопросом или интригой.`
+    : "";
+
   const prompt = `
 Анализируй следующий длинный сценарий (Long-Form) и выдели из него от 3 до 5 самых острых, вирусных и интересных мыслей. Не просто нарезай текст на куски, а сгенерируй на основе этих мыслей полноценные, глубоко раскрытые темы в виде готовых сценариев для Shorts / Reels. Длительность каждого ролика должна быть НЕ МЕНЕЕ ОДНОЙ МИНУТЫ (от 60 до 90 секунд).
-${instructionsContext}
+${instructionsContext}${ctaRule}
 Для каждого Shorts выполни:
 1. Выдели сильный вовлекающий хук (первые 3 секунды), который зацепит зрителя.
 2. Сгенерируй полноценный сценарий, который детально раскрывает тему.
-3. ОБЯЗАТЕЛЬНО расставляй паузы в тексте, используя тег [пауза], чтобы диктор делал смысловые остановки. Также расставь интонации и смысловые акценты ([ускорение темпа], [шёпот], выделяй слова *курсивом* для интонационного ударения или КАПСОМ для экспрессии).
+3. РАЗМЕТКА ТЕКСТА ДЛЯ ОЗВУЧКИ (TTS):
+   - Паузы: используй (500ms) или (1s) для задания точных пауз между мыслями и предложениями.
+   - Логический акцент: Окружи ключевое слово звездочками *слово* для выделения логического ударения.
+   - Эмоция/Стиль: Теги вроде [шепот], [интригующе], [с удивлением], [уверенно], [пауза] задают настроение фразы.
+   - Текст на экране: Делай явную разметку, если на экране должен появляться текст ([ТЕКСТ НА ЭКРАНЕ: "..."]).
 4. Адаптируй текст под динамичный вертикальный формат (9:16): добавь пометки для визуального монтажа (например, [ЭФФЕКТ: ...], [КАДР: ...], [ЗВУК: ...]).
 5. Рассчитай хронометраж, чтобы он был от 60 секунд.
 
@@ -167,7 +464,7 @@ ${longFormScript}
   let response: any = null;
   try {
     response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       customInstructions: options?.customInstructions,
       bypassCache: true,
@@ -179,7 +476,7 @@ ${longFormScript}
   } catch (err) {
     logger.warn("cutLongFormScriptToShorts initial JSON call failed, retrying without mime-type:", err);
     response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       customInstructions: options?.customInstructions,
       bypassCache: true,
@@ -414,6 +711,9 @@ ${longFormScript}
     }))
     .filter((item) => item.script.length > 0 || item.hook.length > 0);
 
+  // Post-process enforcement of channel custom rules (e.g. related video CTA, no subscribe plea)
+  normalized = normalized.map((item) => enforceCustomRulesOnShortsItem(item, customInst));
+
   return normalized as CutShortItem[];
 }
 
@@ -489,7 +789,7 @@ ${scriptText}
 `.trim();
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json"
@@ -507,6 +807,18 @@ export async function optimizeShortsRetentionAndIntegrate(
   analysis?: ShortsTopicRetentionAnalysis,
   options?: any
 ): Promise<OptimizedShortsScriptResult> {
+  const customInst = getActiveCustomInstructionsText(options?.customInstructions);
+  const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ КАНАЛА:\n${customInst}\n` : '';
+
+  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|shorts_link)/i.test(customInst || "");
+  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис)/i.test(customInst || "");
+
+  const ctaRule = wantsRelatedVideo
+    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- В конце сценария Shorts диктор ОБЯЗАТЕЛЬНО произносит отсылку к полному видео (например: «Полный разбор этой темы смотри в связанном видео внизу!»).\n- СТРОГО ЗАПРЕЩЕНЫ призывы подписаться на канал ("подпишись", "лайк" и т.п.)!`
+    : forbidsSubscription
+    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА):\n- СТРОГО ЗАПРЕЩЕНЫ призывы подписаться на канал или ставить лайк!`
+    : "";
+
   const recs = analysis?.keyRecommendations?.length 
     ? analysis.keyRecommendations.join("\n- ") 
     : "Ликвидировать точки проседания, повысить динамику речи, разбить сплошной текст на короткие акцентные фразы, добавить пометки для эмоций и интонаций";
@@ -518,6 +830,7 @@ export async function optimizeShortsRetentionAndIntegrate(
   const prompt = `
 Ты — шеф-редактор и сценарист вирусных Shorts / Reels с миллионными охватами.
 Твоя задача — ПЕРЕРАБОТАТЬ И ОПТИМИЗИРОВАТЬ следующий сценарий Shorts, ВНЕДРИВ ВСЕ РЕКОМЕНДАЦИИ по удержанию темы и ПОЛНОСТЬЮ УСТРАНИВ точки проседания внимания.
+${instructionsContext}${ctaRule}
 
 НАЗВАНИЕ/ТЕМА: ${title || "Shorts"}
 
@@ -534,8 +847,12 @@ ${currentScript}
 
 ТРЕБОВАНИЯ К ОПТИМИЗИРОВАННОМУ СЦЕНАРИЮ:
 1. Внедри все рекомендации прямо в текст сценария.
-2. Ликвидируй лишнюю воду, затянутые фразы и паузы без смысла.
-3. Сохрани/усиль интонационные разметки для TTS и диктора: [пауза], [ускорение темпа], [шёпот], *курсив* для ударения, КАПС для экспрессии.
+2. Ликвидируй лишнюю воду, затянутые фразы и неловкие паузы.
+3. РАЗМЕТКА ТЕКСТА ДЛЯ ОЗВУЧКИ (TTS):
+   - Паузы: (500ms) или (1s) для задания точных пауз.
+   - Логический акцент: Окружай ключевые слова звездочками *слово* для логического ударения.
+   - Эмоция/Стиль: Используй теги вроде [шепот], [интригующе], [с удивлением], [уверенно], [пауза] для задания настроения фразы.
+   - Текст на экране: Делай разметку, если на экране должен появляться текст ([ТЕКСТ НА ЭКРАНЕ: "..."]).
 4. Оформи пометки для динамичного 9:16 видеорядов: [ЭФФЕКТ: ...], [КАДР: ...], [ЗВУК: ...].
 5. Выдай полный готовый переработанный текст и детальный список внесенных изменений.
 
@@ -555,7 +872,7 @@ ${currentScript}
 `.trim();
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json"
@@ -563,7 +880,22 @@ ${currentScript}
   });
 
   const resText = extractTextFromResponse(response);
-  return tryRepairJSON(resText);
+  const parsed = tryRepairJSON<OptimizedShortsScriptResult>(resText);
+
+  if (customInst && parsed?.optimizedScript) {
+    const dummyItem: CutShortItem = {
+      title: title || "Shorts",
+      hook: parsed.optimizedHook || "",
+      script: parsed.optimizedScript,
+      viral_potential: "",
+      duration: ""
+    };
+    const enforced = enforceCustomRulesOnShortsItem(dummyItem, customInst);
+    parsed.optimizedScript = enforced.script;
+    if (enforced.hook) parsed.optimizedHook = enforced.hook;
+  }
+
+  return parsed;
 }
 
 
@@ -573,9 +905,22 @@ export async function generateSeamlessLoopEnding(
   scriptText: string,
   options?: any
 ): Promise<LoopEndingResult> {
+  const customInst = getActiveCustomInstructionsText(options?.customInstructions);
+  const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ КАНАЛА:\n${customInst}\n` : '';
+
+  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|shorts_link)/i.test(customInst || "");
+  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис)/i.test(customInst || "");
+
+  const ctaRule = wantsRelatedVideo
+    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- Перед переходной зацикленной фразой диктор ОБЯЗАТЕЛЬНО произносит отсылку к полному видео.\n- СТРОГО ЗАПРЕЩЕНЫ призывы подписаться на канал ("подпишись", "лайк" и т.п.)!`
+    : forbidsSubscription
+    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА):\n- СТРОГО ЗАПРЕЩЕНЫ призывы подписаться на канал или ставить лайк!`
+    : "";
+
   const prompt = `
 Создай бесшовную зацикленную концовку (Seamless Loop Ending) для этого сценария Shorts.
 Цель: Последняя фраза сценария должна грамматически, семантически и интонационно плавно перетекать в самую первую фразу (начиная с первого слова), создавая иллюзию бесконечного видео.
+${instructionsContext}${ctaRule}
 
 Инструкции:
 1. Выдели первые 1-2 предложения (начало сценария).
@@ -598,7 +943,7 @@ ${scriptText}
   `.trim();
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
@@ -619,7 +964,24 @@ ${scriptText}
   if (!resText) {
     throw new Error("Не удалось получить ответ от AI");
   }
-  return tryRepairJSON(resText);
+  const parsed = tryRepairJSON<LoopEndingResult>(resText);
+
+  if (customInst && parsed?.loopedFullScript) {
+    const dummyItem: CutShortItem = {
+      title: "Shorts",
+      hook: "",
+      script: scriptText,
+      viral_potential: "",
+      duration: "",
+      loopEnding: parsed
+    };
+    const enforced = enforceCustomRulesOnShortsItem(dummyItem, customInst);
+    if (enforced.loopEnding) {
+      return enforced.loopEnding;
+    }
+  }
+
+  return parsed;
 }
 
 
@@ -629,64 +991,88 @@ export async function generateShortsVisualsAndMusic(
   scriptText: string,
   options?: AnalysisOptions
 ): Promise<{ visuals: { text: string; prompt: string; shotType?: string; cameraMovement?: string; duration?: number }[]; musicPrompt: string }> {
-  const veoSfxPromptText = `
-ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ДЛЯ ЗВУКОВЫХ ЭФФЕКТОВ В VEO 3 (VEO SFX):
+  const customInst = getCustomInstructions(options, true);
+  const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : '';
+
+  const isSfxDisabled = options?.veoSfxEnabled === false || 
+    (customInst && (customInst.toLowerCase().includes("без звука") || customInst.toLowerCase().includes("без сфх") || customInst.toLowerCase().includes("без sfx") || customInst.toLowerCase().includes("no sound") || customInst.toLowerCase().includes("no sfx")));
+
+  const veoSfxPromptText = isSfxDisabled
+    ? `\nТРЕБОВАНИЕ К ЗВУКУ (SFX): Звуки отключены пользователем — КАТЕГОРИЧЕСКИ НЕ ДОБАВЛЯЙ фраз о звуке (accompanied by natural sound / with sound of...) в промпты!`
+    : `\nОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ДЛЯ ЗВУКОВЫХ ЭФФЕКТОВ В VEO 3 (VEO SFX):
 Для КАЖДОЙ сцены в визуальном промпте ты ДОЛЖЕН интегрировать подходящие звуки (SFX) прямо в текст промпта на английском языке.
 - Опиши эти звуковые эффекты в конце каждого промпта на английском языке в ЕСТЕСТВЕННОЙ И ПРЯМОЙ повествовательной форме БЕЗ каких-либо квадратных скобок, БЕЗ мета-тегов "[Audio...]" и БЕЗ упоминаний вроде "no background music" или "silence".
 - Вместо этого завершай промпт красивой, естественной фразой, описывающей то, что звучит на видео, например: "accompanied by the natural high-fidelity sound of <описание звуков на английском>, featuring rich acoustic details and crisp foley effects." или "with highly realistic sound of <описание звуков>, capturing detailed acoustic textures."
 - Текст звука должен быть органично вплетен в финал английского промпта без каких-либо скобок.`;
 
   const shortsAntiRepeatRules = `
-ПРАВИЛО ПРОТИВ ПОВТОРОВ И ШАБЛОННОСТИ ДЛЯ SHORTS (ролик короткий, зритель видит всё сразу):
-1. ЗАПРЕЩЕНО буквально повторять то, что уже было показано (тот же предмет, то же действие, тот же ракурс на тот же объект) в двух соседних сценах — если что-то уже было в кадре, следующая сцена должна показать другое: реакцию, деталь, окружение, метафору, иной момент времени.
-2. НЕ строй предсказуемый цикл планов (например Средний-Крупный-Средний-Крупный или Wide-CloseUp-Wide-CloseUp). Выбор каждого кадра — художественное решение, продиктованное смыслом ИМЕННО ЭТОЙ фразы текста, а не механическая ротация по списку. Иногда две сцены подряд МОГУТ быть похожего масштаба, если это оправдано — важно, чтобы зритель не видел повтор картинки, а не формальную пестроту по чек-листу.
-3. Поощряется неожиданное: необычная композиция, деталь без прямого объяснения, метафора, смена света/погоды/времени суток, отражение, тень, POV, текстура крупным планом. Не ограничивайся стандартным набором "крупный план лица / средний план в полный рост".
-4. Свет и цветокоррекция могут отражать эмоциональную фазу текста в этот момент (холодный/резкий = напряжение, тёплый/золотой = решение и надежда) — но не обязаны быть на этом завязаны в каждой сцене, если художественно уместнее иначе.
-5. Самопроверка перед выводом JSON: пробеги глазами по всем "subject" сцен подряд — если увидишь, что буквально повторяется предмет/действие ИЛИ что планы идут по узнаваемому циклу — переделай.`;
+ПРАВИЛА ИСКЛЮЧЕНИЯ ПОВТОРОВ ДЛЯ SHORTS (КАЖДЫЙ КАДР ДОЛЖЕН БЫТЬ УНИКАЛЬНЫМ):
+1. СТРОГАЯ РОТАЦИЯ КАМЕРЫ (КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать одинаковое движение камеры в соседних сценах!):
+   - Чередуй 5 паттернов: Dolly-in (наезд), Orbital (облет дугой), Pull-back (отъезд), Rack focus (перевод фокуса), Pan (горизонтальная панорама).
+   - Если в Сцене 1 был Dolly-in, в Сцене 2 ОБЯЗАН быть Orbital или Pan или Pull-back! НИКАКИХ двух Dolly-in подряд!
+2. РОТАЦИЯ ПЛАНОВ:
+   - Чередуй крупность: Close-Up (лицо/эмоция), Medium Shot (действие/фигура), Macro Detail (руки/глаза/предмет), Wide Establishing (силуэт/масштаб локации).
+3. ЗАПРЕТ ШАБЛОННОЙ МИКРОДИНАМИКИ (КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО копировать "drifting dust motes in sunlight" во все сцены!):
+   - В каждой сцене используй УНИКАЛЬНУЮ деталь окружения: капли дождя, пар дыхания на холодном воздухе, трепет пламени свечи, рябь на воде, тени от листвы, развевающийся край плаща, крупицы сухого песка, искры костра, капли пота на виске.
+4. УНИКАЛЬНЫЙ ЗВУК FOLEY:
+   - Для каждой сцены пропиши уникальный аутентичный звук под действие именно этой сцены, без повторений.
+5. ДВА РАЗНЫХ РАКУРСА В КАЖДОЙ СЦЕНЕ (videoPrompt1 и videoPrompt2 НЕ ДОЛЖНЫ БЫТЬ ОДИНАКОВЫМИ):
+   - videoPrompt1 (Ракурс 1): Основной план (действие, взгляд, ключевое движение сцены).
+   - videoPrompt2 (Ракурс 2): КОНТРАСТНЫЙ АЛЬТЕРНАТИВНЫЙ РАКУРС той же сцены (например, если Ракурс 1 — лицо крупным планом с Dolly-in, то Ракурс 2 — макро-деталь рук или силуэт со спины с Orbital облётом). ЗАПРЕЩЕНО копировать текст из videoPrompt1 в videoPrompt2!
+6. Самопроверка: убедись, что ни движения камеры, ни микродинамики, ни ракурсы не повторяются!`;
 
-  const customInst = getCustomInstructions(options, true);
-  const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : '';
   const voiceoverScriptText = scriptText
     .replace(/\[[^\]]*\]/g, " ")
     .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  const prompt = `Ты — профессиональный ИИ-режиссер роликов формата 9:16 (YouTube Shorts / TikTok / Reels). Тебе передан сценарий:
+  const prompt = `Ты — ведущий арт-директор и кинорежиссер вертикальных видео 9:16 (YouTube Shorts / Reels). Тебе передан сценарий:
   
 "${voiceoverScriptText}"
+
+${CUSTOM_INSTRUCTIONS_SUPREMACY_RULE}
+${BANNED_AI_VISUAL_CLICHES}
 
 Твоя задача:
 1. ПОЛНОСТЬЮ разбить ВЕСЬ текст сценария от первого до последнего слова на смысловые сцены. Ты не имеешь права выкидывать или сокращать фразы.
 2. Хронометраж КАЖДОЙ сцены ДОЛЖЕН БЫТЬ ОТ 4 ДО 7 СЕКУНД. НИ ОДНА сцена не может быть короче 4 секунд. Ориентир для русской речи: примерно 2.3-3.0 слова в секунду. Если отдельная фраза короче 4 секунд, ОБЯЗАТЕЛЬНО объединяй её со следующей смысловой фразой, сохраняя исходный текст БЕЗ изменений.
-2а. ЖЁСТКИЙ ПОТОЛОК: в ответе НЕ ДОЛЖНО быть больше 20 сцен, ни при каких обстоятельствах — это более важное ограничение, чем длительность отдельной сцены из пункта 2. Сначала посчитай: (общая длительность сценария в секундах) / 20 = минимальная средняя длительность одной сцены. Если это число больше 7 секунд — значит, укрупняй сцены (объединяй по 2-3 смысловые фразы вместо одной) до тех пор, пока сцен не станет 20 или меньше, даже если из-за этого отдельные сцены выйдут за пределы диапазона 4-7 секунд. Для типичного Shorts на 50-70 секунд должно получиться 8-14 сцен, для более длинного (90-140 сек) — 13-20 сцен. Обязательно просчитывай это математически перед выводом ответа.
-3. Для каждой сцены написать максимально детализированный визуальный промпт на английском языке, специально оптимизированный для генерации вертикального видео (9:16) в нейросети Google Veo 3. Промпты должны детально описывать кинематографичные движения камеры (pan, tilt, zoom, dolly, drone shot), тип освещения (cinematic lighting, volumetric lighting, rim light), динамику объектов в кадре и стиль.
+2а. ЖЁСТКИЙ ПОТОЛОК: в ответе НЕ ДОЛЖНО быть больше 20 сцен, ни при каких обстоятельствах. Для типичного Shorts на 50-70 секунд должно получиться 8-14 сцен.
+3. Для каждой сцены написать ДВА РАЗНЫХ кинематографичных визуальных промпта на английском языке для генерации вертикального видео (9:16):
+   - videoPrompt1 (Ракурс 1): Главный план сцены. Оптика 8K 35mm lens, движение камеры (строго одно из 5), буквальное действие из строки сценария, физическая эмоция лица (не faceless), негативный якорь, уникальная микродинамика, уникальный звук Foley.
+   - videoPrompt2 (Ракурс 2): Альтернативный контрастный ракурс той же сцены (контр-план, макро-деталь или иной масштаб) с ДРУГИМ движением камеры и ДРУГОЙ оптикой.
+   - prompt: строка, совпадающая с videoPrompt1 (для совместимости).
+4. Каждая сцена обязана содержать краткие поля "shotType" (например "Close-Up", "Medium Shot", "Macro Detail") и "cameraMovement" (например "Dolly-in", "Orbital", "Pull-back", "Rack focus", "Pan").
+5. Написать ОДИН общий музыкальный промпт для всего Shorts (жанр, настроение, инструменты, темп) на английском языке (подходит для Suno/Udio).
+
 ${veoSfxPromptText}
 ${VISUAL_DIVERSITY_RULES}
 ${shortsAntiRepeatRules}
 ${instructionsContext}
-4. Для каждой сцены дополнительно укажи краткие поля "shotType" (масштаб кадра, например "Close-Up") и "cameraMovement" (тип движения камеры, например "slow dolly in").
-5. Написать ОДИН общий музыкальный промпт для всего Shorts (жанр, настроение, инструменты, темп) на английском языке (подходит для Suno/Udio).
 
 Формат ответа СТРОГО JSON:
 {
   "visuals": [
     {
       "text": "Полная фраза из сценария (текст без изменений)",
-      "prompt": "Veo 3 highly detailed 9:16 cinematic vertical prompt in English, specifying camera movement, lighting, subject action... accompanied by the natural high-fidelity sound of...",
-      "shotType": "Краткое название масштаба кадра",
-      "cameraMovement": "Краткое название движения камеры",
+      "shotType": "Close-Up / Medium / Macro / Wide",
+      "cameraMovement": "Dolly-in / Orbital / Pull-back / Rack focus / Pan",
+      "videoPrompt1": "Ultra-realistic, 8K, 35mm lens, cinematic lighting, Hollywood color grading. Camera: slow [movement] towards [action], [facial emotion]. No 3D look. Slow-motion 0.7x, micro-dynamics of [unique environment detail]. Natural high-fidelity sound: [unique foley 1, foley 2].",
+      "videoPrompt2": "Ultra-realistic, 8K, 85mm portrait lens, dramatic rim lighting. Camera: [different movement] focusing on [contrasting detail/counter-angle]. No 3D look. Slow-motion 0.7x, micro-dynamics of [different environment detail]. Natural high-fidelity sound: [unique foley].",
+      "prompt": "дубликат videoPrompt1",
       "duration": 5.5
     }
   ],
-  "musicPrompt": "Energetic phonk beat with heavy bass, fast tempo, dynamic..."
+  "musicPrompt": "Deep atmospheric cinematic soundscape with brooding cello, pulse percussion, 432Hz ambient pads..."
 }`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.1-pro-preview",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
+    customInstructions: customInst,
+    options,
     config: {
-      temperature: 1.0,
+      temperature: 0.9,
       responseMimeType: "application/json",
       maxOutputTokens: 8192,
       responseSchema: {
@@ -700,6 +1086,8 @@ ${instructionsContext}
               properties: {
                 text: { type: Type.STRING },
                 prompt: { type: Type.STRING },
+                videoPrompt1: { type: Type.STRING },
+                videoPrompt2: { type: Type.STRING },
                 shotType: { type: Type.STRING },
                 cameraMovement: { type: Type.STRING },
                 duration: { type: Type.NUMBER, minimum: 4 }
@@ -719,7 +1107,7 @@ ${instructionsContext}
     throw new Error("Не удалось сгенерировать промпты для Shorts.");
   }
   
-  let parsedResult: { visuals: { text: string; prompt: string; shotType?: string; cameraMovement?: string; duration?: number }[]; musicPrompt: string };
+  let parsedResult: { visuals: { text: string; prompt: string; videoPrompt1?: string; videoPrompt2?: string; shotType?: string; cameraMovement?: string; duration?: number }[]; musicPrompt: string };
   try {
     parsedResult = safeParseJSON(text, { visuals: [], musicPrompt: "" });
   } catch (error) {
@@ -859,7 +1247,7 @@ ${repairItems}`;
 
     try {
       const repairResponse = await callGeminiWithRetry({
-        model: options?.model || "gemini-3.1-pro-preview",
+        model: options?.model || "gemini-3.1-flash-lite",
         contents: buildContents(repairPrompt, options),
         config: {
           temperature: 0.9,
@@ -918,33 +1306,57 @@ export async function generateShortsSEO(
   options?: AnalysisOptions & { niche?: any; branding?: any; topic?: string }
 ): Promise<ShortsSEO> {
   const customInst = getCustomInstructions(options, false);
-  const customContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : '';
-  const nicheContext = options?.niche ? `Ниша: ${options.niche.name}
-ЦА: ${options.niche.targetAudience}
-` : "";
-  const brandContext = options?.branding ? `Бренд: ${options.branding.name}
-` : "";
+  const effectiveCustom = (options?.customInstructions && String(options.customInstructions).trim()) 
+    || (customInst && customInst.trim()) 
+    || getActiveCustomInstructionsText();
+
+  const forbidsSubscription = /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис|убрать\s+подпис|без\s+призывов\s+к\s+подпис)/i.test(effectiveCustom || "");
+
+  const ctaSeoRule = forbidsSubscription
+    ? `\n\nКРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА КАНАЛА:\n- СТРОЖАЙШЕ ЗАПРЕЩЕНО добавлять любые призывы подписаться на канал или ставить лайк в описании и закрепленном комментарии! Используй обобщенное вовлекающее упоминание канала.`
+    : `\n\nПРАВИЛА УПОМИНАНИЯ КАНАЛА:\n- В описании и закрепленном комментарии используй обобщенное упоминание канала (например: "📢 Больше интересных разборов и фактов смотрите на нашем канале!").\n- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО упоминать плейлисты или ссылаться на конкретные основные/длинные видео (их может не быть на канале)!`;
+
+  const customContext = effectiveCustom ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${effectiveCustom}\n` : '';
+  const nicheContext = options?.niche ? `Ниша: ${options.niche.name}\nЦА: ${options.niche.targetAudience}\n` : "";
+  const brandContext = options?.branding ? `Бренд: ${options.branding.name}\n` : "";
   
+  const pinnedRequirement = forbidsSubscription
+    ? "5. Напиши текст для закрепленного комментария (pinnedComment), стимулирующий обсуждение темы с обобщенным упоминанием канала (СТРОГО БЕЗ упоминания плейлистов, БЕЗ отсылок к основному видео и БЕЗ призывов подписаться или ставить лайк)."
+    : "5. Напиши текст для закрепленного комментария (pinnedComment), стимулирующий обсуждение темы с обобщенным упоминанием канала (СТРОГО БЕЗ упоминания плейлистов и без отсылок к конкретному основному видео).";
+
   const prompt = `Ты — эксперт по YouTube Shorts и SEO-оптимизации коротких вертикальных видео. 
 Твоя задача — создать идеальную SEO-упаковку для следующего сценария Shorts:
 
 "${scriptText}"
 
 Контекст канала:
-${nicheContext}${brandContext}${customContext}
+${nicheContext}${brandContext}${customContext}${ctaSeoRule}
 
 Требования:
 1. Придумай ровно 3 кликабельных, вирусных названия (titles) для Shorts.
-2. Напиши вовлекающее SEO-описание для ролика. Описание должно быть ёмким, побуждающим к взаимодействию.
-   ВАЖНО: Никаких таймкодов! Это Shorts.
+2. Напиши масштабное, развёрнутое SEO-описание для ролика объёмом ПРИБЛИЗИТЕЛЬНО 3000 СИМВОЛОВ (диапазон: 2700–3300 символов):
+   - КРИТИЧЕСКОЕ ПРАВИЛО ПОИСКА: В ПЕРВЫХ 200 СИМВОЛАХ описания ОБЯЗАТЕЛЬНО должны быть органично внедрены самые главные поисковые ключевые слова и фразы по теме ролика (это видимый сниппет YouTube/Google поиска).
+   - КРИТИЧЕСКОЕ ПРАВИЛО СТРУКТУРЫ: СТРОГО РАЗБИВАЙ ТЕКСТ НА АБЗАЦЫ ДВОЙНЫМ ПЕРЕНОСОМ СТРОКИ (\\n\\n). КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО выдавать сплошную простыню текста! Каждый смысловой блок обязан быть отдельным абзацем с эмодзи-маркером в начале.
+   - СТРОГИЙ ЗАПРЕТ НА ПЛЕЙЛИСТЫ И ОСНОВНЫЕ ВИДЕО: КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО упоминать плейлисты («в плейлисте», «ссылка на плейлист») или отсылать зрителя к конкретному «основному/полному/связанному видео» (его может не быть). Используй только ОБЩЕЕ упоминание канала!
+   - СТРУКТУРА ОПИСАНИЯ (~3000 знаков):
+     * 🎯 [0–200 символов]: Мощный интригующий хук-лид с ключевыми словами для поисковой выдачи.
+     
+     * 💡 [200–900 символов]: Подробное раскрытие сути ролика, контекста проблемы, скрытых деталей и тезисов из сценария.
+     
+     * 🔍 [900–1800 символов]: Глубокий разбор темы: ответы на частые вопросы зрителей, практические инсайты, выводы и факты, расширяющие тему ролика.
+     
+     * ⚡ [1800–2500 символов]: Тематический SEO-блок с контекстным упоминанием смежных поисковых запросов ниши, пользы для зрителя и вовлекающих вопросов в аудиторию.
+     
+     * 💬 [2500–3000 символов]: Блок взаимодействия: вопросы для комментариев, обобщенное вовлекающее упоминание канала (например: «Больше разборов и интересных тем смотрите на нашем канале!») и блок тематических хештегов.
+   - ВАЖНО: Никаких таймкодов! Это Shorts. Текст должен быть связным, живым, без пустой воды, с хорошей разбивкой на абзацы и эмодзи-маркерами для удобства чтения.
 3. Собери массив из 5-8 релевантных хештегов.
 4. Собери массив из 10-15 ключевых слов/тег-фраз (keywords).
-5. Напиши текст для закрепленного комментария (pinnedComment), который будет стимулировать обсуждение или призывать к действию (подписка/переход по ссылке).
+${pinnedRequirement}
 
 ОТВЕТ ДОЛЖЕН БЫТЬ СТРОГО В ФОРМАТЕ JSON:
 {
   "titles": ["Название 1", "Название 2", "Название 3"],
-  "description": "Текст описания...",
+  "description": "🎯 Развёрнутое SEO-описание примерно на 3000 символов (в первых 200 символах ключевые слова)...\\n\\n💡 Подробности и предыстория...\\n\\n🔍 Детальный разбор темы...\\n\\n⚡ Полезные выводы...\\n\\n💬 Вопросы в комментариях и обобщенное упоминание канала...",
   "hashtags": ["#shorts", "#тег2"],
   "keywords": ["ключ 1", "ключевая фраза 2"],
   "pinnedComment": "Текст закрепленного комментария..."
@@ -952,7 +1364,7 @@ ${nicheContext}${brandContext}${customContext}
 `;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       temperature: 0.7,
@@ -994,6 +1406,7 @@ ${nicheContext}${brandContext}${customContext}
   // 2. description: support "description", "descriptions", "desc", "text", "about", "caption", "captions"
   const rawDesc = parsed.description || parsed.descriptions || parsed.desc || parsed.text || parsed.about || parsed.caption || parsed.captions;
   result.description = typeof rawDesc === "string" ? rawDesc.trim() : (Array.isArray(rawDesc) ? rawDesc.join("\n") : "");
+  result.description = formatShortsDescriptionWithParagraphs(result.description);
 
   // 3. hashtags: support "hashtags", "hashtag", "tags", "tag"
   const rawHashtags = parsed.hashtags || parsed.hashtag || parsed.tags || parsed.tag;
@@ -1018,7 +1431,8 @@ ${nicheContext}${brandContext}${customContext}
   const rawPinned = parsed.pinnedComment || parsed.pinned_comment || parsed.pinnedcomment || parsed.pinned || parsed.comment || parsed.comments;
   result.pinnedComment = typeof rawPinned === "string" ? rawPinned.trim() : (Array.isArray(rawPinned) ? rawPinned.join("\n") : "");
 
-  return result;
+  // Post-process enforcement of custom rules on generated SEO
+  return enforceCustomRulesOnShortsSEO(result, effectiveCustom);
 }
 
 
@@ -1071,7 +1485,7 @@ ${nicheContext}${brandContext}${customContext}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: buildContents(prompt, options),
       config: {
         temperature: 0.7,
@@ -1243,7 +1657,7 @@ ${nicheContext}${brandContext}${customContext}
 `;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     customInstructions: options?.customInstructions,
     config: {
@@ -1304,5 +1718,327 @@ ${nicheContext}${brandContext}${customContext}
 }
 
 /**
- * Translates and optimizes a video scene's visual description into concise English search keywords for stock video APIs (Pexels).
+ * YouTube Shorts Outlier Analyst & 10 Ideas Generator.
+ * Implements strict analysis of competitor outlier videos (>=2x median views),
+ * formulates a niche winning framework, and generates 10 concrete, non-duplicate,
+ * physically realizable Shorts ideas with visual breakdowns.
  */
+export async function generateShortsOutlierIdeas(
+  params: {
+    niche: string;
+    competitorChannels?: CompetitorChannel[];
+    competitorVideos?: CompetitorVideo[];
+    myChannelVideos?: Array<{ title: string; views?: string | number }>;
+    savedFramework?: string;
+    customPromptAddition?: string;
+  },
+  options?: AnalysisOptions
+): Promise<ShortsOutlierGenerationResult> {
+  const { niche, competitorChannels = [], competitorVideos = [], myChannelVideos = [], savedFramework = '', customPromptAddition = '' } = params;
+
+  // Format competitor videos
+  const allCompVideos: { title: string; views: string; channel?: string }[] = [];
+  competitorChannels.forEach(c => {
+    if (Array.isArray(c.topVideos)) {
+      c.topVideos.forEach(v => {
+        allCompVideos.push({
+          title: v.title,
+          views: v.views,
+          channel: c.name
+        });
+      });
+    }
+  });
+  competitorVideos.forEach(v => {
+    allCompVideos.push({
+      title: v.title,
+      views: v.views
+    });
+  });
+
+  const compVideosText = allCompVideos.length > 0
+    ? allCompVideos.map(v => `- [${v.channel || 'Конкурент'}] "${v.title}" (${v.views} просм.)`).join('\n')
+    : `- Примеры растущих конкурентов в нише "${niche}"`;
+
+  const myVideosText = myChannelVideos.length > 0
+    ? myChannelVideos.map(v => `- "${v.title}"`).join('\n')
+    : `(Видео на моем канале пока нет)`;
+
+  const customInstructionsText = getActiveCustomInstructionsText();
+
+  const prompt = `Ты — ведущий YouTube-аналитик, специализирующийся на вирусных Shorts и алгоритмах удержания.
+
+НИША: "${niche}"
+${savedFramework ? `СОХРАНЕННЫЙ РАНЕЕ ФРЕЙМВОРК НИШИ: "${savedFramework}"` : ''}
+
+РОЛИКИ И КАНАЛЫ РАСТУЩИХ КОНКУРЕНТОВ:
+${compVideosText}
+
+УЖЕ ОПУБЛИКОВАННЫЕ РОЛИКИ НА МОЕМ КАНАЛЕ (СТРОГО НЕ ПОВТОРЯТЬ ИХ ТЕМЫ И ЗАГОЛОВКИ):
+${myVideosText}
+
+ЧТО СЧИТАТЬ АУТЛАЕРОМ:
+Аутлаер — это ролик, набравший в 2 и более раз больше просмотров, чем медиана по каналу за тот же период. Считай именно медиану, а не среднее.
+
+ВЫПОЛНИ СЛЕДУЮЩИЕ 4 ЗАДАЧИ:
+
+ЗАДАЧА 1. АНАЛИЗ (не длиннее 15 строк):
+Пройди по роликам конкурентов и выдели аутлаеры от 2х. Разбери:
+1. Формулы названий — конструкции, которые повторяются в аутлаерах и отсутствуют в обычных роликах.
+2. Темы — какие конкретные подтемы дают аутлаеры, а какие проваливаются.
+3. Эмоциональный триггер — что заставляет кликать (ностальгия, любопытство, спор, страх потери, узнавание).
+4. Длина роликов у аутлаеров против остальных.
+5. Свежесть — аутлаеры распределены равномерно или сгруппированы? Что изменилось в тот период.
+
+ЗАДАЧА 2. ФРЕЙМВОРК (одним емким абзацем):
+Сформулируй формулу успеха этой ниши: тема + угол + тип названия + обещание зрителю.
+
+ЗАДАЧА 3. ДЕСЯТЬ ИДЕЙ ДЛЯ SHORTS
+Выдай ровно 10 прорывных идей для моих новых Shorts.
+
+ЖЕСТКИЕ ФИЛЬТРЫ ДЛЯ КАЖДОЙ ИДЕИ:
+— Запрещены любые повторы: такого ролика не должно быть ни у конкурентов, ни на моем канале (проверь по названиям).
+— Физическая реализуемость видеоряда: идея должна легко и на 100% собираться из реальных съемочных материалов, качественных стоковых кадров и архивных фото/иллюстраций. Никаких абстрактных и туманных философствований — нужны конкретные объекты, места, исторические события, лица людей, предметы, действия.
+— Вечнозеленость: тема не должна требовать сиюминутных новостей текущего месяца.
+
+Формат для каждой идеи:
+- Номер (#1 - #10)
+- Заголовок (кликбейтный, бьющий в боль или интригу)
+- Почему сработает (одна строка со ссылкой на конкретный аутлаер/триггер)
+- Что будет в кадре (3–5 конкретных типов визуала, которые сервис стоков/ИИ легко найдет или сгенерирует)
+- Хук первых 3 секунд (точная цепляющая фраза диктора без приветствий)
+- Эмоциональный триггер
+- Оценка длительности: строго от 40 до 90 секунд (например: "50 сек", "65 сек", "75 сек", "85 сек")
+
+${customPromptAddition ? `ДОПОЛНИТЕЛЬНЫЕ ПОЖЕЛАНИЯ: ${customPromptAddition}` : ''}
+${customInstructionsText ? `ПОЛЬЗОВАТЕЛЬСКИЕ ПРАВИЛА И КАНОН: ${customInstructionsText}` : ''}
+
+ОТВЕТЬ СТРОГО ВАЛИДНЫМ JSON СЛЕДУЮЩЕЙ СТРУКТУРЫ:
+{
+  "analysis": {
+    "formulas": ["Формула 1...", "Формула 2..."],
+    "topics": ["Выигрышные темы...", "Провальные темы..."],
+    "emotionalTriggers": ["Любопытство...", "Страх потери..."],
+    "durationInsight": "Оптимальная длительность в нише от 40 до 90 сек...",
+    "freshnessInsight": "Аутлаеры сконцентрированы на...",
+    "summaryAnalysis": "Краткий емкий текст разбора до 15 строк...",
+    "framework": "Формула успеха: [тема] + [угол] + [тип названия] + [обещание зрителю]"
+  },
+  "ideas": [
+    {
+      "number": 1,
+      "title": "Название ролика",
+      "whyItWorks": "Почему сработает: ссылка на аутлаер и триггер...",
+      "visualTypes": ["Лицо плачущего воина крупным планом", "Древний свиток на деревянном столе", "Пустыня на закате с идущим караваном"],
+      "hook": "Фраза первых 3 секунд, которая не отпускает...",
+      "trigger": "Любопытство / Моральный выбор",
+      "estimatedDuration": "65 сек"
+    }
+  ]
+}`;
+
+  try {
+    const response = await callGeminiWithRetry({
+      model: options?.model || "gemini-3.1-flash-lite",
+      contents: buildContents(prompt, options),
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.7,
+      },
+    });
+
+    const parsed = safeParseJSON<any>(extractTextFromResponse(response), null);
+    if (!parsed || !Array.isArray(parsed.ideas)) {
+      throw new Error("Не удалось разобрать JSON-ответ аналитика Shorts");
+    }
+
+    const ideas: ShortsOutlierIdea[] = parsed.ideas.map((item: any, idx: number) => ({
+      id: `outlier_idea_${Date.now()}_${idx + 1}`,
+      number: item.number || idx + 1,
+      title: item.title || `Идея #${idx + 1}`,
+      whyItWorks: item.whyItWorks || "Высокий потенциал удержания в нише",
+      visualTypes: Array.isArray(item.visualTypes) ? item.visualTypes : (Array.isArray(item.visualContent) ? item.visualContent : ["Тематические кадры высокого качества"]),
+      visualContent: Array.isArray(item.visualTypes) ? item.visualTypes : (Array.isArray(item.visualContent) ? item.visualContent : ["Тематические кадры высокого качества"]),
+      hook: item.hook || item.title || "",
+      trigger: item.trigger || item.emotionalTrigger || "Интрига",
+      emotionalTrigger: item.emotionalTrigger || item.trigger || "Интрига",
+      estimatedDuration: item.estimatedDuration || "50-75 сек",
+      isGenerated: false
+    }));
+
+    return {
+      analysis: {
+        formulas: Array.isArray(parsed.analysis?.formulas) ? parsed.analysis.formulas : (Array.isArray(parsed.analysis?.titlePatterns) ? parsed.analysis.titlePatterns : []),
+        titlePatterns: Array.isArray(parsed.analysis?.titlePatterns) ? parsed.analysis.titlePatterns : (Array.isArray(parsed.analysis?.formulas) ? parsed.analysis.formulas : []),
+        topics: Array.isArray(parsed.analysis?.topics) ? parsed.analysis.topics : [],
+        flopTopics: Array.isArray(parsed.analysis?.flopTopics) ? parsed.analysis.flopTopics : [],
+        emotionalTriggers: Array.isArray(parsed.analysis?.emotionalTriggers) ? parsed.analysis.emotionalTriggers : [],
+        durationInsight: parsed.analysis?.durationInsight || "",
+        freshnessInsight: parsed.analysis?.freshnessInsight || "",
+        summaryAnalysis: parsed.analysis?.summaryAnalysis || "Анализ успешно завершен.",
+        framework: parsed.analysis?.framework || "Фреймворк ниши определен."
+      },
+      ideas,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    logger.error("generateShortsOutlierIdeas error", error);
+    throw error;
+  }
+}
+
+/**
+ * Generates a production-ready Shorts script and visual breakdown from a selected Outlier Idea.
+ */
+export async function generateFullShortsScriptFromOutlierIdea(
+  idea: ShortsOutlierIdea,
+  niche: string,
+  options?: AnalysisOptions
+): Promise<{
+  title: string;
+  script: string;
+  scenes: Array<{ timecode: string; text: string; visualPrompt: string }>;
+  seo: ShortsSEO;
+}> {
+  const customInstructionsText = getActiveCustomInstructionsText();
+
+  const ideaTitle = idea?.title || "Вирусный Shorts";
+  const ideaWhyItWorks = idea?.whyItWorks || "Высокий потенциал вовлечения";
+  const rawVisuals = Array.isArray(idea?.visualTypes) && idea.visualTypes.length > 0
+    ? idea.visualTypes
+    : (Array.isArray(idea?.visualContent) && idea.visualContent.length > 0
+        ? idea.visualContent
+        : ["Тематические кадры высокого качества (9:16)"]);
+  const visualTypesString = rawVisuals.join(", ");
+  const ideaHook = idea?.hook || ideaTitle;
+  const ideaDuration = idea?.estimatedDuration || "65 сек";
+
+  const prompt = `Ты — ведущий топ-сценарист вирусных YouTube Shorts с миллионными просмотрами.
+Твоя задача — написать ПОЛНОЦЕННЫЙ, ГЛУБОКИЙ, ЗАВЕРШЁННЫЙ сценарий для вертикального видео Shorts длительностью СТРОГО от 45 до 85 секунд (объём дикторского текста: 130–220 слов).
+
+ИСХОДНЫЕ ДАННЫЕ ИДЕИ:
+- Ниша: "${niche || "YouTube Shorts"}"
+- Заголовок идеи: "${ideaTitle}"
+- Суть и почему зайдёт: "${ideaWhyItWorks}"
+- Визуальные образы: ${visualTypesString}
+- Стартовый хук: "${ideaHook}"
+
+СТРОГИЕ ТРЕБОВАНИЯ К СЦЕНАРИЮ:
+1. ХРОНОМЕТРАЖ И ОБЪЁМ:
+   - Длительность: 45–85 секунд.
+   - Объём текста: от 130 до 220 слов. Никаких коротких отписок, тезисов или двух предложений!
+   - Это должен быть связный, захватывающий монолог диктора, ведущий зрителя от боли/интриги к мощному инсайту и эмоциональному катарсису.
+
+2. СТРУКТУРА ПОВЕСТВОВАНИЯ:
+   - Сцена 1 (0:00–0:05): Шокирующий/интригующий хук, бьющий в нерв зрителя. Без приветствий и заезженных штампов.
+   - Сцена 2 (0:05–0:20): Погружение в проблему/контекст, объяснение неочевидной скрытой детали.
+   - Сцена 3 (0:20–0:40): Развитие мысли, кульминация, глубокий жизненный или духовный/философский инсайт.
+   - Сцена 4 (0:40–0:60): Неожиданный вывод, раскрытие тайны или практическая мудрость, переворачивающая восприятие.
+   - Сцена 5 (0:60–0:75+): Мощный финал и вовлекающий вопрос или отсылка к полному разбору в связанном видео.
+
+3. РАЗМЕТКА ДЛЯ ОЗВУЧКИ (TTS):
+   ${SHORTS_TTS_MARKUP_INSTRUCTION}
+
+4. SEO-ОПИСАНИЕ РОЛИКА:
+   - Напиши масштабное, развёрнутое описание объёмом ПРИБЛИЗИТЕЛЬНО 3000 СИМВОЛОВ (2700–3300 знаков).
+   - КРИТИЧЕСКОЕ ТРЕБОВАНИЕ: В ПЕРВЫХ 200 СИМВОЛАХ описания ОБЯЗАТЕЛЬНО должны быть органично внедрены самые главные поисковые ключевые слова и фразы темы ролика (это видимый сниппет поисковой выдачи YouTube/Google).
+   - В описании подробно раскрой контекст ролика, глубокий разбор темы, смежные поисковые запросы, инсайты и блок вовлечения зрителей в комментарии. Без таймкодов.
+
+${customInstructionsText ? `ОБЯЗАТЕЛЬНЫЙ КАНОН КАНАЛА И КАСТОМНЫЕ ПРАВИЛА:\n${customInstructionsText}` : ''}
+
+ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON:
+{
+  "title": "${ideaTitle.replace(/"/g, "'")}",
+  "script": "[интригующе] *Хук* (500ms)... [развернутый связный текст сценария на 130-220 слов со всеми паузами (500ms)/(1s), ударениями *слово* и пометками [ТЕКСТ НА ЭКРАНЕ: \"...\"]]",
+  "seo": {
+    "titles": ["${ideaTitle.replace(/"/g, "'")}"],
+    "description": "Развёрнутое SEO-описание примерно на 3000 символов (в первых 200 символах ключевые слова)...",
+    "hashtags": ["#Shorts", "#Тренды"],
+    "keywords": ["тег1", "тег2"],
+    "pinnedComment": "Вопрос для удержания в комментариях..."
+  }
+}`;
+
+  try {
+    const response = await callGeminiWithRetry({
+      model: options?.model || "gemini-3.1-flash-lite",
+      contents: buildContents(prompt, options),
+      bypassCache: true,
+      config: {
+        temperature: 0.7,
+        responseMimeType: "application/json",
+        maxOutputTokens: 8192,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            script: { type: Type.STRING },
+            seo: {
+              type: Type.OBJECT,
+              properties: {
+                titles: { type: Type.ARRAY, items: { type: Type.STRING } },
+                description: { type: Type.STRING },
+                hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+                pinnedComment: { type: Type.STRING }
+              },
+              required: ["titles", "description", "hashtags", "keywords", "pinnedComment"]
+            }
+          },
+          required: ["title", "script", "seo"]
+        }
+      }
+    });
+
+    const rawText = extractTextFromResponse(response);
+    let parsed: any = safeParseJSON<any>(rawText, null) || tryRepairJSON<any>(rawText);
+
+    if (!parsed || typeof parsed !== "object") {
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = safeParseJSON<any>(jsonMatch[0], null) || tryRepairJSON<any>(jsonMatch[0]);
+      }
+    }
+
+    let scriptText = parsed?.script || parsed?.scriptText || parsed?.fullScript || "";
+
+    if (!scriptText || scriptText.trim().length < 40) {
+      throw new Error("Модель вернула слишком короткий ответ для сценария Shorts");
+    }
+
+    const initialTitle = parsed?.title || ideaTitle;
+
+    const rawSeo: ShortsSEO = {
+      titles: Array.isArray(parsed?.seo?.titles) && parsed.seo.titles.length > 0 
+        ? parsed.seo.titles 
+        : [parsed?.seo?.title || initialTitle],
+      description: parsed?.seo?.description || `Разбор темы «${initialTitle}». Смотрите до конца!`,
+      hashtags: Array.isArray(parsed?.seo?.hashtags) && parsed.seo.hashtags.length > 0 
+        ? parsed.seo.hashtags 
+        : ["#Shorts", "#YouTubeShorts", "#Тренды"],
+      keywords: Array.isArray(parsed?.seo?.keywords) 
+        ? parsed.seo.keywords 
+        : (Array.isArray(parsed?.seo?.tags) ? parsed.seo.tags : [initialTitle, "Shorts"]),
+      pinnedComment: parsed?.seo?.pinnedComment || "Какое ваше мнение по этой теме? Напишите в комментариях!"
+    };
+
+    const enforcedItem = enforceCustomRulesOnShortsItem({
+      title: initialTitle,
+      hook: ideaHook,
+      script: scriptText,
+      viral_potential: "9.5/10 (Вирусный аутлаер)",
+      duration: ideaDuration,
+      seo: rawSeo
+    }, customInstructionsText);
+
+    return {
+      title: enforcedItem.title,
+      script: enforcedItem.script,
+      scenes: [],
+      seo: enforcedItem.seo || rawSeo
+    };
+  } catch (error) {
+    logger.error("generateFullShortsScriptFromOutlierIdea error", error);
+    throw error;
+  }
+}

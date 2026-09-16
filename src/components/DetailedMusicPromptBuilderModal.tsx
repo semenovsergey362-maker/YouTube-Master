@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { generateDetailedBlockMusicPrompt } from '../services/geminiService';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../utils/helpers';
 
 interface DetailedMusicPromptBuilderModalProps {
   isOpen: boolean;
@@ -194,7 +195,7 @@ export const DetailedMusicPromptBuilderModal: React.FC<DetailedMusicPromptBuilde
       formatted = `${promptToCopy}, high quality audio, clean production`;
     }
 
-    navigator.clipboard.writeText(formatted);
+    copyToClipboard(formatted);
     setCopiedFormat(platform);
     toast.success(`Промпт скопирован в формате ${platform.toUpperCase()}!`);
     setTimeout(() => setCopiedFormat(null), 2000);

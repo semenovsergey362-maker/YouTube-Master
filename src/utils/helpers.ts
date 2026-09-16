@@ -74,40 +74,52 @@ export const exportToPDF = (content: string, filename: string, title: string = '
 };
 
 export const copyToClipboard = async (text: string): Promise<boolean> => {
-  if (!text) return false;
+  if (text === undefined || text === null) return false;
+  const str = String(text);
   
+  // 1. Try modern Clipboard API if document is focused and clipboard is available
   try {
-    // Try the modern Clipboard API first
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
+    if (
+      typeof window !== 'undefined' &&
+      window.isSecureContext &&
+      navigator?.clipboard?.writeText &&
+      typeof document !== 'undefined' &&
+      (!document.hasFocus || document.hasFocus())
+    ) {
+      await navigator.clipboard.writeText(str);
       return true;
     }
   } catch (err) {
     logger.warn('Modern clipboard copy failed, falling back to execCommand:', err);
   }
 
-  // Fallback to document.execCommand('copy')
+  // 2. Fallback to document.execCommand('copy') with invisible textarea
   try {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    
-    // Ensure the textarea is not visible but part of the DOM
-    textArea.style.position = "fixed";
-    textArea.style.left = "-999999px";
-    textArea.style.top = "-999999px";
-    document.body.appendChild(textArea);
-    
-    textArea.focus();
-    textArea.select();
-    
-    const successful = document.execCommand('copy');
-    document.body.removeChild(textArea);
-    
-    return !!successful;
+    if (typeof document !== 'undefined' && document.body) {
+      const textArea = document.createElement("textarea");
+      textArea.value = str;
+      textArea.setAttribute("readonly", "");
+      textArea.style.position = "fixed";
+      textArea.style.left = "-999999px";
+      textArea.style.top = "-999999px";
+      textArea.style.opacity = "0";
+      textArea.style.pointerEvents = "none";
+      document.body.appendChild(textArea);
+      
+      textArea.focus({ preventScroll: true });
+      textArea.select();
+      textArea.setSelectionRange(0, str.length);
+      
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      
+      return !!successful;
+    }
   } catch (err) {
     logger.error('Fallback clipboard copy failed:', err);
-    return false;
   }
+
+  return false;
 };
 
 export const exportToFile = (content: string, filename: string, extension: string) => {
@@ -131,8 +143,39 @@ export const exportToSrt = (content: string, filename: string) => {
   exportToFile(content, filename, 'srt');
 };
 
+export const exportToSbv = (content: string, filename: string) => {
+  exportToFile(content, filename, 'sbv');
+};
+
 export const exportToMarkdown = (content: string, filename: string) => {
   exportToFile(content, filename, 'md');
+};
+
+export const exportToJSON = (content: string, filename: string) => {
+  const sanitizedFilename = filename.replace(/[/\\?%*:|"<>]/g, '-').trim() || 'export';
+  const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${sanitizedFilename}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+export const exportToCSV = (csvContent: string, filename: string) => {
+  const sanitizedFilename = filename.replace(/[/\\?%*:|"<>]/g, '-').trim() || 'export';
+  // \uFEFF is UTF-8 Byte Order Mark (BOM) so Excel and spreadsheet apps automatically open UTF-8 without garbled Russian characters
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${sanitizedFilename}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 };
 
 export const exportToZip = async (files: { name: string; content: string | Blob }[], zipName: string) => {
@@ -759,7 +802,16 @@ export const getUnifiedScriptScenes = (
       let bIdx = -1;
       let bTitle = '';
 
-      if (structLen > 0) {
+      // 1. Если сцена уже явно привязана к конкретному блоку (например, при генерации по блокам),
+      // уважаем ее оригинальный blockIndex безусловно, исключая смещение фраз между блоками!
+      if (typeof sc.blockIndex === 'number' && sc.blockIndex >= 0) {
+        bIdx = sc.blockIndex;
+      }
+      if (sc.blockTitle) {
+        bTitle = sc.blockTitle;
+      }
+
+      if (bIdx < 0 && structLen > 0) {
         if (generatedBlocks && cumulativeText.length > 0) {
           const cleanedScene = cleanTextForMatching(sc.text || '');
           if (cleanedScene.length > 2) {
@@ -780,7 +832,7 @@ export const getUnifiedScriptScenes = (
                 || blockRanges.find(r => matchIndex <= r.end);
               if (matchedRange) {
                 bIdx = matchedRange.index;
-                searchStartOffset = Math.max(searchStartOffset, matchIndex + Math.min(cleanedScene.length, 10));
+                searchStartOffset = Math.max(searchStartOffset, matchIndex + cleanedScene.length);
               }
             }
           }
@@ -798,7 +850,7 @@ export const getUnifiedScriptScenes = (
         bTitle = `Блок ${bIdx + 1}`;
       }
 
-      const dur = Math.min(10, Math.max(1, Number(sc.duration) || 5));
+      const dur = Math.min(12, Math.max(2, Number(sc.duration) || 10));
       const startSec = cumulativeSec;
       const endSec = cumulativeSec + dur;
       cumulativeSec = endSec;
@@ -855,12 +907,33 @@ export const getUnifiedScriptScenes = (
             shotType: sc.shotType || sc.visuals?.shotType || 'Средний план',
             resourceLinks: (typeof sc.visuals === 'object' && sc.visuals?.resourceLinks) || []
           },
-          duration: Math.min(10, Math.max(1, Number(sc.duration) || 5)),
+          duration: Math.min(12, Math.max(2, Number(sc.duration) || 10)),
           shotType: sc.shotType || sc.visuals?.shotType || 'Средний план',
           blockIndex: i,
           blockTitle: bTitle,
           blockContext: scriptStructure?.[i]?.context || ''
         });
+      });
+    } else if (b && b.text && b.text.trim().length > 0) {
+      const visText = b.sfx ? `Атмосфера: ${b.sfx}` : (b.mood ? `Настроение: ${b.mood}` : 'Визуальный ряд кадра');
+      scenesFromBlocks.push({
+        id: `sc-blk-${i}-0`,
+        sceneNumber: i + 1,
+        scene: bTitle,
+        text: b.text || '',
+        description: visText,
+        visual: visText,
+        visuals: {
+          description: visText,
+          searchQuery: 'cinematic background',
+          shotType: 'Средний план',
+          resourceLinks: []
+        },
+        duration: 10,
+        shotType: 'Средний план',
+        blockIndex: i,
+        blockTitle: bTitle,
+        blockContext: scriptStructure?.[i]?.context || ''
       });
     }
   });
@@ -1011,6 +1084,64 @@ export const generateScriptBlockTimestamps = (
 
   return result;
 };
+
+/**
+ * Extracts normalized reference blocks with titles and opening texts for exact audio-to-script alignment.
+ */
+export function extractScriptBlockRefs(
+  scriptStructure: any[],
+  generatedBlocks: any
+): { id: string | number; title: string; openingText: string; fullText: string }[] {
+  if (!scriptStructure && !generatedBlocks) return [];
+
+  const genMap: Record<string, any> = {};
+  if (Array.isArray(generatedBlocks)) {
+    generatedBlocks.forEach((b: any, idx: number) => {
+      if (b && b.id !== undefined) genMap[String(b.id)] = b;
+      genMap[String(idx)] = b;
+    });
+  } else if (generatedBlocks && typeof generatedBlocks === 'object') {
+    Object.keys(generatedBlocks).forEach((k) => {
+      genMap[k] = generatedBlocks[k];
+    });
+  }
+
+  const structArr = Array.isArray(scriptStructure) ? scriptStructure : [];
+  const maxLen = Math.max(structArr.length, Object.keys(genMap).length);
+  const result: { id: string | number; title: string; openingText: string; fullText: string }[] = [];
+
+  for (let i = 0; i < maxLen; i++) {
+    const structItem = structArr[i];
+    const genItem = structItem?.id !== undefined ? genMap[String(structItem.id)] || genMap[String(i)] : genMap[String(i)];
+
+    let rawTitle = structItem?.title || structItem?.name || genItem?.blockTitle || genItem?.title;
+    if (!rawTitle || rawTitle.trim() === "" || /^Блок\s*\d+$/i.test(rawTitle.trim())) {
+      if (structItem?.type) {
+        rawTitle = structItem.type;
+      } else if (structItem?.description) {
+        rawTitle = structItem.description.slice(0, 40);
+      } else if (genItem?.text) {
+        const firstLine = genItem.text.split('\n')[0].replace(/^#+\s*/, '').trim();
+        rawTitle = firstLine.slice(0, 45);
+      } else {
+        rawTitle = `Блок ${i + 1}`;
+      }
+    }
+
+    const cleanTitle = rawTitle.replace(/^#+\s*/, '').replace(/^"|"$/g, '').trim();
+    const fullText = genItem?.text || genItem?.content || structItem?.description || "";
+    const cleanSpoken = fullText.replace(/\[[^\]]+\]/g, "").replace(/\([^)]+\)/g, "").trim();
+
+    result.push({
+      id: structItem?.id ?? i + 1,
+      title: cleanTitle,
+      openingText: cleanSpoken.slice(0, 180),
+      fullText,
+    });
+  }
+
+  return result.filter((r) => r.title || r.fullText);
+}
 
 /**
  * Formats narrator script text to "breathe":

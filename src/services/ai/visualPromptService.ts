@@ -18,6 +18,7 @@ import {
   ScriptImprovement,
   SentimentPoint,
   ConvertedShortsVariant,
+  CinematicShotProfile,
 } from "../../types";
 import {
   callGeminiWithRetry,
@@ -50,7 +51,7 @@ RULES:
 Original prompt: "${prompt}"`;
 
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: rewritePrompt,
     });
     
@@ -119,27 +120,222 @@ CRITICAL REFERENCE IMAGE INSTRUCTIONS:
 }
 
 
-export const VISUAL_DIVERSITY_RULES = `
-ЗОЛОТОЙ СТАНДАРТ КИНЕМАТОГРАФИЧЕСКИХ AI-ПРОМПТОВ (HOLLYWOOD & NETFLIX DOCUMENTARY FORMULA):
+export function getStyleDirectives(styleHint?: string): { optics: string; negativeAnchor: string } {
+  const s = (styleHint || "").toLowerCase();
+  if (s.includes("3d") || s.includes("pixar") || s.includes("unreal") || s.includes("мульт") || s.includes("анимация")) {
+    return {
+      optics: "High-end 3D animation, Pixar and DreamWorks feature animation quality, Octane 3D render, stylized character design, vibrant volumetric lighting, subsurface scattering",
+      negativeAnchor: "No live-action photography, no flat 2D sketch, no raw polygon artifacts"
+    };
+  }
+  if (s.includes("2d") || s.includes("аниме") || s.includes("anime") || s.includes("shinkai") || s.includes("рисова")) {
+    return {
+      optics: "Makoto Shinkai anime aesthetic, hand-drawn 2D animation style, atmospheric volumetric sunlight, rich watercolor painted backgrounds, delicate expressive line art",
+      negativeAnchor: "No 3D CGI plastic look, no live-action photorealism"
+    };
+  }
+  if (s.includes("документ") || s.includes("научпоп") || s.includes("наук") || s.includes("bbc") || s.includes("истори")) {
+    return {
+      optics: "BBC Earth and National Geographic documentary standard, 8K, precision telephoto and macro optics, natural authentic lighting, hyper-realistic physical textures",
+      negativeAnchor: "No cartoon or animated look, no fantasy glow, no exaggerated CGI"
+    };
+  }
+  if (s.includes("киберпанк") || s.includes("cyberpunk") || s.includes("sci-fi")) {
+    return {
+      optics: "Blade Runner 2049 aesthetic, 8K anamorphic lens, neon illumination through rain and mist, volumetric haze, cinematic color grading, deep contrast",
+      negativeAnchor: "No low budget look, no flat lighting, no plastic 3D"
+    };
+  }
+  // Default: Veo 3 Gold Standard Hollywood Photorealism
+  return {
+    optics: "Ultra-realistic, 8K, 35mm lens, cinematic lighting, Hollywood color grading, deep contrast",
+    negativeAnchor: "No 3D or animated look — fully photoreal textures"
+  };
+}
 
-1. ФОРМУЛА КАЖДОГО АНГЛИЙСКОГО ПРОМПТА (NANO BANANA 2 & VEO 3):
-   - [Оптика и Снятие]: "Ultra-realistic cinematic scene, 8K resolution, shot on 35mm lens, Hollywood blockbuster color grading, deep contrast, cinematic atmosphere, photorealistic only — no 3D render, no animation, no plastic look."
-   - [Живое Тактильное Действие]: Избегай плоских статичных формулировок и банальных стоковых поз. Описывай конкретное живое физическое действие, фактуру материалов, движения рук, предметный мир и естественные эмоции.
-   - [Освещение и Физика Частиц]: Направляемый объёмный свет (golden hour, rim light, chiaroscuro), физика частичек (пыль в луче света, пар, дымка, блики, отблески). КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ HEX-коды (например, #D97706).
-   - [Динамика Камеры и Перевод Фокуса (Rack Focus)]: В промптах Veo 3 ОБЯЗАТЕЛЬНО задавай точный перевод фокуса и непрерывный кадр ("Slow, smooth camera dolly and rack focus: the focus shifts smoothly from [объект A] to reveal, in the same continuous shot, [объект B]...").
-   - [Пик Сцены (Visual Climax)]: Каждая видео-анимация должна иметь четкую визуальную кульминацию или смену фокуса.
-   - [Физическая Естественность]: Естественная кинематографичная физика движения (0.5x-0.75x slow-motion feel), малое значение глубины резкости (shallow depth of field), отсутствие искажений и деформаций объектов (no object morphing).
-
-2. ПРОТИВ ПОВТОРОВ И МЕХАНИЧЕСКОЙ ШАБЛОННОСТИ:
-   - Если в Сцене N показывались определенное действие, предмет или ракурс — в Сцене N+1 ЗАПРЕЩЕНО буквально повторять тот же предмет, то же действие или ту же картинку.
-   - НО: не превращай разнообразие в новый шаблон. НЕ строй предсказуемый цикл планов вида "Общий-Крупный-Общий-Крупный" или "Wide-CloseUp-Wide-CloseUp" — выбор каждого плана должен быть художественным решением под смысл конкретной фразы, а не механической ротацией по списку категорий.
-   - Поощряется неожиданное и нестандартное: необычная композиция, деталь без прямого объяснения, метафора, смена света/погоды/времени суток, отражение, тень, POV — не ограничивайся дежурным набором "крупный план лица / общий план в полный рост".
+export const BANNED_AI_VISUAL_CLICHES = `
+🚨 ЖЕСТОЧАЙШИЙ ЧЕРНЫЙ СПИСОК СТОКОВЫХ ИИ-КЛИШЕ (КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО В ЛЮБОМ ПРОМПТЕ):
+1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ ШЕСТЕРЁНКИ, ЗУБЧАТЫЕ КОЛЕСА И ЧАСОВЫЕ МЕХАНИЗМЫ (cogs, gears, interlocking wheels, clockwork mechanism)! Даже если диктор говорит о «механизмах привычки», «системе», «дисциплине», «структуре» или «законах» — КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО генерировать шестерёнки!
+2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ АБСТРАКТНЫЕ ПЕСОЧНЫЕ ЧАСЫ (hourglass with flowing sand) и секундомеры на темном фоне. Если речь о времени — показывай физические жизненные сцены: закат, тени на стене, стареющие руки, увядающий цветок, смену сезонов, движение реальных людей.
+3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ СВЕТЯЩИЕСЯ НЕОНОВЫЕ ГОЛОГРАММЫ, СИНИЕ ЦИФРОВЫЕ СЕТКИ В ВОЗДУХЕ И СВЕТЯЩИЙСЯ МОЗГ (glowing neural networks, floating holographic UI / HUDs, glowing brains, matrix code, digital lines).
+4. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ ЛАМПОЧКИ ИДЕИ (glowing lightbulb), летающие иконки приложений, абстрактные графики со стрелочками вверх/вниз в воздухе.
+5. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ СТОКОВЫЕ МАНЕКЕНЫ, БЕЗЛИКИЕ БИЗНЕСМЕНЫ В ПИДЖАКАХ У ПАНОРАМНЫХ ОКОН И КОРПОРАТИВНЫЕ РУКОПОЖАТИЯ (generic suit businessmen staring out high-rise windows, stock corporate handshakes).
+6. ФИЗИЧЕСКИЙ РЕАЛИЗМ ВМЕСТО МЕТАФОР: Всегда показывай КОНКРЕТНЫХ ЖИВЫХ ЛЮДЕЙ, их осязаемые бытовые действия, реальные исторические или современные предметы, пот, мозоли, текстуры дерева, пыль, ткань, реальную обстановку комнат и улиц, а НЕ абстрактные символы!
 `;
 
+export const CUSTOM_INSTRUCTIONS_SUPREMACY_RULE = `
+================================================================================
+🚨 ВЫСШИЙ ПРИОРИТЕТ: КАСТОМНЫЕ ПРАВИЛА ИЗ ОКНА «ИНСТРУКЦИИ ДЛЯ ИИ АССИСТЕНТА»
+Если пользователь в своих кастомных инструкциях или пожеланиях задал:
+- Конкретный стиль (например: Midjourney v6 / FLUX с параметрами --ar 16:9, Anime, 3D Pixar, Comic Book, Retro VHS, Dark Noir, Black & White Documentary);
+- Запрет или требование к SFX звукам (например: "не писать звуки", "без Foley", "без звукового дескриптора");
+- Запрет или требование к движению камеры / замедлению (например: "без slow-motion", "динамичный экшн", "статичная камера");
+- Формат описания или персонажей (например: "faceless", "без людей", "только предметы крупным планом");
+- Любые другие правила и ограничения:
+ПРАВИЛА ПОЛЬЗОВАТЕЛЯ ИМЕЮТ АБСОЛЮТНЫЙ ПРИОРИТЕТ НАД ЛЮБЫМИ ВНУТРЕННИМИ ДЕФОЛТАМИ И ШАБЛОНАМИ VEO 3! Внутренние константы ("Ultra-realistic, 8K...", "No 3D look", "Slow-motion 0.7x...", "Natural high-fidelity sound...") ДОЛЖНЫ БЫТЬ АВТОМАТИЧЕСКИ ЗАМЕНЕНЫ НА СТИЛЬ И ФОРМАТ ПОЛЬЗОВАТЕЛЯ!
+================================================================================
+`;
+
+export const CINEMATIC_SHOT_PROGRESSION: CinematicShotProfile[] = [
+  {
+    shotType: "Close-Up Face Emotion",
+    shotTypeRu: "Крупный план (лицо / эмоция)",
+    cameraMovement: "Snap Push-In / Subtle Dolly-In",
+    cameraMovementRu: "Акцентный наезд на мимику",
+    optics: "85mm portrait lens, f/1.4 shallow depth of field, dramatic cinematic lighting",
+    motionDirective: "Camera: smooth subtle push-in towards the facial micro-expressions and intense gaze",
+    speedDynamics: "Natural cinematic speed 1.0x with subtle focus breathing",
+    microDynamicsExample: "tremor of eyelashes, light sweat bead on temple, shifting pupil reflex",
+    foleyCategory: "subtle deep breath, faint fabric rustle",
+  },
+  {
+    shotType: "Wide Establishing Landscape",
+    shotTypeRu: "Общий адресный план (масштаб локации)",
+    cameraMovement: "Slow Pull-Back Reveal / Crane Rise",
+    cameraMovementRu: "Плавный отъезд с раскрытием окружения",
+    optics: "24mm wide-angle anamorphic lens, deep depth of field, atmospheric haze and volumetric rays",
+    motionDirective: "Camera: slow pull-back sweeping upwards to reveal the vast grandeur and scale of the surrounding environment",
+    speedDynamics: "Smooth 0.8x motion blur",
+    microDynamicsExample: "billowing smoke clouds, swaying distant foliage, dust swirl on the horizon",
+    foleyCategory: "distant gust of wind, ambient environmental echo",
+  },
+  {
+    shotType: "Macro Object Detail",
+    shotTypeRu: "Макро-деталь (руки / ключевой предмет)",
+    cameraMovement: "Kinetic Rack Focus / Lateral Slide",
+    cameraMovementRu: "Перевод фокуса на деталь / скольжение",
+    optics: "100mm macro prime lens, razor-sharp focus on texture, extreme bokeh background",
+    motionDirective: "Camera: slow tactile lateral slide with sharp rack focus shifting between texture details and background",
+    speedDynamics: "0.6x slow-motion micro-capture",
+    microDynamicsExample: "sparks leaping from flint, droplets sliding down metallic surface, grain falling through tight fingers",
+    foleyCategory: "crisp tactile click, scraping friction sound",
+  },
+  {
+    shotType: "Low-Angle Hero Stance",
+    shotTypeRu: "Нижний ракурс (монументальность / сила)",
+    cameraMovement: "Upward Pedestal Tilt / Heroic Tracking",
+    cameraMovementRu: "Подъем камеры снизу вверх",
+    optics: "28mm wide cinematic lens, low-angle ground level perspective, powerful rim-light silhouette",
+    motionDirective: "Camera: ground-level low-angle tilting upwards steadily, emphasizing monumental power and tension",
+    speedDynamics: "Real-time cinematic 1.0x with heavy gravity weight",
+    microDynamicsExample: "gravel crunching under boots, cape hem snapping in crosswind, rising heat shimmer",
+    foleyCategory: "heavy footstep impact on stone, resonant low rumble",
+  },
+  {
+    shotType: "180° Orbital Medium Arc",
+    shotTypeRu: "Поясной план с круговым облётом",
+    cameraMovement: "Orbital Swirl Arc",
+    cameraMovementRu: "Круговой кинематографичный облёт на 180°",
+    optics: "35mm prime lens, golden hour side lighting, dynamic parallax separation",
+    motionDirective: "Camera: smooth cinematic 180-degree orbital arc panning around the subject against the rotating backdrop",
+    speedDynamics: "Smooth gliding 0.75x steadicam orbit",
+    microDynamicsExample: "light rays slicing through hair, fluttering clothing folds, floating airborne embers",
+    foleyCategory: "whistle of air, shifting garments, ambient drone",
+  },
+  {
+    shotType: "First-Person POV Subjective",
+    shotTypeRu: "Субъективный план (POV / от первого лица)",
+    cameraMovement: "Steadicam Forward Walk",
+    cameraMovementRu: "Движение вперед глазами героя",
+    optics: "20mm ultra-wide lens, natural eye-level perspective, immersive visual field",
+    motionDirective: "Camera: first-person POV moving forward with organic slight physical bobbing, hands entering frame dynamically",
+    speedDynamics: "Dynamic real-time forward momentum 1.0x",
+    microDynamicsExample: "fingers reaching forward, shadow cast onto dusty surface, breath mist condensating in air",
+    foleyCategory: "muffled footsteps on rough ground, close breathing",
+  },
+  {
+    shotType: "Overhead Top-Down / High-Angle",
+    shotTypeRu: "Верхний ракурс (вид сверху / геометрия)",
+    cameraMovement: "Vertical Crane Descent",
+    cameraMovementRu: "Плавное опускание камеры вертикально вниз",
+    optics: "35mm lens, 60-degree overhead high-angle, symmetrical geometric composition, hard directional shadow",
+    motionDirective: "Camera: high-angle looking downward with gentle descending crane drift, tracking the motion below",
+    speedDynamics: "Steady 0.8x descent",
+    microDynamicsExample: "rippling concentric circles on liquid, cast shadow elongating across floor, scattering particles",
+    foleyCategory: "splattering drops, reverberating floor vibration",
+  },
+  {
+    shotType: "Medium Cowboy Action Shot",
+    shotTypeRu: "Средний план (действие / фигура)",
+    cameraMovement: "Dynamic Lateral Tracking Follow",
+    cameraMovementRu: "Параллельное динамическое слежение за объектом",
+    optics: "50mm prime cinematic lens, balanced dynamic framing, natural perspective",
+    motionDirective: "Camera: fluid lateral tracking movement following the subject's physical action in motion",
+    speedDynamics: "Dynamic cinematic 1.0x cadence",
+    microDynamicsExample: "swaying belt straps, footsteps stirring dry soil, dynamic muscle flexing under strain",
+    foleyCategory: "rhythmic strides, swish of moving limbs",
+  },
+  {
+    shotType: "Dutch Angle Dynamic Pivot",
+    shotTypeRu: "Голландский угол (динамика / тревога)",
+    cameraMovement: "Dutch Angle Roll & Push",
+    cameraMovementRu: "Динамический наезд с наклоном горизонта 15°",
+    optics: "50mm anamorphic lens, 15-degree Dutch angle tilt, high-contrast chiaroscuro shadows",
+    motionDirective: "Camera: tense Dutch angle subtly rotating while pushing forward, creating off-kilter psychological tension",
+    speedDynamics: "Edgy 0.9x kinetic motion",
+    microDynamicsExample: "flickering lantern flame, jagged shadow lines slashing across frame, tremor in holding grip",
+    foleyCategory: "metallic resonance, high-tension string drone, sudden sharp gasp",
+  }
+];
+
+export function getRotatingShotProfile(index: number): CinematicShotProfile {
+  const safeIndex = Math.max(0, Math.floor(index)) % CINEMATIC_SHOT_PROGRESSION.length;
+  return CINEMATIC_SHOT_PROGRESSION[safeIndex];
+}
+
+export const VISUAL_DIVERSITY_RULES = `
+ФОРМУЛА КИНЕМАТОГРАФИЧЕСКИХ ПРОМПТОВ VEO 3 (РЕЖИССЕРСКИЙ СТАНДАРТ):
+
+${BANNED_AI_VISUAL_CLICHES}
+
+1. БУКВАЛЬНОЕ ДЕЙСТВИЕ СТРОКИ (LITERAL TO LINE):
+   - Промпт ОБЯЗАН буквально и физически изображать то конкретное действие, событие или объект, о котором говорит диктор в этой строке сценария.
+   - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО заменять действие абстрактными метафорами (например, если в тексте человек идет по каменистой тропе — показывай идущего по каменистой тропе человека, а не абстрактные песочные часы или крутящиеся шестеренки!).
+
+2. СТРОЖАЙШАЯ СМЕНА ПЛАНОВ И КРУПНОСТЕЙ (ОБЯЗАТЕЛЬНОЕ ЧЕРЕДОВАНИЕ!):
+   - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО генерировать подряд одинаковые средние или крупные планы!
+   - В каждом ролике/сценарии ОБЯЗАНА использоваться кинематографическая смена планов:
+     * Кадр 1: Крупный план лица / Взгляд (85mm portrait)
+     * Кадр 2: Общий адресный план локации / Масштаб (24mm wide)
+     * Кадр 3: Макро-деталь рук или ключевого предмета (100mm macro)
+     * Кадр 4: Нижний ракурс снизу вверх (28mm low-angle hero)
+     * Кадр 5: Круговой облёт 180° (35mm orbital)
+     * Кадр 6: Субъективный вид от первого лица (20mm POV)
+     * Кадр 7: Верхний ракурс / вид сверху (35mm high-angle crane)
+     * Кадр 8: Динамический средний план движения (50mm tracking)
+     * Кадр 9: Голландский угол с наклоном горизонта 15° (50mm Dutch tilt)
+
+3. РАЗНООБРАЗИЕ АНИМАЦИИ И ДВИЖЕНИЙ КАМЕРЫ:
+   - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать одинаковый "slow push in" или "dolly in" во всех сценах!
+   - Чередуй кинематографические типы движения:
+     * Snap Push-In (резкий акцентный наезд)
+     * Slow Pull-Back Reveal (отъезд назад с раскрытием нового объекта)
+     * 180° Orbital Arc Swirl (облёт вокруг объекта по дуге)
+     * Kinetic Rack Focus Shift (переброс резкости с переднего плана на фон)
+     * Lateral Tracking Follow (параллельное динамическое следование сбоку)
+     * Vertical Crane Pedestal Tilt (вертикальный подъем или спуск камеры)
+     * Handheld Steadicam Kinetic Walk (живая камера с дыханием шага)
+
+4. ПРАВИЛО ЛИЦ (НЕ FACELESS, ЕСЛИ НЕ ЗАДАНО ИНОЕ В КАСТОМНЫХ ПРАВИЛАХ):
+   - По умолчанию формат — НЕ faceless (если в кастомных инструкциях пользователя не запрошено иное). Лица, мимика и эмоции персонажей показываются крупно и выразительно везде, где это соответствует сюжету.
+   - Эмоциональная деталь лица ОБЯЗАНА быть конкретной физической реакцией под смысл строки (например: "brow furrowed in tension even in sleep", "jaw clenched in silent resolve", "eyes widening as breath catches in throat", "subtle tremble in lower lip"), а НЕ абстрактным ярлыком вроде "he feels sad".
+
+5. МИКРОДИНАМИКА И ВАРЬИРОВАНИЕ СКОРОСТЕЙ:
+   - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО копировать один и тот же шаблон ("dust motes in sunlight", "slow-motion 0.7x") во все сцены!
+   - Варьируй скорость: от 1.0x (натуральное движение) до 0.8x (плавный cinematic) и 0.6x (тактильное макро).
+   - В КАЖДОЙ сцене ОБЯЗАНА быть своя уникальная микродеталь: капли дождя на коже, пар от дыхания на морозном воздухе, трепет пламени масляной лампы, развевающийся от порыва ветра край ткани, осыпающиеся крупицы сухого песка, искры углей, скользящие тени на каменной стене, мелкая рябь на воде.
+
+6. ДВА РАЗНЫХ РАКУРСА В КАЖДОЙ СЦЕНЕ (videoPrompt1 и videoPrompt2 НЕ ДОЛЖНЫ БЫТЬ ОДИНАКОВЫМИ):
+   - videoPrompt1: Основной кинематографический план (первая крупность и оптика).
+   - videoPrompt2: Альтернативный контр-ракурс или выразительная деталь ТОЙ ЖЕ сцены с ДРУГОЙ оптикой и ДРУГИМ движением камеры.
+
+7. ЗВУКОВОЙ ДЕСКРИПТОР (FOLEY SFX):
+   - В конце каждого промпта всегда идет: "Natural high-fidelity sound: <2 конкретные уникальные детали фоли под действие именно этого кадра, без повторений>.", ЕСЛИ звуки не отключены в настройках.
+`;
 
 export function getClicheAvoidanceRule(topic?: string): string {
   const topicPhrase = topic ? `тематики «${topic}»` : "тематики этого сценария";
-  return `Категорически запрещено дефолтить в типовые клише-визуалы ${topicPhrase} (для любой ниши ИИ обычно тянется к 2-3 "безопасным" стоковым образам и повторяет их из сцены в сцену) — используй конкретный клишированный образ ТОЛЬКО если он буквально описан в тексте именно этой сцены.`;
+  return `Категорически запрещено дефолтить в типовые клише-визуалы ${topicPhrase} (шестерёнки, песочные часы, светящиеся синие голограммы, летающие лампочки и абстрактные графики) — используй конкретный образ ТОЛЬКО если он буквально описан в тексте именно этой сцены.`;
 }
 
 
@@ -151,16 +347,25 @@ export function validateAndEnrichSystemPrompt(
 ): string {
   const globalInst = getCustomInstructions(options);
   const visualRule = options?.isScript ? `\n\n${VISUAL_DIVERSITY_RULES}` : "";
+  
+  const rulesHeader = `================================================================================
+🚨 СТРОЖАЙШИЙ ВЫСШИЙ ПРИОРИТЕТ: ИНСТРУКЦИИ ДЛЯ ИИ АССИСТЕНТА
+(ОБЯЗАТЕЛЬНЫ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ ДАЖЕ ПОСЛЕ ВНЕСЕНИЯ ИЗМЕНЕНИЙ ПОЛЬЗОВАТЕЛЕМ)
+Любые активные правила из модального окна «Инструкции для ИИ Ассистента» имеют высший приоритет над любыми ручными правками пользователя, локальными переписываниями («сделай короче/проще/эмоциональнее»), изменениями структуры или параметров!
+================================================================================`;
+
   // Prepend global instructions (custom instructions, brand, etc.) so they have highest priority
-  return `${globalInst}
+  return `${rulesHeader}
 
+${globalInst}
+
+${customInst ? `ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : ""}
 ========================================
-
+ОСНОВНОЕ ЗАДАНИЕ:
 ${basePrompt}
 
-${extra}
-
-${customInst}${visualRule}`.trim();
+${extra ? `ДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:\n${extra}` : ""}
+${visualRule}`.trim();
 }
 
 
@@ -181,23 +386,47 @@ export async function generateBannerPrompt(
   colors: string[],
   channelName?: string,
   slogan?: string,
-  options?: AnalysisOptions
+  options?: AnalysisOptions & { style?: string }
 ): Promise<{ ru: string; en: string }> {
-  const nameContext = channelName ? ` для канала с названием "${channelName}"` : "";
-  const sloganContext = slogan ? `, слоганом "${slogan}"` : "";
-  const prompt = `Создай подробный промт для генерации фонового баннера YouTube канала в нише "${niche}"${nameContext}${sloganContext}. 
-  Используй цвета: ${colors.join(", ")}.
-  Баннер должен быть широким, горизонтальным, сбалансированным по композиции, чтобы текст и основные элементы не обрезались на мобильных и ТВ устройствах.
-  ${channelName ? `Баннер может содержать название "${channelName}". В английском промте (en) ОБЯЗАТЕЛЬНО укажи: "The banner must clearly and prominently display the text: ${channelName}". Укажи, что текст должен быть идеально написан, без орфографических ошибок, с использованием чистого современного шрифта.` : ""}
-  ${slogan ? `Слоган также может быть интегрирован: "${slogan}".` : ""}
-  
-  ПРАВИЛА БЕЗОПАСНОСТИ ДЛЯ ОБХОДА БЛОКИРОВОК (Google Flow/Imagen):
-  1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать имена реальных известных личностей, исторических деятелей, политиков, селебрити напрямую. Если тематика канала как-то связана с ними, замени имя на "человек, похожий на [Имя]" (в en: "a person resembling [Name]") или подробно опиши их одежду, эпоху и внешность.
-  2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО напрямую использовать защищенные авторским правом бренды или персонажей. Используй их обобщенное детальное описание.
-  3. Используй исключительно общие эстетические понятия для стилизации (например, "cinematic lighting, modern geometric vector banner layout, minimalist art style").`;
+  const nameContext = channelName ? `Канал: "${channelName}"` : "";
+  const sloganContext = slogan ? `Слоган: "${slogan}"` : "";
+  const styleContext = options?.style ? `Выбранный стиль: "${options.style}"` : "";
+  const brandColors = colors && colors.length > 0 ? colors.join(", ") : "#6366f1, #10b981, #0f172a";
+
+  const prompt = `Ты — ведущий мировой арт-директор и специалист по кинематографическому промптингу для Midjourney v6.1 и Flux.1.
+Твоя задача — создать шедевральный мастер-промпт для генерации фоновой шапки (Channel Art / Banner) YouTube-канала.
+
+КОНТЕКСТ КАНАЛА:
+- Ниша: "${niche}"
+${nameContext ? `- ${nameContext}` : ""}
+${sloganContext ? `- ${sloganContext}` : ""}
+${styleContext ? `- ${styleContext}` : ""}
+- Цветовая палитра: ${brandColors}
+
+ТЕХНИЧЕСКИЕ И КОМПОЗИЦИОННЫЕ ТРЕБОВАНИЯ (СТАНДАРТ YOUTUBE):
+1. Формат и Safe Zone:
+   - Полный холст — 16:9 (2560x1440 px).
+   - КРИТИЧЕСКИ ВАЖНО: Вся главная визуальная драма, ключевые персонажи, объекты и фокусы должны находиться строго в центральной горизонтальной безопасной зоне (YouTube Safe Area: 1546x423 px по центру).
+   - Слева снизу должно быть оставлено чистое, атмосферное негативное пространство (negative space / subtle dark atmosphere), чтобы круглый аватар YouTube и название канала не перекрывали ключевые детали.
+2. Кинематографичность и Оптика:
+   - Широкоугольный кинематографический кадр (24mm или 35mm lens, wide panoramic establishing shot).
+   - Объемное освещение: volumetric god rays, soft rim lighting, атмосферная дымка (atmospheric haze / dust motes), реалистичная глубина резкости (depth of field).
+   - Голливудский цветокор (color grading), гармонирующий с палитрой: ${brandColors}.
+3. Никаких дефектов и мусора:
+   - СТРОГО: Никакого фальшивого нечитаемого текста, плавающих логотипов, водяных знаков и артефактов.
+4. Технические параметры для Midjourney:
+   - В конце английского промпта обязательно укажи: "--ar 16:9 --v 6.1 --style raw".
+
+ПРАВИЛА БЕЗОПАСНОСТИ ДЛЯ ОБХОДА БЛОКИРОВОК (Google Flow/Imagen/Midjourney):
+1. Не используй прямые имена известных личностей. Заменяй на "a person resembling..." или подробное описание одежды, эпохи и атрибутов.
+2. Не используй защищенные торговые марки и имена ныне живущих художников напрямую. Описывай эстетику визуальными терминами.
+
+ВЕРНИ JSON С ПОЛЯМИ:
+- "ru": развернутое, вдохновляющее описание сцены на русском языке, объясняющее концепцию, композицию, распределение безопасных зон и освещение.
+- "en": законченный, ультра-детализированный английский промпт для Midjourney v6.1 / Flux.1 с параметрами "--ar 16:9 --v 6.1 --style raw".`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -220,23 +449,46 @@ export async function generateLogoPrompt(
   niche: string, 
   colors: string[], 
   channelName?: string, 
-  options?: AnalysisOptions
+  options?: AnalysisOptions & { style?: string }
 ): Promise<{ ru: string; en: string }> {
-  const nameContext = channelName ? ` для канала с названием "${channelName}"` : "";
-  const prompt = `Создай подробный промт для генерации логотипа YouTube канала в нише "${niche}"${nameContext}. 
-  Используй цвета: ${colors.join(", ")}.
-  ${channelName ? `Логотип должен содержать название "${channelName}". В английском промте (en) ОБЯЗАТЕЛЬНО укажи: "The logo must clearly and prominently display the text: ${channelName}". Укажи, что текст должен быть идеально написан, без орфографических ошибок, с использованием чистого современного шрифта.` : ""}
-  
-  ПРАВИЛА БЕЗОПАСНОСТИ ДЛЯ ОБХОДА БЛОКИРОВОК (Google Flow/Imagen):
-  1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать имена реальных известных личностей, исторических деятелей, политиков, селебрити напрямую. Если тематика канала как-то связана с ними, замени имя на "человек, похожий на [Имя]" (в en: "a person resembling [Name]") или подробно опиши их одежду, эпоху и внешность.
-  2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО напрямую использовать защищенные авторским правом бренды или персонажей. Используй их обобщенное детальное описание.
-  3. Используй исключительно общие эстетические понятия для стилизации (например, "cinematic lighting, modern geometric vector icon, minimal aesthetic"), без упоминания конкретных защищенных товарных знаков или ныне живущих художников.
+  const nameContext = channelName ? `Канал: "${channelName}"` : "";
+  const styleContext = options?.style ? `Выбранный стиль: "${options.style}"` : "";
+  const brandColors = colors && colors.length > 0 ? colors.join(", ") : "#6366f1, #10b981, #0f172a";
 
-  ВАЖНО: В русском тексте (ru) ОБЯЗАТЕЛЬНО используй букву "ё" во всех словах, где она должна быть.
-  Верни JSON с полями "ru" (на русском) и "en" (на английском).`;
+  const prompt = `Ты — ведущий мировой бренд-дизайнер и специалист по созданию логотипов и аватаров в Midjourney v6.1 и Flux.1.
+Твоя задача — создать первоклассный мастер-промпт для генерации аватара / логотипа YouTube-канала.
+
+КОНТЕКСТ КАНАЛА:
+- Ниша: "${niche}"
+${nameContext ? `- ${nameContext}` : ""}
+${styleContext ? `- ${styleContext}` : ""}
+- Цветовая палитра: ${brandColors}
+
+КЛЮЧЕВЫЕ ТРЕБОВАНИЯ К АВАТАРУ YOUTUBE:
+1. Масштабируемость и Круглый кроп (Circle Crop):
+   - Аватар YouTube на смартфонах и в комментариях сжимается до 32x32px и 48x48px.
+   - Символ должен быть мощным, лаконичным, с ясным читаемым силуэтом.
+   - Композиция строго центрирована в формате 1:1, с обязательными безопасными отступами от краев (padding), чтобы при обрезке в круг ничего не срезалось.
+2. Никакого текстового мусора:
+   - НЕ генерируй мелкие надписи, псевдобуквы или хаотичный текст. Если используется монограмма, это должна быть одна чистая, геометрически идеальная буква-символ.
+3. Материалы и свет:
+   - Объем, глубина, тактильность: матовый титан, сатинированная керамика, полупрозрачное матовое стекло (frosted glass), неоновые контуры.
+   - Мягкий контрастный студийный свет, глубокий фоновый контраст, объемные тени, эффект rim lighting.
+4. Палитра:
+   - Внедрение фирменных цветов: ${brandColors}.
+5. Технические параметры для Midjourney:
+   - В конце английского промпта обязательно добавь: "--ar 1:1 --v 6.1 --style raw".
+
+ПРАВИЛА БЕЗОПАСНОСТИ ДЛЯ ОБХОДА БЛОКИРОВОК:
+- Никаких имен селебрити и защищенных брендов. Только универсальные эстетические описания.
+- В русском тексте обязательно используй букву "ё".
+
+ВЕРНИ JSON С ПОЛЯМИ:
+- "ru": концептуальное описание идеи логотипа на русском языке (смысловой символизм, композиция, эмоция).
+- "en": готовый высокоточный промпт на английском языке для Midjourney v6.1 / Flux.1 с параметрами "--ar 1:1 --v 6.1 --style raw".`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -260,7 +512,7 @@ export async function generateColors(niche: string, options?: AnalysisOptions): 
   Верни только JSON массив строк.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -297,7 +549,7 @@ export async function generateBlockSceneContext(
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: "Ты — экспертный режиссер озвучивания и специалист по настройке Google NotebookLM / Audio Overview. Твоя задача — создавать точные, атмосферные настройки окружения (Scene) и контекста для озвучивания.",
@@ -313,7 +565,7 @@ export async function generateBlockSceneContext(
       }
     });
 
-    const parsed = safeParseJSON(response.candidates?.[0]?.content?.parts?.[0]?.text, { scene: "", sampleContext: "" });
+    const parsed = safeParseJSON(extractTextFromResponse(response), { scene: "", sampleContext: "" });
     return { scene: parsed.scene || "", sampleContext: parsed.sampleContext || "" };
   } catch (error) {
     logger.error("Error generating block scene context", error);
@@ -325,11 +577,23 @@ export async function generateBlockSceneContext(
 export async function generateDetailedPromptForScene(
   globalStyle: { imageStyle: string; animationType: string },
   scene: any,
-  options?: AnalysisOptions & { customInstruction?: string; branding?: string }
+  options?: AnalysisOptions & { 
+    customInstruction?: string; 
+    branding?: string;
+    topic?: string;
+    scriptTopic?: string;
+    scriptContext?: string;
+    contextInfo?: string;
+    sceneIndex?: number;
+    shotType?: string;
+    cameraMovement?: string;
+  }
 ): Promise<{ 
   videoPrompt1: string; 
   videoPrompt2: string; 
   sceneSummary: string;
+  shotType?: string;
+  cameraMovement?: string;
 }> {
   const customInst = getCustomInstructions(options);
   const instructionsContext = customInst ? `\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}` : "";
@@ -350,23 +614,42 @@ export async function generateDetailedPromptForScene(
 
   const brandingText = cleanBranding ? `\n\nБРЕНДБУК И СТИЛИСТИКА КАНАЛА:\n"${cleanBranding}"` : "";
 
-  const veoSfxPromptText = options?.veoSfxEnabled
-    ? `\n\nОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ДЛЯ ЗВУКОВЫХ ЭФФЕКТОВ В VEO 3 (VEO SFX):
-Для КАЖДОГО из двух промптов (videoPrompt1 и videoPrompt2) интегрируй звуковые эффекты (SFX) сцены в текст промпта на английском языке.
-- Считай звуки сцены: "${scene.audio?.soundsAndNoises || scene.audio?.backgroundMusic || scene.soundsAndNoises || scene.sfx || "Не указано"}".
-- Завершай промпт фразной: "accompanied by the natural high-fidelity sound of <описание звуков на английском>, with rich acoustic details and crisp foley effects."`
+  const sceneTopic = options?.topic || options?.scriptTopic || "Кинематографический исторический/экспертный ролик";
+  const contextNarrative = options?.contextInfo || options?.scriptContext 
+    ? `\nНАРРАТИВНЫЙ КОНТЕКСТ ОКРУЖАЮЩИХ КАДРОВ: ${options?.contextInfo || options?.scriptContext}` 
     : "";
 
-  const prompt = `Ты — голливудский кинорежиссер и арт-директор топовых видеостудий (Netflix / HBO / National Geographic).
-Твоя задача — прочитать сценарий сцены и создать ДВА ЭТАЛОННЫХ, принципиально разных, ЦЕЛЬНЫХ кинематографических промпта для Veo 3 text-to-video на английском языке. Каждый промпт — это самодостаточное описание всего кадра целиком: композиция, действие, свет, движение камеры — одним связным текстом, готовым к прямой вставке в Veo 3. НЕ раздельные "кадр" и "анимация" — только цельные видео-промпты.
+  const effectiveSceneIndex = typeof options?.sceneIndex === "number" ? options.sceneIndex : (typeof scene?.sceneIndex === "number" ? scene.sceneIndex : 0);
+  const shotProfile = getRotatingShotProfile(effectiveSceneIndex);
+  const assignedShotType = options?.shotType || scene?.shotType || shotProfile.shotType;
+  const assignedCameraMovement = options?.cameraMovement || scene?.cameraMovement || shotProfile.cameraMovement;
 
+  const styleDirectives = getStyleDirectives(globalStyle.imageStyle);
+
+  const isSfxDisabled = options?.veoSfxEnabled === false || 
+    (customInst && (customInst.toLowerCase().includes("без звука") || customInst.toLowerCase().includes("без сфх") || customInst.toLowerCase().includes("без sfx") || customInst.toLowerCase().includes("no sound") || customInst.toLowerCase().includes("no sfx")));
+
+  const veoSfxPromptText = isSfxDisabled 
+    ? `\n\nТРЕБОВАНИЕ К ЗВУКУ (SFX): Звуки отключены пользователем — КАТЕГОРИЧЕСКИ НЕ ДОБАВЛЯЙ строку "Natural high-fidelity sound" в промпты!`
+    : `\n\nОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ДЛЯ ЗВУКОВЫХ ЭФФЕКТОВ (SFX):
+В конце КАЖДОГО из двух промптов (videoPrompt1 и videoPrompt2) добавь лаконичную финальную фразу:
+"Natural high-fidelity sound: <2 конкретные аутентичные детали звука окружения на английском под визуал>." (например: "Natural high-fidelity sound: crackling of dry twigs underfoot, rustle of coarse linen in the desert wind.")`;
+
+  const prompt = `Ты — выдающийся голливудский кинорежиссер и арт-директор (уровень проектов Дени Вильнёва и Ридли Скотта).
+Твоя задача — прочитать сценарий сцены и создать ДВА ЭТАЛОННЫХ, кинематографических, ЦЕЛЬНЫХ промпта для Veo 3 / Sora / Kling / Runway Gen-3 на английском языке.
+
+${CUSTOM_INSTRUCTIONS_SUPREMACY_RULE}
+${BANNED_AI_VISUAL_CLICHES}
 ${VISUAL_DIVERSITY_RULES}
 
-Глобальный стиль проекта:
-- Визуальный стиль: ${globalStyle.imageStyle}
-- Анимация: ${globalStyle.animationType}
+КОНТЕКСТ ПРОЕКТА:
+- Тема/Нарратив ролика: "${sceneTopic}"${contextNarrative}
+- Визуальный стиль: ${globalStyle.imageStyle || 'Ultra-realistic, 8K, cinematic lighting, Hollywood color grading'}
+- Назначенный план для этой сцены (ПЛАН №${effectiveSceneIndex + 1}): "${assignedShotType}" (${shotProfile.shotTypeRu})
+- Назначенная динамика/движение камеры: "${assignedCameraMovement}" (${shotProfile.cameraMovementRu})
+- Оптика и свет кадра: "${shotProfile.optics}"
 
-ДАННЫЕ СЦЕНЫ:
+ДАННЫЕ ТЕКУЩЕЙ СЦЕНЫ:
 Текст/Сюжет: ${scene.text || scene.voiceover || scene.description || scene.title || "Не указано"}
 Описание для визуала: ${scene.visual || scene.visuals?.description || scene.visuals || scene.scene || scene.title || "Не указано"}
 Таймкод: ${scene.timecode || "Не указан"}
@@ -374,40 +657,131 @@ ${VISUAL_DIVERSITY_RULES}
 Звуки: ${scene.audio?.soundsAndNoises || scene.audio?.backgroundMusic || scene.soundsAndNoises || scene.sfx || "Не указано"}
 ${instructionsContext}${customWishText}${brandingText}${veoSfxPromptText}
 
-СТРОГИЙ СТАНДАРТ СОСТАВЛЕНИЯ ПРОМПТОВ:
-1. videoPrompt1 (Ракурс 1): Начни с оптических параметров ("Ultra-realistic cinematic scene, 8K resolution, shot on 35mm lens, Hollywood color grading..."). Опиши живое тактильное действие, освещение, физику частиц, непрерывную динамику камеры (rack focus, dolly, pan), кульминацию кадра — всё в одном связном промпте (без HEX-кодов).
-2. videoPrompt2 (Ракурс 2): ВТОРОЙ, ПРИНЦИПИАЛЬНО ИНОЙ дубль этой же сцены (другая крупность кадра, другой фокус, деталь, предмет, движение камеры или масштаб) — альтернативный вариант на выбор, а не продолжение первого.
+СТРОГИЙ СТАНДАРТ КАЖДОГО ПРОМПТА (ТОЧНАЯ РЕЖИССЕРСКАЯ ФОРМУЛА VEO 3):
+Каждый промпт обязан следовать золотой структуре:
+1. Оптика и стиль (константа): "Ultra-realistic, 8K, ${shotProfile.optics}, Hollywood color grading."
+2. Движение камеры: "${shotProfile.motionDirective}."
+3. Субъект и буквальное действие строки: БУКВАЛЬНОЕ физическое действие персонажа/объекта из текста этой строки (никаких абстрактных метафор и шестерёнок!).
+4. Эмоциональная деталь лица (НЕ faceless, если не запрошено иное): одна конкретная ФИЗИЧЕСКАЯ деталь мимики ("brow furrowed in tension even in sleep", "jaw clenched in silent resolve", "eyes widening as breath catches in throat", "subtle tremble of lips") — не абстрактное "he feels sad".
+5. Негативные маркеры качества: "${styleDirectives.negativeAnchor}."
+6. Скорость и микродинамика: "${shotProfile.speedDynamics}, micro-dynamics of ${shotProfile.microDynamicsExample}."
+7. Звук (Foley SFX): ${isSfxDisabled ? "НЕ ДОБАВЛЯТЬ ЗВУКИ (отключены)" : `"Natural high-fidelity sound: [2 конкретные детали фоли под визуал кадра]."`}
+
+КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО:
+- Текст на экране, титры или логотипы (no text on screen).
+- Шестерёнки, песочные часы, светящиеся синие голограммы, летающие лампочки и абстрактные графики.
+- Современные анахронизмы (если сеттинг исторический/библейский).
+- Заменять буквальное действие строки абстрактными метафорами.
+- Одинаковые движения камеры во всех сценах.
+
+ПРАВИЛО РАКУРСОВ:
+- videoPrompt1 (Ракурс 1): Главный план сцены под назначенный ракурс "${assignedShotType}".
+- videoPrompt2 (Ракурс 2): ВТОРОЙ, АЛЬТЕРНАТИВНЫЙ КОНТРАСТНЫЙ ДУБЛЬ ЭТОЙ ЖЕ СЦЕНЫ (смысловой контр-план, макро-деталь или иной масштаб в ТОЙ ЖЕ САМОЙ локации с другим движением камеры).
 
 Верни JSON объект:
 {
   "sceneSummary": "строка (выразительное описание действия и суть сцены на русском)",
-  "videoPrompt1": "строка (цельный детализированный Veo 3 промпт на английском, Ракурс 1)",
-  "videoPrompt2": "строка (цельный детализированный Veo 3 промпт на английском, Ракурс 2 — принципиально другой)"
+  "videoPrompt1": "строка (цельный эталонный режиссерский промпт на английском, Ракурс 1)",
+  "videoPrompt2": "строка (цельный эталонный режиссерский промпт на английском, Ракурс 2)"
 }`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
+    customInstructions: customInst,
+    options,
     config: {
-      temperature: 1.0,
+      temperature: 0.9,
       responseMimeType: "application/json",
       maxOutputTokens: 8192
     }
   });
 
-  const parsed = safeParseJSON(response.candidates?.[0]?.content?.parts?.[0]?.text, {
+  const parsed = safeParseJSON(extractTextFromResponse(response), {
     sceneSummary: "",
     videoPrompt1: "",
     videoPrompt2: ""
   });
 
+  const p1 = parsed.videoPrompt1 || "";
+  let p2 = parsed.videoPrompt2 || "";
+  if (!p2 || p2.trim() === p1.trim() || p2.length < 20) {
+    p2 = generateAlternativeAnglePrompt(p1, scene?.shotType, undefined, 1);
+  }
+
   return {
     sceneSummary: parsed.sceneSummary || "",
-    videoPrompt1: parsed.videoPrompt1 || "",
-    videoPrompt2: parsed.videoPrompt2 || ""
+    videoPrompt1: p1,
+    videoPrompt2: p2,
+    shotType: assignedShotType,
+    cameraMovement: assignedCameraMovement
   };
 }
 
+
+export function generateAlternativeAnglePrompt(
+  basePrompt: string,
+  shotType?: string,
+  cameraMovement?: string,
+  sceneIndex: number = 0
+): string {
+  if (!basePrompt || typeof basePrompt !== "string") return "";
+
+  let alt = basePrompt;
+
+  // 1. Differentiate Lens / Optics
+  const altLenses = [
+    "85mm anamorphic portrait lens with shallow depth of field",
+    "50mm prime cinematic lens with buttery bokeh",
+    "24mm wide-angle lens with dramatic perspective",
+    "100mm macro lens capturing hyper-detailed tactile micro-textures"
+  ];
+  const chosenLens = altLenses[sceneIndex % altLenses.length];
+  if (alt.includes("35mm lens")) {
+    alt = alt.replace("35mm lens", chosenLens);
+  } else if (alt.includes("35mm")) {
+    alt = alt.replace("35mm", chosenLens);
+  }
+
+  // 2. Differentiate Camera Movement
+  const altMoves = [
+    "Camera: slow orbital tracking arc revealing dramatic backlighting and environment",
+    "Camera: steady pull-back expanding into an evocative wide silhouette composition",
+    "Camera: steady rack focus shifting perspective across foreground physical depth",
+    "Camera: smooth low-angle tracking shot emphasizing emotional gravitas and texture",
+    "Camera: subtle lateral sliding pan exploring contrasting profile details"
+  ];
+  const chosenMove = altMoves[sceneIndex % altMoves.length];
+
+  if (/Camera:\s*[^.]+\./i.test(alt)) {
+    alt = alt.replace(/Camera:\s*[^.]+\./i, `${chosenMove}.`);
+  } else {
+    alt = `${chosenMove}. ${alt}`;
+  }
+
+  // 3. Differentiate Micro-dynamics
+  const altMicrodynamics = [
+    "micro-dynamics of flickering warm flame highlights and subtle air refraction",
+    "micro-dynamics of atmospheric fog drifting through low dramatic rim lighting",
+    "micro-dynamics of fabric fluttering softly in a sudden draft with moving shadows",
+    "micro-dynamics of delicate mist and glistening surface reflections catching the light",
+    "micro-dynamics of subtle breath vapor and crisp tactile surface motion"
+  ];
+  const chosenMicro = altMicrodynamics[sceneIndex % altMicrodynamics.length];
+
+  if (/micro-dynamics of [^.]+\./i.test(alt)) {
+    alt = alt.replace(/micro-dynamics of [^.]+\./i, `${chosenMicro}.`);
+  } else if (alt.includes("micro-dynamics")) {
+    alt = alt.replace(/micro-dynamics[^.]*\./i, `${chosenMicro}.`);
+  }
+
+  // 4. Ensure distinct angle / lighting descriptor
+  if (!alt.includes("counter-angle") && !alt.includes("alternative perspective")) {
+    alt = alt.replace(/(Ultra-realistic, 8K[^,]*,)/i, "$1 counter-angle perspective, contrasting rim-lit profile,");
+  }
+
+  return alt.trim();
+}
 
 export async function generateProductionStyleFromContext(
   topic: string, 
@@ -457,12 +831,19 @@ export async function generateProductionStyleFromContext(
 
     const shortsRes = await generateShortsVisualsAndMusic(scriptText, options);
 
-    const mappedScenePrompts = (shortsRes.visuals || []).map((v) => ({
-      sceneSummary: v.text || "Сцена Shorts",
-      videoPrompt1: v.prompt || "",
-      videoPrompt2: v.prompt || "",
-      subject: v.shotType || "Shorts 9:16"
-    }));
+    const mappedScenePrompts = (shortsRes.visuals || []).map((v: any, index: number) => {
+      const p1 = v.videoPrompt1 || v.prompt || "";
+      let p2 = v.videoPrompt2 || "";
+      if (!p2 || p2.trim() === p1.trim() || p2.length < 20) {
+        p2 = generateAlternativeAnglePrompt(p1, v.shotType, v.cameraMovement, index);
+      }
+      return {
+        sceneSummary: v.text || "Сцена Shorts",
+        videoPrompt1: p1,
+        videoPrompt2: p2,
+        subject: v.shotType || "Shorts 9:16"
+      };
+    });
 
     return {
       imageStyle: hints?.imageStyle || "Вертикальный 9:16 Кинематограф (Veo 3)",
@@ -490,11 +871,14 @@ export async function generateProductionStyleFromContext(
   const instructionsContext = customInst ? `\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}` : "";
   const userHintsContext = hints ? `\nПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ:\n${hints.imageStyle ? `- Стиль изображений: ${hints.imageStyle}\n` : ""}${hints.imageDesc ? `- Описание визуала: ${hints.imageDesc}\n` : ""}${hints.animationType ? `- Тип анимации: ${hints.animationType}\n` : ""}${hints.animationDesc ? `- Описание анимации: ${hints.animationDesc}\n` : ""}` : "";
 
-  const veoSfxPromptText = options?.veoSfxEnabled
-    ? `\n\nОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ДЛЯ ЗВУКОВЫХ ЭФФЕКТОВ В VEO 3 (VEO SFX):
-Для КАЖДОЙ сцены в videoPrompt1 и videoPrompt2 ты ДОЛЖЕН интегрировать соответствующие звуки (из поля "Звуки/SFX") прямо в текст промпта на английском языке.
-- Завершай промпт красивой, естественной фразой, описывающей звуки, например: "accompanied by the natural high-fidelity sound of <описание звуков на английском>..."`
-    : "";
+  const isSfxDisabled = options?.veoSfxEnabled === false || 
+    (customInst && (customInst.toLowerCase().includes("без звука") || customInst.toLowerCase().includes("без сфх") || customInst.toLowerCase().includes("без sfx") || customInst.toLowerCase().includes("no sound") || customInst.toLowerCase().includes("no sfx")));
+
+  const veoSfxPromptText = isSfxDisabled 
+    ? `\n\nТРЕБОВАНИЕ К ЗВУКУ (SFX): Звуки отключены пользователем — КАТЕГОРИЧЕСКИ НЕ ДОБАВЛЯЙ строку "Natural high-fidelity sound" в промпты!`
+    : `\n\nОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ДЛЯ ЗВУКОВЫХ ЭФФЕКТОВ (SFX):
+В конце КАЖДОГО из двух промптов (videoPrompt1 и videoPrompt2) добавь лаконичную финальную фразу:
+"Natural high-fidelity sound: <2 конкретные аутентичные детали звука окружения на английском под визуал>." (например: "Natural high-fidelity sound: crackling of dry twigs underfoot, rustle of coarse linen in the desert wind.")`;
 
   // Reduce batch size to 4 scenes to ensure responses fit well within maxOutputTokens limit
   const BATCH_SIZE = 4;
@@ -548,24 +932,49 @@ ${recentSubjects.map((s, i) => `- Сцена ${Math.max(1, startIndex - recentSu
     }).join("\n\n");
 
     const isFirstBatch = chunkIndex === 0;
+    const styleDirectives = getStyleDirectives(hints?.imageStyle);
 
-    const prompt = `Ты — выдающийся кинорежиссер и арт-директор. Твоя задача — создать визуальные промпты для сценарного батча (Сцены ${startIndex + 1} .. ${startIndex + chunk.length} из ${breakdown.length}).
+    const prompt = `Ты — выдающийся голливудский кинорежиссер и арт-директор. Твоя задача — создать кинематографические промпты для сценарного батча (Сцены ${startIndex + 1} .. ${startIndex + chunk.length} из ${breakdown.length}) по строгой режиссерской формуле Veo 3.
 
+${CUSTOM_INSTRUCTIONS_SUPREMACY_RULE}
+${BANNED_AI_VISUAL_CLICHES}
 ${VISUAL_DIVERSITY_RULES}
 
 КОНТЕКСТ ПРОЕКТА:
-Тема: ${topic}
+Тема ролика: ${topic}
 Тон: ${tone}${userHintsContext}${brandContext}${instructionsContext}${veoSfxPromptText}${previousSceneContext}
 
-ТРЕБОВАНИЯ К КИНЕМАТОГРАФИИ И РАЗНООБРАЗИЮ:
-1. Каждая сцена внутри батча должна отличаться от соседних по сути — не показывай буквально то же действие/предмет/картинку, что уже было.
-2. ЗАПРЕЩЕНО дублировать сюжетику между соседними сценами (например, если в Сцене A персонаж совершает действие X, в Сцене A+1 НЕЛЬЗЯ повторно показывать действие X — покажи реакцию, крупный план лица/глаз, эмоцию, окружающий мир, предмет или пейзаж).
-3. НЕ строй предсказуемый цикл планов и движений камеры (например "Общий-Крупный-Общий-Крупный" по кругу). Выбор масштаба и движения камеры — художественное решение под смысл конкретной сцены, а не механическая ротация по списку категорий. Иногда две сцены подряд МОГУТ быть похожего масштаба, если это оправдано — важно отсутствие буквального повтора картинки, а не формальная пестрота.
-4. Каждый из двух промптов (videoPrompt1, videoPrompt2) — это ОДИН ЦЕЛЬНЫЙ, самодостаточный кинематографический промпт для Veo 3 text-to-video на английском языке, описывающий сразу и композицию кадра, и действие, и движение камеры, и свет — а не раздельно "кадр" и "анимация". Он должен быть готов к вставке в Veo 3 напрямую. 2-4 насыщенных предложения, НЕ вставляй HEX-коды (например #D97706).
-5. videoPrompt2 — ВТОРОЙ, принципиально другой ракурс/дубль ЭТОЙ ЖЕ сцены (иной масштаб, иной фокус внимания, иная деталь или композиция) — альтернативный вариант на выбор, а не продолжение первого.
-6. Для каждой сцены заполни короткое поле "subject" (2-6 слов на русском) — главный сюжет/объект кадра. Это нужно тебе самому для проверки на повтор.
-7. ${getClicheAvoidanceRule(topic)}
-8. ОБЯЗАТЕЛЬНАЯ САМОПРОВЕРКА перед выводом JSON: сравни "subject" каждой сцены этого батча со списком уже использованных сюжетов выше (если он есть) и со всеми другими сценами ЭТОГО ЖЕ батча. Если хотя бы два "subject" по смыслу совпадают (даже если слова разные, но картинка та же) — переделай один из них на принципиально другой образ перед тем, как вернуть ответ.
+СТРОГИЙ СТАНДАРТ КАЖДОГО ПРОМПТА (ТОЧНАЯ РЕЖИССЕРСКАЯ ФОРМУЛА VEO 3):
+Каждый промпт (videoPrompt1 и videoPrompt2) строится строго по формуле с константами и переменными (ЕСЛИ в кастомных инструкциях пользователя не задан иной стиль, например 3D, Anime, Midjourney параметры или формат — в таком случае следуй стилю пользователя):
+1. Оптика и стиль (константа): "${styleDirectives.optics}."
+2. Движение камеры (выбирается СТРОГО из 5 паттернов по драматургической функции):
+   - Dolly-in (наезд) — для внутреннего, интимного момента, нарастающего напряжения, эмпатии ("Camera: slow dolly-in pushing towards...")
+   - Orbital (облёт) — показать масштаб пространства и драматическую изоляцию героя ("Camera: slow orbital tracking shot...")
+   - Pull-back (отъезд) — раскрытие контекста/последствия после крупного плана ("Camera: slow pull-back revealing...")
+   - Rack focus — переключение внимания с лица на предмет или наоборот ("Camera: steady rack focus shifting from... to...")
+   - Pan (панорама) — для горизонтального раскрытия пространства или дороги ("Camera: smooth steady pan sweeping across...")
+   (Никаких резких зумов или хаотичных вращений!)
+3. Субъект и буквальное действие строки: БУКВАЛЬНОЕ физическое действие персонажа/объекта из текста этой строки (никаких абстрактных метафор и шестерёнок!).
+4. Эмоциональная деталь лица (НЕ faceless, если не запрошено иное): одна конкретная ФИЗИЧЕСКАЯ деталь мимики ("brow furrowed in tension even in sleep", "jaw clenched in silent resolve", "eyes widening as breath catches in throat", "subtle tremble of lips") — не абстрактное "he feels sad".
+5. Негативные маркеры качества: "${styleDirectives.negativeAnchor}."
+6. Микродинамика и замедление: "Slow-motion 0.7x, micro-dynamics of [1 конкретная деталь окружения в движении: drifting dust motes in sunlight / rising steam / fabric fluttering in wind / embers]."
+7. Звук (Foley SFX): ${isSfxDisabled ? "НЕ ДОБАВЛЯТЬ ЗВУКИ (отключены)" : `"Natural high-fidelity sound: [2 конкретные детали фоли под визуал кадра]."`}
+
+КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО:
+- Текст на экране, титры или логотипы (no text on screen).
+- Шестерёнки, песочные часы, светящиеся синие голограммы, летающие лампочки и абстрактные графики.
+- Современные анахронизмы (если сеттинг исторический/библейский).
+- Заменять буквальное действие строки абстрактными метафорами.
+
+ПРАВИЛО РАКУРСОВ:
+- videoPrompt1: Главный эпический или драматургический ракурс сцены.
+- videoPrompt2: ВТОРОЙ, АЛЬТЕРНАТИВНЫЙ РАКУРС ЭТОЙ ЖЕ СЦЕНЫ (смысловой контр-план, выразительная деталь окружения или контрастный масштаб в ТОЙ ЖЕ САМОЙ локации). КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО менять локацию на постороннюю!
+- Поле "subject": 2-6 слов на русском — главный сюжет/объект кадра для проверки на повторы.
+
+ТРЕБОВАНИЯ К РАЗНООБРАЗИЮ:
+1. Не показывай буквально то же действие/предмет/картинку, что уже было в соседних сценах.
+2. ${getClicheAvoidanceRule(topic)}
+3. ОБЯЗАТЕЛЬНАЯ САМОПРОВЕРКА перед выводом JSON: убедись, что образы уникальны и не повторяют сцены из списка выше.
 
 РАЗБИВКА СЦЕН БАТЧА:
 ${chunkScenesText}
@@ -580,17 +989,19 @@ ${chunkScenesText}
     {
       "sceneSummary": "строка (описание сцены на русском)",
       "subject": "строка (главный сюжет/объект кадра, кратко на русском)",
-      "videoPrompt1": "строка (цельный детализированный Veo 3 промпт на английском, Ракурс 1)",
-      "videoPrompt2": "строка (цельный детализированный Veo 3 промпт на английском, Ракурс 2 — принципиально другой)"
+      "videoPrompt1": "строка (цельный эталонный режиссерский промпт на английском, Ракурс 1)",
+      "videoPrompt2": "строка (цельный эталонный режиссерский промпт на английском, Ракурс 2)"
     }
   ]
 }`;
 
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
+      customInstructions: customInst,
+      options,
       config: {
-        temperature: 1.0,
+        temperature: 0.9,
         responseMimeType: "application/json",
         maxOutputTokens: 8192,
         responseSchema: {
@@ -617,7 +1028,7 @@ ${chunkScenesText}
       }
     });
 
-    const parsed: any = safeParseJSON(response.candidates?.[0]?.content?.parts?.[0]?.text, {} as any);
+    const parsed: any = safeParseJSON(extractTextFromResponse(response), {} as any);
     if (isFirstBatch) {
       if (parsed.imageStyle) globalImageStyle = parsed.imageStyle;
       if (parsed.animationType) globalAnimationType = parsed.animationType;
@@ -626,11 +1037,17 @@ ${chunkScenesText}
     }
 
     if (Array.isArray(parsed.scenePrompts)) {
-      parsed.scenePrompts.forEach((sp: any) => {
+      parsed.scenePrompts.forEach((sp: any, spIdx: number) => {
+        const sceneNum = startIndex + spIdx;
+        const p1 = sp.videoPrompt1 || "";
+        let p2 = sp.videoPrompt2 || "";
+        if (!p2 || p2.trim() === p1.trim() || p2.length < 20) {
+          p2 = generateAlternativeAnglePrompt(p1, undefined, undefined, sceneNum);
+        }
         allScenePrompts.push({
           sceneSummary: sp.sceneSummary || "",
-          videoPrompt1: sp.videoPrompt1 || "",
-          videoPrompt2: sp.videoPrompt2 || "",
+          videoPrompt1: p1,
+          videoPrompt2: p2,
           subject: sp.subject || ""
         });
         if (sp.subject) usedSubjectsLog.push(sp.subject);
@@ -683,7 +1100,7 @@ ${JSON.stringify(context.breakdown, null, 2)}` : 'Разбивка сценар�
   }
 
   const response = await callGeminiWithRetry({
-    model: options?.model || (options?.deepResearch ? "gemini-3.1-pro-preview" : "gemini-3.7-flash"),
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: [
       { role: 'user', parts: [{ text: contextText }] },
       ...history.map(h => ({ role: h.role, parts: [{ text: h.content }] })),
@@ -712,7 +1129,7 @@ export async function generateGeneralPrompts(topic: string, niche: string, optio
   Верни JSON объект с полями imagePrompt, animationPrompt, audioPrompt.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     generationConfig: {
       responseMimeType: "application/json",
@@ -734,50 +1151,77 @@ export async function generateGeneralPrompts(topic: string, niche: string, optio
 
 
 
+export const VEO_TRANSITION_SIGNATURE_TEXT =
+  "Soft, warm golden dust particles and ethereal light embers drift gracefully across the frame. Against the seamlessly transforming scene background, the particles smoothly converge to form the @ logo hovering in the center. It lingers with a subtle, radiant glow as the scenes blend, then gently dissolves into sparkling golden mist. 0.5x slow motion, elegant microdynamics of drifting particles.";
+
 export function getTransitionPromptTemplate(
-  blockA: { title: string; text?: string },
-  blockB: { title: string; text?: string },
+  blockA: { title: string; text?: string; lastSceneText?: string; lastSceneVisual?: string },
+  blockB: { title: string; text?: string; firstSceneText?: string; firstSceneVisual?: string },
   imageStyle?: string
 ): string {
-  return `Действуй как профессиональный арт-директор и режиссер монтажа. Тебе нужно придумать креативный визуальный переход (Transition B-Roll / Match Cut) между двумя смысловыми блоками сценария.
+  const outgoingSceneInfo = blockA.lastSceneVisual
+    ? `Финальный визуальный образ сцены Блока 1: "${blockA.lastSceneVisual}"`
+    : `Тема/контекст Блока 1: "${blockA.title}${blockA.text ? ' — ' + blockA.text.slice(0, 160) + '...' : ''}"`;
 
-БЛОК 1 (предыдущий):
-Название: ${blockA.title}
-Суть/Контекст: ${blockA.text || "Не указан"}
+  const incomingSceneInfo = blockB.firstSceneVisual
+    ? `Стартовый визуальный образ сцены Блока 2: "${blockB.firstSceneVisual}"`
+    : `Тема/контекст Блока 2: "${blockB.title}${blockB.text ? ' — ' + blockB.text.slice(0, 160) + '...' : ''}"`;
 
-БЛОК 2 (следующий):
-Название: ${blockB.title}
-Суть/Контекст: ${blockB.text || "Не указан"}
+  return `Действуй как профессиональный режиссер монтажа и арт-директор, специалист по генерации кинематографичного видео в Google VEO 3.
+Твоя задача — создать единый кинематографичный промпт анимации (motion prompt) для бесшовного видео-перехода в Google VEO 3:
+ПЛАВНЫЙ ПЕРЕХОД (морфинг / оптический кросс-диссолв) от ФИНАЛЬНОЙ СЦЕНЫ предыдущего блока (Блок 1) НАПРЯМУЮ к НАЧАЛЬНОЙ СЦЕНЕ следующего блока (Блок 2), и НА ЭТОМ ФОНЕ по центру плавно появляется фирменный логотип (@ logo).
 
-Общий визуальный стиль видео: ${imageStyle || "Кинематографичный фотореализм"}
+СТРОГИЙ ЗАПРЕТ:
+НИКАКОЙ ТЕМНОТЫ, ЧЕРНОГО ЭКРАНА ИЛИ ЗАТЕМНЕНИЯ (STRICTLY NO darkness, NO black screen, NO fading to black, NO dimming into darkness). 
+Переход должен происходить непрерывно и плавно: окружение, цвета, глубина и текстуры сцены Блока 1 органично перетекают и морфируются в сцену Блока 2, а прямо поверх этого перетекающего живого фона появляется логотип!
 
-ЗАДАЧА:
-1. Придумай прикольный смысловой или визуальный переход (transitionType), связывающий финал Блока 1 и начало Блока 2.
-2. Напиши краткое описание этого перехода на русском языке (transitionSummary). ОБЯЗАТЕЛЬНО используй букву "ё".
-3. Напиши детальный английский visualPrompt для генерации изображения начального кадра перехода (Imagen prompt for the starting/initial frame of the transition). Сделай его ярким, метафоричным или эффектным.
-4. Напиши детальный английский animationPrompt — подробный промпт для анимации этого изображения начального кадра (Veo detailed motion/animation prompt describing how the starting frame image moves, changes, or transitions into the next scene).
+ИСТОЧНИК (Исходящая сцена Блока 1):
+Название блока: ${blockA.title}
+${outgoingSceneInfo}
+${blockA.lastSceneText ? `Финальные слова диктора: "${blockA.lastSceneText}"` : ''}
+
+ЦЕЛЬ (Входящая сцена Блока 2):
+Название блока: ${blockB.title}
+${incomingSceneInfo}
+${blockB.firstSceneText ? `Стартовые слова диктора: "${blockB.firstSceneText}"` : ''}
+
+Общий визуальный стиль видео: ${imageStyle || "Кинематографичный фотореализм, 4K, 35mm lens"}
+
+КЛЮЧЕВАЯ СТРУКТУРА ПЕРЕХОДА (СТРОГО 3 ЭТАПА В ЕДИНОМ АНГЛИЙСКОМ АБЗАЦЕ):
+1. НАЧАЛО (Плавный запуск перетекания сцены Блока 1 в сцену Блока 2):
+   Кадр начинается с визуального ряда сцены Блока 1 при естественном кинематографичном освещении. Камера плавно движется (push-in / gentle drift), и элементы, свет и пространство сцены Блока 1 начинают непрерывно и бесшовно перетекать (fluid seamless morphing transition, dynamic environment blend) в геометрию и освещение начальной сцены Блока 2. Никакого ухода в тень или затемнения!
+2. СЕРДЦЕВИНА ПЕРЕХОДА (ТОЧНАЯ ОБЯЗАТЕЛЬНАЯ ВСТАВКА — ПОЯВЛЕНИЕ ЛОГОТИПА НА ЭТОМ ФОНЕ):
+   В промпт ОБЯЗАТЕЛЬНО должна быть включена следующая английская фраза без каких-либо изменений:
+   "${VEO_TRANSITION_SIGNATURE_TEXT}"
+   (Символ "@" перед logo обозначает файл логотипа пользователя в VEO 3 — НЕ удаляй и НЕ изменяй символ "@").
+3. ЗАВЕРШЕНИЕ (Полное раскрытие сцены Блока 2):
+   Сверкающий золотистый ореол логотипа мягко рассеивается искрящейся пыльцой, а перетекающий фон за ним полностью кристаллизуется и фокусируется в четкое, живое окружение начальной сцены Блока 2 с естественным продолжением движения камеры и глубиной резкости.
+
+ТРЕБОВАНИЯ:
+1. "transitionType": "Seamless Scene Morph with Logo Glow"
+2. "transitionSummary": выразительное режиссерское описание перехода на русском языке (2-3 предложения, обязательно используй букву "ё"), объясняющее, как сцена Блока 1 плавно и непрерывно перетекает в сцену Блока 2 без ухода в темноту, и как на этом фоне появляется и сияет логотип.
+3. "animationPrompt": ЕДИНЫЙ полный английский промпт видео-анимации для Google VEO 3, связывающий непрерывное перетекание сцены Блока 1 в сцену Блока 2, точную обязательную вставку про появление "@ logo" на этом фоне, и мягкое завершение в сцене Блока 2.
 
 Верни JSON объект со следующей структурой:
 {
-  "transitionType": "название перехода",
-  "transitionSummary": "краткое художественное описание на русском",
-  "visualPrompt": "detailed English prompt for the visual",
-  "animationPrompt": "detailed English camera/motion prompt"
+  "transitionType": "Seamless Scene Morph with Logo Glow",
+  "transitionSummary": "Плавный кинематографичный переход: визуальное окружение сцены Блока 1 бесшовно перетекает в сцену Блока 2, а на этом переливающемся фоне проявляется фирменный логотип из парящих золотых частиц.",
+  "animationPrompt": "Cinematic seamless transition. The camera glides through ..., where lighting, textures, and architecture fluidly morph and dissolve directly into the environment of .... Soft, warm golden dust particles and ethereal light embers drift gracefully across the frame. Against the seamlessly transforming scene background, the particles smoothly converge to form the @ logo hovering in the center. It lingers with a subtle, radiant glow as the scenes blend, then gently dissolves into sparkling golden mist. 0.5x slow motion, elegant microdynamics of drifting particles. As the golden mist disperses, the frame crystalizes into ..., continuous camera movement, cinematic photorealism, 4k 60fps."
 }
 `;
 }
 
 
 export async function generateTransitionPromptBetweenBlocks(
-  blockA: { title: string; text?: string },
-  blockB: { title: string; text?: string },
+  blockA: { title: string; text?: string; lastSceneText?: string; lastSceneVisual?: string },
+  blockB: { title: string; text?: string; firstSceneText?: string; firstSceneVisual?: string },
   imageStyle?: string,
   options?: AnalysisOptions
 ): Promise<TransitionPrompt> {
   const prompt = getTransitionPromptTemplate(blockA, blockB, imageStyle);
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     bypassCache: options?.bypassCache,
     config: {
@@ -787,20 +1231,47 @@ export async function generateTransitionPromptBetweenBlocks(
         properties: {
           transitionType: { type: Type.STRING },
           transitionSummary: { type: Type.STRING },
-          visualPrompt: { type: Type.STRING },
           animationPrompt: { type: Type.STRING },
         },
-        required: ["transitionType", "transitionSummary", "visualPrompt", "animationPrompt"],
+        required: ["transitionType", "transitionSummary", "animationPrompt"],
       }
     }
   });
 
-  return safeParseJSON(extractTextFromResponse(response), {
-    transitionType: "Smooth Match Cut",
-    transitionSummary: "Плавный смысловой переход, объединяющий элементы двух блоков.",
-    visualPrompt: "A smooth cinematic transitions between two thematic scenes, matching geometry, light leaks, beautiful color grading, 8k, detailed.",
-    animationPrompt: "A fast whip pan transition with motion blur, blending into the next shot seamlessly."
+  const parsed = safeParseJSON(extractTextFromResponse(response), {
+    transitionType: "Seamless Scene Morph with Logo Glow",
+    transitionSummary: `Плавный кинематографичный переход от блока «${blockA.title}» к блоку «${blockB.title}» с проявлением логотипа на фоне перетекающих сцен.`,
+    animationPrompt: `Cinematic seamless transition. The camera glides from ${blockA.title}, fluidly morphing and blending into ${blockB.title}. ${VEO_TRANSITION_SIGNATURE_TEXT} As the golden mist clears, the scene fully establishes into ${blockB.title}, cinematic photorealism, 4k 60fps slow motion.`
   });
+
+  let finalAnimationPrompt = (parsed.animationPrompt || "").trim();
+
+  // Гарантируем 100% идеальное, чистое и связное присутствие обязательного текста в промпте
+  if (!finalAnimationPrompt.includes(VEO_TRANSITION_SIGNATURE_TEXT)) {
+    const outVisual = blockA.lastSceneVisual 
+      ? blockA.lastSceneVisual.replace(/["\n]/g, '').slice(0, 120)
+      : `${blockA.title} scene`;
+    const inVisual = blockB.firstSceneVisual 
+      ? blockB.firstSceneVisual.replace(/["\n]/g, '').slice(0, 120)
+      : `${blockB.title} scene`;
+
+    if (finalAnimationPrompt.includes("@") && finalAnimationPrompt.length > 80) {
+      // Модель могла минимально исказить слова внутри сигнатурной фразы, аккуратно нормализуем
+      finalAnimationPrompt = finalAnimationPrompt.replace(
+        /[^.]*@[^.]*\./gi,
+        ` ${VEO_TRANSITION_SIGNATURE_TEXT} `
+      ).replace(/\s+/g, ' ').trim();
+    } else {
+      finalAnimationPrompt = `Cinematic seamless transition without darkness. The camera smoothly drifts from ${outVisual}, as the visual environment, lighting, and textures fluidly morph and dissolve directly into ${inVisual}. ${VEO_TRANSITION_SIGNATURE_TEXT} The sparkling golden particles gently part to fully reveal ${inVisual} with rich cinematic depth, continuous motion, 4k 60fps.`;
+    }
+  }
+
+  return {
+    transitionType: parsed.transitionType || "Seamless Scene Morph with Logo Glow",
+    transitionSummary: parsed.transitionSummary || `Плавный переход от «${blockA.title}» к «${blockB.title}» с проявлением логотипа на фоне перетекающих сцен.`,
+    animationPrompt: finalAnimationPrompt,
+    visualPrompt: finalAnimationPrompt, // для совместимости
+  };
 }
 
 
@@ -844,7 +1315,7 @@ export async function generateThumbnailStyles(
   `;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     generationConfig: {
       responseMimeType: "application/json",
@@ -878,7 +1349,7 @@ export async function generateFonts(niche: string, options?: AnalysisOptions): P
   Верни только JSON массив строк.`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -924,7 +1395,7 @@ ${combinedText}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         maxOutputTokens: 60,
@@ -1029,7 +1500,7 @@ export async function analyzeThumbnailEmotions(
     }
 
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents,
       generationConfig: {
         responseMimeType: "application/json",

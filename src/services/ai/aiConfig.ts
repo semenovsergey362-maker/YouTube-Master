@@ -3,39 +3,13 @@ import { GoogleGenAI } from "@google/genai";
 import { safeStorage } from "../../lib/storage";
 import { z } from "zod";
 
-// Get API key from environment variable
-const getInitialApiKey = () => {
-  try {
-    return (typeof process !== 'undefined' && process?.env?.GEMINI_API_KEY) || "";
-  } catch (e) {
-    return "";
-  }
-};
-
-let ai: any = null;
-
+// Client-side initialization stubs (all requests are executed server-side via /api/gemini/generate)
 export function initGemini() {
-  const key = getInitialApiKey();
-  if (key && !ai) {
-    try {
-      ai = new GoogleGenAI({ apiKey: key });
-    } catch (e) {
-      logger.error("Failed to initialize GoogleGenAI:", e);
-    }
-  }
+  // Server-side architecture: API calls are proxied through Express API routes
 }
 
-// Initial attempt
-initGemini();
-
 export function updateGeminiApiKey(key: string) {
-  if (key) {
-    try {
-      ai = new GoogleGenAI({ apiKey: key });
-    } catch (e) {
-      logger.error("Failed to update GoogleGenAI API key:", e);
-    }
-  }
+  // Server handles API key securely
 }
 
 // Quota Tracking
@@ -43,20 +17,50 @@ export interface QuotaUsage {
   requestsPerMinute: number;
   tokensPerMinute: number;
   requestsPerDay: number;
+  tokensToday: number;
   lastRequestTime?: number;
+  modelUsage?: Record<string, { requestsPerMinute: number; tokensPerMinute: number; requestsPerDay: number; tokensToday: number }>;
 }
 
-export const QUOTA_LIMITS = {
-  RPM: 300,
-  TPM: 100000000,
-  RPD: 150000
+export interface ModelQuotaConfig {
+  RPM: number;
+  TPM: number;
+  RPD: number;
+}
+
+export const DEFAULT_MODEL_QUOTAS: Record<string, ModelQuotaConfig> = {
+  "gemini-3.1-flash-lite": { RPM: 15, TPM: 1000000, RPD: 1500 },
+  "gemini-flash-latest": { RPM: 15, TPM: 1000000, RPD: 20 },
+  "gemini-3.8-flash": { RPM: 15, TPM: 1000000, RPD: 20 },
+  "gemini-3.7-flash": { RPM: 15, TPM: 1000000, RPD: 20 },
+  "gemini-3.1-pro-preview": { RPM: 2, TPM: 32000, RPD: 50 },
 };
+
+export const QUOTA_LIMITS = {
+  RPM: 15,
+  TPM: 1000000,
+  RPD: 1500
+};
+
+export function getModelQuotaLimits(modelId: string): ModelQuotaConfig {
+  return DEFAULT_MODEL_QUOTAS[modelId] || { RPM: 15, TPM: 1000000, RPD: 1500 };
+}
+
+export function formatTokenCount(num: number): string {
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  return num.toString();
+}
 
 type QuotaListener = (usage: QuotaUsage) => void;
 const quotaListeners: QuotaListener[] = [];
 let quotaInterval: any = null;
 
-let requestLog: { time: number; tokens: number }[] = [];
+let requestLog: { time: number; tokens: number; model?: string }[] = [];
 
 try {
   const savedLog = safeStorage.getItem("gemini_request_log");
@@ -75,12 +79,30 @@ export function getQuotaUsage(): QuotaUsage {
 
   requestLog = requestLog.filter(req => req.time > oneDayAgo);
   const requestsLastMin = requestLog.filter(req => req.time > oneMinAgo);
+  const tokensToday = requestLog.reduce((acc, req) => acc + (req.tokens || 0), 0);
+
+  const modelUsage: Record<string, { requestsPerMinute: number; tokensPerMinute: number; requestsPerDay: number; tokensToday: number }> = {};
+  
+  requestLog.forEach(req => {
+    const m = req.model || "gemini-3.1-flash-lite";
+    if (!modelUsage[m]) {
+      modelUsage[m] = { requestsPerMinute: 0, tokensPerMinute: 0, requestsPerDay: 0, tokensToday: 0 };
+    }
+    modelUsage[m].requestsPerDay += 1;
+    modelUsage[m].tokensToday += (req.tokens || 0);
+    if (req.time > oneMinAgo) {
+      modelUsage[m].requestsPerMinute += 1;
+      modelUsage[m].tokensPerMinute += (req.tokens || 0);
+    }
+  });
 
   return {
     requestsPerMinute: requestsLastMin.length,
-    tokensPerMinute: requestsLastMin.reduce((acc, req) => acc + req.tokens, 0),
+    tokensPerMinute: requestsLastMin.reduce((acc, req) => acc + (req.tokens || 0), 0),
     requestsPerDay: requestLog.length,
+    tokensToday,
     lastRequestTime: requestLog.length > 0 ? requestLog[requestLog.length - 1].time : undefined,
+    modelUsage,
   };
 }
 
@@ -114,9 +136,9 @@ export function subscribeToQuota(listener: QuotaListener) {
   };
 }
 
-export function trackApiUsage(tokens: number) {
+export function trackApiUsage(tokens: number, model?: string) {
   const now = Date.now();
-  requestLog.push({ time: now, tokens });
+  requestLog.push({ time: now, tokens, model });
   
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
   requestLog = requestLog.filter(req => req.time > oneDayAgo);
@@ -126,59 +148,136 @@ export function trackApiUsage(tokens: number) {
 }
 
 export function getActiveCustomInstructionsText(overrideInstructions?: string): string {
-  if (typeof overrideInstructions === "string" && overrideInstructions.trim().length > 0) {
-    return overrideInstructions.trim();
-  }
-  let customText = "";
+  let modalRulesText = "";
   if (typeof window !== "undefined") {
-    const isEnabled = safeStorage.getItem("yt_custom_instructions_enabled");
-    if (isEnabled !== "false") {
-      const storedRules = safeStorage.getItem("yt_custom_rules");
-      if (storedRules) {
-        try {
-          const rules = JSON.parse(storedRules);
-          if (Array.isArray(rules)) {
-            const active = rules
-              .filter((r: any) => r && r.isActive && typeof r.content === "string" && r.content.trim())
-              .map((r: any) => {
-                const header = r.title ? `[ПРАВИЛО: ${r.title}]\n` : "";
-                return `${header}${r.content.trim()}`;
-              });
-            if (active.length > 0) {
-              customText = active.join("\n\n");
-            }
+    // Check if custom instructions are explicitly disabled by user master toggle
+    const isExplicitlyDisabled = safeStorage.getItem("yt_custom_instructions_enabled") === "false";
+    
+    // First, try loading structured custom rules
+    const storedRules = safeStorage.getItem("yt_custom_rules");
+    if (storedRules && !isExplicitlyDisabled) {
+      try {
+        const rules = JSON.parse(storedRules);
+        if (Array.isArray(rules)) {
+          const active = rules
+            .filter((r: any) => r && r.isActive && typeof r.content === "string" && r.content.trim())
+            .map((r: any) => {
+              const header = r.title ? `[ПРАВИЛО: ${r.title}]\n` : "";
+              const cleanContent = r.content.trim().replace(/\\n/g, "\n");
+              return `${header}${cleanContent}`;
+            });
+          if (active.length > 0) {
+            modalRulesText = active.join("\n\n");
           }
-        } catch (e) {}
-      }
-      if (!customText) {
-        const storedText = safeStorage.getItem("yt_custom_instructions") || "";
-        if (storedText.trim().length > 0) {
-          customText = storedText;
         }
+      } catch (e) {}
+    }
+    
+    // Fallback to legacy or raw text custom instructions
+    if (!modalRulesText && !isExplicitlyDisabled) {
+      const storedText = safeStorage.getItem("yt_custom_instructions") || "";
+      if (storedText.trim().length > 0) {
+        modalRulesText = storedText.trim().replace(/\\n/g, "\n");
       }
     }
   }
-  return customText.trim();
+
+  const cleanOverride = typeof overrideInstructions === "string" ? overrideInstructions.trim().replace(/\\n/g, "\n") : "";
+
+  // If both modal rules and local override exist, intelligently merge them so modal rules are NEVER lost!
+  if (modalRulesText && cleanOverride) {
+    if (cleanOverride.includes(modalRulesText.slice(0, 40))) {
+      return cleanOverride;
+    }
+    return `${modalRulesText}\n\n[ДОПОЛНИТЕЛЬНЫЕ ИЗМЕНЕНИЯ И ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ]:\n${cleanOverride}`;
+  }
+
+  return cleanOverride || modalRulesText;
+}
+
+function injectCustomInstructionsIntoContents(contents: any, customInstructions: string): any {
+  if (!customInstructions || !customInstructions.trim()) return contents;
+  const cleanInst = customInstructions.trim().replace(/\\n/g, "\n");
+  const directive = `\n\n[🚨 СТРОЖАЙШИЙ ВЫСШИЙ ПРИОРИТЕТ: ПРАВИЛА ИЗ МОДАЛЬНОГО ОКНА «Инструкции для ИИ Ассистента»]:\n"""\n${cleanInst}\n"""\n(СТРОГОЕ СОБЛЮДЕНИЕ ПРАВИЛ ИЗ МОДАЛЬНОГО ОКНА! Все правила, запреты, стиль, платформы, параметры и форматы выше имеют абсолютный приоритет над любыми внутренними формулами, дефолтными стилями и шаблонами!)\n`;
+  const endReminder = `\n\n[🚨 КРИТИЧЕСКИЙ ВЫСШИЙ ПРИОРИТЕТ: Все правила, формат и запреты из «Инструкции для ИИ Ассистента» выше ДОЛЖНЫ БЫТЬ СТРОЖАЙШЕ СОБЛЮДЕНЫ в итоговом результате! Если кастомные правила пользователя противоречат внутренним шаблонам или дефолтным стилям — СТРОГО СЛЕДУЙ ПРАВИЛАМ ПОЛЬЗОВАТЕЛЯ! КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ КЛИШЕ: шестерёнки, песочные часы, светящиеся синие голограммы, летающие лампочки и абстрактные графики!]\n`;
+
+  if (typeof contents === "string") {
+    if (contents.includes(cleanInst.slice(0, 30))) {
+      return `${contents}${endReminder}`;
+    }
+    return `${contents}${directive}`;
+  }
+  if (Array.isArray(contents)) {
+    return contents.map((item: any) => {
+      if (item && item.role === "user" && Array.isArray(item.parts)) {
+        const hasInst = item.parts.some((p: any) => typeof p.text === "string" && p.text.includes(cleanInst.slice(0, 30)));
+        if (!hasInst) {
+          const lastTextPart = item.parts.slice().reverse().find((p: any) => typeof p.text === "string");
+          if (lastTextPart) {
+            lastTextPart.text = `${lastTextPart.text}${directive}`;
+          } else {
+            item.parts.push({ text: directive });
+          }
+        } else {
+          // Append end reminder to enforce compliance despite recent user edits
+          const lastTextPart = item.parts.slice().reverse().find((p: any) => typeof p.text === "string");
+          if (lastTextPart && !lastTextPart.text.includes("ВАЖНЕЙШЕЕ НАПОМИНАНИЕ")) {
+            lastTextPart.text = `${lastTextPart.text}${endReminder}`;
+          }
+        }
+      }
+      return item;
+    });
+  }
+  if (contents && typeof contents === "object" && Array.isArray(contents.parts)) {
+    const hasInst = contents.parts.some((p: any) => typeof p.text === "string" && p.text.includes(cleanInst.slice(0, 30)));
+    if (!hasInst) {
+      const lastTextPart = contents.parts.slice().reverse().find((p: any) => typeof p.text === "string");
+      if (lastTextPart) {
+        lastTextPart.text = `${lastTextPart.text}${directive}`;
+      } else {
+        contents.parts.push({ text: directive });
+      }
+    } else {
+      const lastTextPart = contents.parts.slice().reverse().find((p: any) => typeof p.text === "string");
+      if (lastTextPart && !lastTextPart.text.includes("ВАЖНЕЙШЕЕ НАПОМИНАНИЕ")) {
+        lastTextPart.text = `${lastTextPart.text}${endReminder}`;
+      }
+    }
+  }
+  return contents;
 }
 
 export function normalizeModelName(model?: string): string {
-  if (!model) return "gemini-3.7-flash";
+  if (!model) return "gemini-3.5-flash-lite";
   const m = model.toLowerCase().trim();
-  if (m === "gemini-3.7-flash" || m === "gemini-3.6-flash" || m === "gemini-3.5-flash" || m === "gemini-2.5-flash" || m === "gemini-3.1-flash-lite" || m === "gemini-3.1-pro-preview-preview" || m === "gemini-3.1-flash-lite-image" || m === "gemini-3.1-flash-image" || m === "gemini-3-pro-image" || m === "gemini-3.1-pro-preview" || m === "gemini-3-flash") {
-    return model;
+  if (m === "gemini-3.5-transcribe" || m.includes("transcribe")) {
+    return "gemini-3.5-flash-lite";
   }
-  if (m.includes("3.1-pro") || m === "gemini-pro" || m === "gemini-3-pro") {
-    return "gemini-3.1-pro-preview-preview";
+  if (
+    m === "gemini-3.5-flash-lite" ||
+    m === "gemini-3.6-flash" ||
+    m === "gemini-3.1-flash-lite" ||
+    m === "gemini-3.8-flash" ||
+    m === "gemini-flash-latest" ||
+    m === "gemini-3.5-flash" ||
+    m === "gemini-3.1-flash-lite-image" ||
+    m === "gemini-3.1-flash-image" ||
+    m === "gemini-3-pro-image"
+  ) {
+    return m;
   }
   if (m.includes("lite-image")) return "gemini-3.1-flash-lite-image";
   if (m.includes("flash-image")) return "gemini-3.1-flash-image";
   if (m.includes("pro-image")) return "gemini-3-pro-image";
-  if (m.includes("lite")) return "gemini-3.1-flash-lite";
-  if (m.includes("2.5")) return "gemini-3.7-flash";
-  return "gemini-3.7-flash";
+  if (m.includes("3.6-flash")) return "gemini-3.6-flash";
+  if (m.includes("3.5-flash-lite") || m.includes("flash-lite")) return "gemini-3.5-flash-lite";
+  if (m.includes("3.1-flash-lite")) return "gemini-3.1-flash-lite";
+  if (m.includes("3.5-flash")) return "gemini-3.5-flash";
+  return "gemini-3.5-flash-lite";
 }
 
-export async function callGeminiWithRetry(params: any, maxRetries = 6, initialDelay = 3000) {
+export async function callGeminiWithRetry(params: any, maxRetries = 4, initialDelay = 1500) {
   if (params) {
     params.model = normalizeModelName(params.model);
   }
@@ -193,13 +292,6 @@ export async function callGeminiWithRetry(params: any, maxRetries = 6, initialDe
     config: params.config
   });
   const cacheKey = "gemini_cache_" + cacheString;
-
-  if (!ai) {
-    initGemini();
-    if (!ai) {
-      throw new Error("Gemini API key is missing. Please set it in Settings > Secrets.");
-    }
-  }
 
   try {
     if (!bypassCache) {
@@ -220,6 +312,15 @@ export async function callGeminiWithRetry(params: any, maxRetries = 6, initialDe
     delete params.toolConfig;
     delete params.generationConfig;
   }
+
+  // Route 0-quota pro models to fast & reliable flash tier
+  if (!params.model || 
+      params.model === "gemini-3.1-pro-preview" || 
+      params.model === "gemini-3.1-pro" || 
+      params.model === "gemini-pro" || 
+      (params.model.includes("pro") && !params.model.includes("image"))) {
+    params.model = "gemini-3.5-flash-lite";
+  }
   
   const defaultSafetySettings = [
     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
@@ -239,22 +340,39 @@ export async function callGeminiWithRetry(params: any, maxRetries = 6, initialDe
 6. ПРИ РАЗБИВКЕ НА СЦЕНЫ: Копируй текст из сценария В ТОЧНОСТИ. Не меняй слова, не сокращай и не перефразируй реплики диктора. Текст в сценах должен быть идентичен исходному сценарию.
 7. ПРИ АНАЛИЗЕ И SEO: Будь максимально критичным, честным и точным. ИЗУЧАЙ И ПРИМЕНЯЙ КАСТОМНЫЕ ИНСТРУКЦИИ ПОЛЬЗОВАТЕЛЯ В ПЕРВУЮ ОЧЕРЕДЬ!`;
 
-  const activeCustomInstructions = getActiveCustomInstructionsText(
-    params.customInstructions || params.options?.customInstructions || params.config?.customInstructions
-  );
+  const bypassCustomInstructions = !!(params.bypassCustomInstructions || params.isTranscription);
+  const activeCustomInstructions = !bypassCustomInstructions
+    ? getActiveCustomInstructionsText(
+        params.customInstructions || params.options?.customInstructions || params.config?.customInstructions
+      )
+    : "";
   let baseSystemInstruction = params.config?.systemInstruction || globalSystemInstruction;
 
-  if (activeCustomInstructions && !baseSystemInstruction.includes(activeCustomInstructions)) {
-    baseSystemInstruction = `================================================================================
-🚨 СТРОЖАЙШИЙ ВЫСШИЙ ПРИОРИТЕТ: ИНСТРУКЦИИ ДЛЯ ИИ АССИСТЕНТА (ОБЯЗАТЕЛЬНЫ К БЕЗУСЛОВНОМУ ВЫПОЛНЕНИЮ ДЛЯ ВСЕХ ФУНКЦИЙ):
-Ты ОБЯЗАН СТРОГО, ТОЧНО И БЕЗ ИСКЛЮЧЕНИЙ соблюдать следующие правила, ограничения, структуру, стиль, хештеги, псевдонимы, ключевые слова, запреты и форматы во ВСЕХ задачах (генерация сценариев, SEO, хештеги, заголовки, описания, идеи, хуки, Shorts, промпты, аналитика):
+  if (activeCustomInstructions && !bypassCustomInstructions) {
+    if (!baseSystemInstruction.includes(activeCustomInstructions)) {
+      baseSystemInstruction = `================================================================================
+🚨 СТРОЖАЙШИЙ ВЫСШИЙ ПРИОРИТЕТ: ИНСТРУКЦИИ ДЛЯ ИИ АССИСТЕНТА
+(ОБЯЗАТЕЛЬНЫ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ ДАЖЕ ПОСЛЕ ВНЕСЕНИЯ ИЗМЕНЕНИЙ ПОЛЬЗОВАТЕЛЕМ)
+
+Ты ОБЯЗАН СТРОГО, ТОЧНО И БЕЗ ИСКЛЮЧЕНИЙ соблюдать следующие правила, ограничения, структуру, стиль, хештеги, псевдонимы, ключевые слова, запреты и форматы во ВСЕХ задачах (генерация сценариев, переписывание блоков, SEO, хештеги, заголовки, описания, идеи, хуки, Shorts, промпты, аналитика):
 """
 ${activeCustomInstructions}
 """
-НЕ ИГНОРИРУЙ НИ ОДНОГО ПУНКТА ИЗ ЭТИХ ИНСТРУКЦИЙ! ЕСЛИ ИНСТРУКЦИЯ ТРЕБУЕТ КОНКРЕТНЫЙ ТЕКСТ, ССЫЛКУ, ПСЕВДОНИМ, ОГРАНИЧЕНИЕ ПО ДЛИНЕ ИЛИ СПЕЦИАЛЬНЫЙ ФОРМАТ — ИСПОЛЬЗУЙ ИХ ТОЧНО КАК НАПИСАНО!
+ВАЖНЕЙШЕЕ ТРЕБОВАНИЕ К ПРИОРИТЕТУ:
+Даже если пользователь вносит ручные правки, просит переписать текст, задает локальные уточнения («сделай короче», «добавь юмора», «измени стиль») или меняет структуру — ПРАВИЛА ИЗ МОДАЛЬНОГО ОКНА «Инструкции для ИИ Ассистента» ЯВЛЯЮТСЯ ВЫСШИМ ЗАКОНОМ (HARD CONSTRAINTS) И НЕ МОГУТ БЫТЬ ОТМЕНЕНЫ ИЛИ ОСЛАБЛЕНЫ! Все требования из правил выше ОБЯЗАНЫ строго соблюдаться в финальном результате!
 ================================================================================
 
 ${baseSystemInstruction}`;
+    }
+    
+    // Also inject into user contents to guarantee high-priority adherence even with JSON structured output schemas
+    if (params.contents) {
+      params.contents = injectCustomInstructionsIntoContents(params.contents, activeCustomInstructions);
+    }
+  }
+
+  if (params.generationConfig && !params.config) {
+    params.config = params.generationConfig;
   }
 
   if (params.config) {
@@ -270,53 +388,52 @@ ${baseSystemInstruction}`;
   }
 
   for (let i = 0; i < maxRetries; i++) {
-    const now = Date.now();
-    const oneMinAgo = now - 60 * 1000;
-    const requestsLastMin = requestLog.filter(req => req.time > oneMinAgo);
-    
-    if (requestsLastMin.length >= QUOTA_LIMITS.RPM) {
-      const oldestRequest = requestsLastMin[0];
-      const waitTime = 60 * 1000 - (now - oldestRequest.time) + 500;
-      if (waitTime > 0) {
-        logger.warn(`RPM limit reached (${QUOTA_LIMITS.RPM}). Waiting ${Math.ceil(waitTime / 1000)}s...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
-    }
-
     try {
-      let response: any;
-      if (ai && ai.models) {
-        try {
-          response = await ai.models.generateContent(params);
-        } catch (directErr) {
-          logger.warn("Direct client Gemini call failed, trying server proxy route:", directErr);
-          const res = await fetch("/api/gemini/generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(params)
-          });
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Server Gemini call failed with status ${res.status}`);
+      const res = await fetch("/api/gemini/generate", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify(params)
+      });
+      
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const rawText = await res.text();
+      const isHtml = rawText.trim().startsWith("<") || rawText.includes("<!DOCTYPE") || rawText.includes("<!doctype") || contentType.includes("text/html");
+
+      if (!res.ok || isHtml) {
+        let errMsg = "";
+        if (!isHtml && rawText.trim()) {
+          try {
+            const errData = JSON.parse(rawText);
+            errMsg = errData.error || errData.message || `Server Gemini call failed with status ${res.status}`;
+          } catch {
+            errMsg = `Server Gemini call failed with status ${res.status}`;
           }
-          response = await res.json();
+        } else {
+          errMsg = `Сервер Gemini временно вернул не-JSON ответ (статус ${res.status || 503})`;
         }
-      } else {
-        const res = await fetch("/api/gemini/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(params)
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `Server Gemini call failed with status ${res.status}`);
-        }
-        response = await res.json();
+        
+        const err = new Error(errMsg) as any;
+        err.status = res.status || 503;
+        err.isHtmlResponse = isHtml;
+        throw err;
+      }
+      
+      let response: any;
+      try {
+        response = JSON.parse(rawText);
+      } catch (parseErr: any) {
+        const err = new Error(`Невалидный JSON от сервера: ${parseErr.message}`) as any;
+        err.status = res.status || 500;
+        err.isHtmlResponse = true;
+        throw err;
       }
       
       const usageMeta = response?.usageMetadata;
       const totalTokens = usageMeta?.totalTokenCount || 1000;
-      trackApiUsage(totalTokens);
+      trackApiUsage(totalTokens, params.model);
 
       try {
         if (!bypassCache) {
@@ -326,12 +443,36 @@ ${baseSystemInstruction}`;
 
       return response;
     } catch (error: any) {
-      const isRateLimit = error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("RESOURCE_EXHAUSTED");
-      const isServerErr = error?.status >= 500 || error?.message?.includes("500") || error?.message?.includes("503");
+      const isRateLimit = error?.status === 429 || 
+                          error?.message?.includes("429") || 
+                          error?.message?.includes("RESOURCE_EXHAUSTED") ||
+                          error?.message?.includes("quota") ||
+                          error?.message?.includes("квота") ||
+                          error?.message?.includes("limit: 0") ||
+                          error?.message?.includes("limit:0") ||
+                          error?.message?.includes("exceeded your current quota");
+      const isServerErr = (error?.status >= 500 && error?.status <= 599) || 
+                          error?.status === 404 ||
+                          error?.isHtmlResponse ||
+                          error?.message?.includes("500") || 
+                          error?.message?.includes("502") || 
+                          error?.message?.includes("503") || 
+                          error?.message?.includes("504") ||
+                          error?.message?.includes("Unexpected token") ||
+                          error?.message?.includes("не-JSON") ||
+                          error?.message?.includes("Failed to fetch") ||
+                          error?.message?.includes("high demand") ||
+                          error?.message?.includes("unavailable") ||
+                          error?.message?.includes("timed out") ||
+                          error?.message?.includes("timeout");
 
       if ((isRateLimit || isServerErr) && i < maxRetries - 1) {
-        const delay = initialDelay * Math.pow(2, i) + Math.random() * 1000;
-        logger.warn(`Gemini API returned ${error?.status || 'rate limit'}. Retrying in ${Math.round(delay / 1000)}s (Attempt ${i + 1}/${maxRetries})...`);
+        if (!params.model?.includes("image") && !params.model?.includes("transcribe")) {
+          const alternateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash"];
+          params.model = alternateModels[i % alternateModels.length];
+        }
+        const delay = Math.min(3000, initialDelay * Math.pow(1.3, i) + Math.random() * 200);
+        logger.warn(`API request issue (${error?.message || "Transient server error"}). Retrying with model ${params.model} in ${(delay / 1000).toFixed(1)}s (Attempt ${i + 1}/${maxRetries})...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         throw error;
@@ -343,11 +484,20 @@ ${baseSystemInstruction}`;
 export function extractTextFromResponse(response: any): string {
   if (!response) return "";
   if (typeof response === "string") return response;
-  if (response.text) return response.text;
+  if (typeof response.text === "function") {
+    try {
+      const fnRes = response.text();
+      if (typeof fnRes === "string") return fnRes;
+    } catch (e) {}
+  }
+  if (typeof response.text === "string") return response.text;
   if (response.candidates && response.candidates[0]) {
     const candidate = response.candidates[0];
-    if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
-      return candidate.content.parts[0].text || "";
+    if (candidate.content && Array.isArray(candidate.content.parts)) {
+      return candidate.content.parts
+        .map((p: any) => (typeof p === "string" ? p : p?.text || ""))
+        .join("")
+        .trim();
     }
   }
   return "";
@@ -359,7 +509,7 @@ export function preprocessJSON(jsonString: string): string {
   return str;
 }
 
-export function tryRepairJSON(jsonString: string): any {
+export function tryRepairJSON<T = any>(jsonString: string): T {
   let str = jsonString.trim();
   const openBraces = (str.match(/\{/g) || []).length;
   const closeBraces = (str.match(/\}/g) || []).length;
@@ -373,7 +523,7 @@ export function tryRepairJSON(jsonString: string): any {
     str += "}";
   }
 
-  return JSON.parse(str);
+  return JSON.parse(str) as T;
 }
 
 export function parseTruncatedJSONArray(jsonText: string): any[] {
@@ -437,28 +587,53 @@ export function parseDurationInMinutes(durationStr: string | number | undefined 
     return 10;
   }
 
-  const normalized = durationStr.replace(',', '.').trim();
+  const raw = durationStr.toLowerCase().trim().replace(/,/g, '.');
+  if (!raw || raw === "custom") return 10;
 
-  // Handle direct numbers or strings like "15", "15.5", "15,5"
-  const directNum = parseFloat(normalized);
-  if (!isNaN(directNum) && directNum > 0 && !normalized.includes(':') && !normalized.toLowerCase().includes('сек')) {
-    return directNum;
+  // 1. Check for hour patterns (e.g. "1.5 часа", "1 час 20 минут", "2 hours", "1h 30m")
+  const hourMinMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:час(?:а|ов)?|ч|hours?|hrs?|h)\s*(\d+(?:\.\d+)?)\s*(?:мин(?:ут[ыа]?)?|m|mins?)/i);
+  if (hourMinMatch) {
+    const h = parseFloat(hourMinMatch[1]) || 0;
+    const m = parseFloat(hourMinMatch[2]) || 0;
+    if (h > 0 || m > 0) {
+      return Number((h * 60 + m).toFixed(2));
+    }
   }
 
-  // Handle "MM:SS" format (e.g. "01:30", "1:30")
-  if (normalized.includes(':')) {
-    const parts = normalized.split(':');
+  const hourMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:час(?:а|ов)?|ч|hours?|hrs?|h)\b/i);
+  if (hourMatch) {
+    const h = parseFloat(hourMatch[1]);
+    if (!isNaN(h) && h > 0) {
+      return Number((h * 60).toFixed(2));
+    }
+  }
+
+  // 2. Check for ranges (e.g. "8-10 мин", "10 - 15 минут", "30-50 сек", "15-20")
+  const rangeMatch = raw.match(/(\d+(?:\.\d+)?)\s*[-–—]\s*(\d+(?:\.\d+)?)/i);
+  if (rangeMatch) {
+    const num1 = parseFloat(rangeMatch[1]);
+    const num2 = parseFloat(rangeMatch[2]);
+    const isSeconds = raw.includes('сек') || raw.includes('sec') || raw.includes('секунд');
+    if (!isNaN(num1) && !isNaN(num2) && num1 > 0 && num2 > 0) {
+      const avg = (num1 + num2) / 2;
+      return isSeconds ? Math.max(0.1, Number((avg / 60).toFixed(2))) : Number(avg.toFixed(2));
+    }
+  }
+
+  // 3. Handle "MM:SS" or "M:SS" format (e.g. "01:30", "15:00", "0:45")
+  if (raw.includes(':')) {
+    const parts = raw.split(':');
     if (parts.length === 2) {
       const mins = parseFloat(parts[0]);
       const secs = parseFloat(parts[1]);
       if (!isNaN(mins) && !isNaN(secs)) {
-        return Math.max(0.25, Number((mins + secs / 60).toFixed(2)));
+        return Math.max(0.1, Number((mins + secs / 60).toFixed(2)));
       }
     }
   }
 
-  // Handle strings like "60 сек", "30 секунд", "90 sec"
-  const secMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(?:сек|sec|секунд)/i);
+  // 4. Handle seconds (e.g. "60 сек", "30 секунд", "90 sec", "45s")
+  const secMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:сек|sec|секунд|s)\b/i);
   if (secMatch) {
     const secs = parseFloat(secMatch[1]);
     if (!isNaN(secs) && secs > 0) {
@@ -466,13 +641,19 @@ export function parseDurationInMinutes(durationStr: string | number | undefined 
     }
   }
 
-  // Handle strings like "10 мин", "10 минут", "10 min"
-  const minMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(?:мин|min|минут)/i);
+  // 5. Handle minutes (e.g. "10 мин", "15 минут", "7.5 min", "12m")
+  const minMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:мин|min|минут[ыа]?|m)\b/i);
   if (minMatch) {
     const mins = parseFloat(minMatch[1]);
     if (!isNaN(mins) && mins > 0) {
-      return mins;
+      return Number(mins.toFixed(2));
     }
+  }
+
+  // 6. Direct float/integer string (e.g. "0.5", "1", "3", "5", "10", "15", "25")
+  const directNum = parseFloat(raw);
+  if (!isNaN(directNum) && directNum > 0) {
+    return Number(directNum.toFixed(2));
   }
 
   return 10;

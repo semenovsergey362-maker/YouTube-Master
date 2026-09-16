@@ -11,17 +11,22 @@ import {
   Info,
   Sliders,
   Type,
-  Maximize2
+  Maximize2,
+  Copy,
+  Layers,
+  FileText
 } from "lucide-react";
 import { toast } from "sonner";
 import { annotateTextForVoiceover } from "../services/geminiService";
+import { copyToClipboard } from "../utils/helpers";
 
 export type VoiceEngineType = 'elevenlabs' | 'yandex' | 'google' | 'sber';
 
 interface SpeakerTTSMarkupSectionProps {
   scriptBlocks: Record<number, {
-    blockNumber: number;
-    blockTitle: string;
+    blockNumber?: number;
+    blockTitle?: string;
+    title?: string;
     text: string;
     timeRange?: string;
     musicPrompt?: string;
@@ -30,6 +35,7 @@ interface SpeakerTTSMarkupSectionProps {
       mood?: string;
       sampleContext?: string;
     };
+    [key: string]: any;
   }>;
   selectedModel?: string;
   onUpdateBlockText: (bIdx: number, txt: string) => void;
@@ -37,44 +43,65 @@ interface SpeakerTTSMarkupSectionProps {
 
 export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = ({
   scriptBlocks,
-  selectedModel = "gemini-3.7-flash",
+  selectedModel = "gemini-3.1-flash-lite",
   onUpdateBlockText
 }) => {
+  const blockKeys = Object.keys(scriptBlocks || {}).map(Number).sort((a, b) => a - b);
+
   const [selectedBlockIdx, setSelectedBlockIdx] = useState<number | null>(() => {
-    const keys = Object.keys(scriptBlocks).map(Number);
-    return keys.length > 0 ? Math.min(...keys) : null;
+    return blockKeys.length > 0 ? blockKeys[0] : null;
   });
   
   const [voiceEngine, setVoiceEngine] = useState<VoiceEngineType>('elevenlabs');
   const [wordsPerMinute, setWordsPerMinute] = useState<number>(140);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isGeneratingAll, setIsGeneratingAll] = useState<boolean>(false);
   const [showGuide, setShowGuide] = useState<boolean>(false);
 
-  const blockKeys = Object.keys(scriptBlocks).map(Number).sort((a, b) => a - b);
-  const currentBlock = selectedBlockIdx !== null ? scriptBlocks[selectedBlockIdx] : null;
+  // Dynamically resolve the active block index even if scriptBlocks changes after upload
+  const activeBlockIdx = (selectedBlockIdx !== null && scriptBlocks && scriptBlocks[selectedBlockIdx] !== undefined)
+    ? selectedBlockIdx
+    : (blockKeys.length > 0 ? blockKeys[0] : null);
+
+  const currentBlock = activeBlockIdx !== null && scriptBlocks ? scriptBlocks[activeBlockIdx] : null;
+
+  // Keep state in sync with valid blocks
+  React.useEffect(() => {
+    if (activeBlockIdx !== null && activeBlockIdx !== selectedBlockIdx) {
+      setSelectedBlockIdx(activeBlockIdx);
+    }
+  }, [activeBlockIdx, selectedBlockIdx]);
 
   if (blockKeys.length === 0 || !currentBlock) {
     return (
-      <div className="text-center py-8 text-neutral-400 text-xs">
-        Создайте или сгенерируйте хотя бы один блок сценария для разметки речи.
+      <div className="text-center py-8 text-neutral-400 text-xs bg-neutral-900/30 rounded-xl border border-neutral-800/60 p-6">
+        <Volume2 size={24} className="mx-auto text-neutral-600 mb-2" />
+        <p className="font-semibold text-neutral-300">Блоки сценария для разметки речи отсутствуют</p>
+        <p className="text-[11px] text-neutral-500 mt-1">
+          Загрузите свой сценарий выше или сгенерируйте сценарий с помощью ИИ, чтобы разметить интонации, паузы и ударения.
+        </p>
       </div>
     );
   }
 
+  const currentText = currentBlock.text || "";
+
   // Calculate duration of text based on WPM
   const calculateDuration = (text: string) => {
     if (!text || text.trim().length === 0) return 0;
-    const wordCount = text.trim().split(/\s+/).length;
+    const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
     // Add additional pauses for tags
-    const pauseMatches = text.match(/\((\d+(?:\.\d+)?s|500ms)\)/g);
+    const pauseMatches = text.match(/\((\d+(?:\.\d+)?s|500ms)\)|sil\s*<\[\d+\]>|<break[^>]*\/>/gi);
     let pauseTime = 0;
     if (pauseMatches) {
       pauseMatches.forEach(p => {
-        if (p.includes('ms')) {
+        if (p.includes('500ms') || p.includes('500')) {
           pauseTime += 0.5;
+        } else if (p.includes('1s') || p.includes('1000')) {
+          pauseTime += 1.0;
         } else {
           const sec = parseFloat(p.replace(/[^0-9.]/g, ''));
-          if (!isNaN(sec)) pauseTime += sec;
+          if (!isNaN(sec)) pauseTime += sec > 10 ? sec / 1000 : sec;
         }
       });
     }
@@ -82,9 +109,10 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
     return Math.round(speechTime + pauseTime);
   };
 
-  // Insert markdown tag at selection
+  // Insert markdown/engine tag at selection
   const insertMarkupTag = (tag: string) => {
-    const textarea = document.getElementById(`tts-markup-textarea-${selectedBlockIdx}`) as HTMLTextAreaElement;
+    if (activeBlockIdx === null) return;
+    const textarea = document.getElementById(`tts-markup-textarea-${activeBlockIdx}`) as HTMLTextAreaElement;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
@@ -96,9 +124,9 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
     if (tag === 'accent') {
       replacement = selectedText ? `*${selectedText}*` : '*акцент*';
     } else if (tag === 'pause_short') {
-      replacement = `(500ms) `;
+      replacement = voiceEngine === 'yandex' ? `sil <[500]> ` : (voiceEngine === 'google' || voiceEngine === 'sber' ? `<break time="500ms"/> ` : `(500ms) `);
     } else if (tag === 'pause_long') {
-      replacement = `(1s) `;
+      replacement = voiceEngine === 'yandex' ? `sil <[1000]> ` : (voiceEngine === 'google' || voiceEngine === 'sber' ? `<break time="1s"/> ` : `(1s) `);
     } else if (tag === 'whisper') {
       replacement = selectedText ? `[шепот] ${selectedText}` : '[шепот] ';
     } else if (tag === 'intonation') {
@@ -108,7 +136,7 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
     }
 
     const newText = text.substring(0, start) + replacement + text.substring(end);
-    onUpdateBlockText(selectedBlockIdx!, newText);
+    onUpdateBlockText(activeBlockIdx, newText);
     
     // Reset focus and selection
     setTimeout(() => {
@@ -117,16 +145,21 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
     }, 50);
   };
 
-  // Handle AI annotation request
+  // Handle AI annotation for current block
   const handleAIMarkup = async () => {
-    if (selectedBlockIdx === null) return;
+    if (activeBlockIdx === null || !currentBlock) return;
+    if (!currentText.trim()) {
+      toast.error("Текст выбранного блока пуст. Введите текст для разметки.");
+      return;
+    }
+
     setIsGenerating(true);
-    const toastId = toast.loading("ИИ анализирует текст блока и расставляет интонационную разметку...");
+    const toastId = toast.loading("ИИ расставляет интонации, паузы и дикторские акценты...");
     
     try {
-      const annotatedText = await annotateTextForVoiceover(currentBlock.text, { model: selectedModel });
+      const annotatedText = await annotateTextForVoiceover(currentText, { model: selectedModel });
       if (annotatedText) {
-        onUpdateBlockText(selectedBlockIdx, annotatedText);
+        onUpdateBlockText(activeBlockIdx, annotatedText);
         toast.success("ИИ-Разметка успешно применена к блоку!", { id: toastId });
       } else {
         toast.error("Не удалось сгенерировать разметку.", { id: toastId });
@@ -138,7 +171,56 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
     }
   };
 
-  const currentDuration = calculateDuration(currentBlock.text);
+  // Handle AI annotation for all blocks sequentially
+  const handleAnnotateAllBlocks = async () => {
+    if (blockKeys.length === 0) return;
+    setIsGeneratingAll(true);
+    const toastId = toast.loading(`Размечаем все блоки сценария (1/${blockKeys.length})...`);
+
+    try {
+      let count = 0;
+      for (const k of blockKeys) {
+        const blk = scriptBlocks[k];
+        const rawText = blk?.text || "";
+        if (rawText.trim()) {
+          const annotated = await annotateTextForVoiceover(rawText, { model: selectedModel });
+          if (annotated) {
+            onUpdateBlockText(k, annotated);
+          }
+        }
+        count++;
+        if (count < blockKeys.length) {
+          toast.loading(`Размечаем все блоки сценария (${count + 1}/${blockKeys.length})...`, { id: toastId });
+        }
+      }
+      toast.success(`ИИ-разметка успешно применена ко всем ${blockKeys.length} блокам!`, { id: toastId });
+    } catch (err: any) {
+      toast.error(`Ошибка при разметке всех блоков: ${err.message || err}`, { id: toastId });
+    } finally {
+      setIsGeneratingAll(false);
+    }
+  };
+
+  const handleCopyCurrent = () => {
+    if (!currentText) return;
+    copyToClipboard(currentText);
+    toast.success("Текст текущего блока с разметкой скопирован в буфер!");
+  };
+
+  const handleCopyAll = () => {
+    const full = blockKeys
+      .map(k => scriptBlocks[k]?.text || "")
+      .filter(Boolean)
+      .join("\n\n");
+    if (!full) {
+      toast.error("Сценарий пуст");
+      return;
+    }
+    copyToClipboard(full);
+    toast.success("Весь сценарий с дикторской разметкой скопирован!");
+  };
+
+  const currentDuration = calculateDuration(currentText);
 
   return (
     <div className="space-y-4">
@@ -148,13 +230,13 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
           <label className="text-xs text-neutral-400 font-bold uppercase tracking-wider">Выбрать блок:</label>
           <div className="relative inline-block">
             <select
-              value={selectedBlockIdx ?? ""}
+              value={activeBlockIdx ?? ""}
               onChange={(e) => setSelectedBlockIdx(Number(e.target.value))}
-              className="appearance-none bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 pr-8 text-xs text-white font-bold focus:outline-none focus:border-primary cursor-pointer"
+              className="appearance-none bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 pr-8 text-xs text-white font-bold focus:outline-none focus:border-primary cursor-pointer max-w-[260px] truncate"
             >
-              {blockKeys.map((k) => (
+              {blockKeys.map((k, idx) => (
                 <option key={k} value={k}>
-                  Блок {k}: {scriptBlocks[k].blockTitle || "Без названия"}
+                  {idx + 1}. {scriptBlocks[k]?.blockTitle || scriptBlocks[k]?.title || `Блок ${idx + 1}`}
                 </option>
               ))}
             </select>
@@ -164,7 +246,7 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Engine Selector */}
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-neutral-400 font-bold uppercase tracking-wider">Движок:</span>
@@ -179,11 +261,30 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
                       : 'text-neutral-400 hover:text-white'
                   }`}
                 >
-                  {eng === 'elevenlabs' ? 'Eleven' : eng === 'yandex' ? 'Yandex' : eng === 'google' ? 'Google' : 'Sber'}
+                  {eng === 'elevenlabs' ? 'ElevenLabs' : eng === 'yandex' ? 'Yandex' : eng === 'google' ? 'Google' : 'Sber'}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Quick Copy Dropdown / Buttons */}
+          <button
+            onClick={handleCopyCurrent}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-all cursor-pointer"
+            title="Скопировать текущий блок с разметкой в буфер"
+          >
+            <Copy size={13} />
+            <span>Копия блока</span>
+          </button>
+
+          <button
+            onClick={handleCopyAll}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-all cursor-pointer"
+            title="Скопировать весь сценарий со всеми блоками и разметкой"
+          >
+            <FileText size={13} />
+            <span>Весь сценарий</span>
+          </button>
 
           {/* Guide toggle */}
           <button
@@ -240,35 +341,35 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
               {/* Quick toolbar */}
               <button
                 onClick={() => insertMarkupTag('pause_short')}
-                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800"
+                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800 cursor-pointer transition-colors"
                 title="Вставить короткую паузу 0.5с"
               >
                 +Пауза 0.5с
               </button>
               <button
                 onClick={() => insertMarkupTag('pause_long')}
-                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800"
+                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800 cursor-pointer transition-colors"
                 title="Вставить длинную паузу 1с"
               >
                 +Пауза 1с
               </button>
               <button
                 onClick={() => insertMarkupTag('accent')}
-                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800"
+                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800 cursor-pointer transition-colors"
                 title="Сделать слово акцентным"
               >
                 +Акцент
               </button>
               <button
                 onClick={() => insertMarkupTag('whisper')}
-                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800"
+                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800 cursor-pointer transition-colors"
                 title="Сделать фразу шепотом"
               >
                 +Шепот
               </button>
               <button
                 onClick={() => insertMarkupTag('stress')}
-                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800"
+                className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-[10px] text-neutral-300 rounded font-semibold border border-neutral-800 cursor-pointer transition-colors"
                 title="Добавить знак ударения (+)"
               >
                 +Ударение
@@ -277,9 +378,9 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
           </div>
 
           <textarea
-            id={`tts-markup-textarea-${selectedBlockIdx}`}
-            value={currentBlock.text}
-            onChange={(e) => onUpdateBlockText(selectedBlockIdx!, e.target.value)}
+            id={`tts-markup-textarea-${activeBlockIdx}`}
+            value={currentText}
+            onChange={(e) => onUpdateBlockText(activeBlockIdx, e.target.value)}
             placeholder="Текст вашего сценария..."
             rows={6}
             className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm text-neutral-200 focus:outline-none focus:border-primary/80 leading-relaxed font-mono resize-y min-h-[140px]"
@@ -324,29 +425,51 @@ export const SpeakerTTSMarkupSection: React.FC<SpeakerTTSMarkupSectionProps> = (
                 <span className="text-neutral-500 block text-[9px] uppercase font-bold">Символы</span>
                 <span className="text-white font-bold font-mono flex items-center gap-1 mt-0.5">
                   <Activity size={12} className="text-accent" />
-                  {currentBlock.text.length} зн.
+                  {currentText.length} зн.
                 </span>
               </div>
             </div>
           </div>
 
-          <button
-            onClick={handleAIMarkup}
-            disabled={isGenerating}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-50 text-black font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
-          >
-            {isGenerating ? (
-              <>
-                <RefreshCw size={14} className="animate-spin" />
-                <span>Размечаем речь...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles size={14} />
-                <span>Разметить текст с помощью ИИ</span>
-              </>
+          <div className="space-y-2">
+            <button
+              onClick={handleAIMarkup}
+              disabled={isGenerating || isGeneratingAll}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-50 text-black font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+            >
+              {isGenerating ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  <span>Размечаем блок...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={14} />
+                  <span>Разметить текущий блок (ИИ)</span>
+                </>
+              )}
+            </button>
+
+            {blockKeys.length > 1 && (
+              <button
+                onClick={handleAnnotateAllBlocks}
+                disabled={isGenerating || isGeneratingAll}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-neutral-200 hover:text-white border border-neutral-800 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
+              >
+                {isGeneratingAll ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin text-primary" />
+                    <span>Размечаем все блоки...</span>
+                  </>
+                ) : (
+                  <>
+                    <Layers size={13} className="text-primary" />
+                    <span>Разметить все {blockKeys.length} блоков</span>
+                  </>
+                )}
+              </button>
             )}
-          </button>
+          </div>
         </div>
       </div>
     </div>

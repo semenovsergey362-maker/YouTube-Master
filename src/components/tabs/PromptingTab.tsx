@@ -134,7 +134,7 @@ export const PromptingTab = ({
 
     setIsGeneratingMasterMusic(true);
     try {
-      const model = safeStorage.getItem('yt_selected_model') || 'gemini-3.1-pro';
+      const model = safeStorage.getItem('yt_selected_model') || "gemini-3.1-flash-lite";
       const isCustomEnabled = safeStorage.getItem('yt_custom_instructions_enabled') === 'true';
       const customInst = isCustomEnabled ? (safeStorage.getItem('yt_custom_instructions') || '') : '';
 
@@ -306,10 +306,12 @@ export const PromptingTab = ({
                 <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Пресеты:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { name: "📸 8K", val: "Кинематографичный фотореализм, 8k resolution, объемный естественный свет, лениза 35mm" },
-                    { name: "🎨 3D", val: "3D рендер Unreal Engine 5, Octane render, объемные детализированные текстуры" },
-                    { name: "✒️ 2D", val: "Аниме стиль Makoto Shinkai, живописный свет, детальный 2D арт" },
-                    { name: "🌌 Киберпанк", val: "Киберпанк, неоновое освещение, дождь, высокие контрасты, футуристика" }
+                    { name: "🎬 Veo 3 Кино", val: "Формула Veo 3: Ultra-realistic, 8K, 35mm lens, cinematic lighting, Hollywood color grading, deep contrast, no 3D/animated look, slow-motion 0.5-0.75x" },
+                    { name: "📸 8K Фото", val: "Кинематографичный фотореализм, 8k resolution, объемный естественный свет, линза 35mm" },
+                    { name: "🎨 3D Pixar", val: "3D анимация Pixar / DreamWorks, Octane 3D render, стилизованные персонажи, объемный свет" },
+                    { name: "✒️ 2D Аниме", val: "Аниме стиль Makoto Shinkai, живописный свет, детальный 2D арт, акварельные фоны" },
+                    { name: "🔬 Научпоп BBC", val: "BBC Earth документальный реализм, 8K, макро и телеобъектив, естественный свет" },
+                    { name: "🌌 Киберпанк", val: "Киберпанк Blade Runner, неоновое освещение, дождь, дымка, высокие контрасты" }
                   ].map((pst, idx) => (
                     <button
                       key={`prompting-style-preset-${pst.name}-${idx}`}
@@ -347,7 +349,7 @@ export const PromptingTab = ({
                   const val = e.target.value;
                   if (setPromptAnimationType) setPromptAnimationType(val);
                 }}
-                placeholder="Например: Плавный наезд камеры (Slow Push-In), следящая камера, 24 fps..."
+                placeholder="Например: 5 Режиссерских движений камеры Veo 3 (Dolly/Orbital/Pull-back/Rack/Pan)..."
                 className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-purple-500/50 resize-none font-medium leading-relaxed"
               />
 
@@ -355,7 +357,9 @@ export const PromptingTab = ({
                 <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Пресеты:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
+                    { name: "🎬 5 Паттернов Veo 3", val: "5 Режиссерских движений камеры Veo 3 (Dolly-in наезд, Orbital облёт, Pull-back отъезд, Rack focus перевод фокуса, Pan панорама) по смыслу сцены" },
                     { name: "🎥 Slow Push-In", val: "Плавный медленный наезд камеры (Slow Push-In), фокусировка на объекте, 24 fps" },
+                    { name: "🔄 Orbital", val: "Плавный круговой облёт вокруг героя (Orbital tracking shot), раскрытие масштаба" },
                     { name: "⚡ Монтаж", val: "Динамичная смена планов, быстрый панорамный сдвиг, активный ритм монтажа" },
                     { name: "🌊 60fps", val: "Замедленная съемка (Slow Motion 60fps), детализированная плавность частиц" },
                     { name: "🚁 FPV", val: "Аэросъемка с квадрокоптера, динамичные виражи, масштабная панорама" }
@@ -531,6 +535,47 @@ export const PromptingTab = ({
                     veoSfxEnabled ? "translate-x-5" : "translate-x-0"
                   }`} />
                 </button>
+              </div>
+            </div>
+
+            {/* Veo 3 Cinematic Formula Director Card */}
+            <div className="bg-neutral-950/50 border border-purple-500/20 rounded-2xl p-4 md:p-5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse" />
+                  <span className="text-xs font-black text-white uppercase tracking-wider">
+                    🎬 Кинематографическая формула Veo 3 (Вшита в движок)
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[9px] font-black bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                    Активна
+                  </span>
+                </div>
+                <span className="text-[10px] text-neutral-400">
+                  Буквальное действие строки • Не faceless • 5 движений камеры • Foley
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 pt-1 text-[10px]">
+                <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5 space-y-1">
+                  <span className="text-amber-400 font-bold block">1. Dolly-in (Наезд)</span>
+                  <span className="text-neutral-400 leading-snug block">Внутренний момент, нарастание напряжения, эмпатия.</span>
+                </div>
+                <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5 space-y-1">
+                  <span className="text-blue-400 font-bold block">2. Orbital (Облёт)</span>
+                  <span className="text-neutral-400 leading-snug block">Масштаб локации и драматическая изоляция героя.</span>
+                </div>
+                <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5 space-y-1">
+                  <span className="text-purple-400 font-bold block">3. Pull-back (Отъезд)</span>
+                  <span className="text-neutral-400 leading-snug block">Раскрытие контекста и последствий после крупного плана.</span>
+                </div>
+                <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5 space-y-1">
+                  <span className="text-emerald-400 font-bold block">4. Rack Focus (Фокус)</span>
+                  <span className="text-neutral-400 leading-snug block">Перенос внимания: лицо → ключевой предмет или деталь.</span>
+                </div>
+                <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5 space-y-1">
+                  <span className="text-cyan-400 font-bold block">5. Pan (Панорама)</span>
+                  <span className="text-neutral-400 leading-snug block">Горизонтальное раскрытие горизонта, дороги или процессии.</span>
+                </div>
               </div>
             </div>
           </>
@@ -943,9 +988,9 @@ export const PromptingTab = ({
                               <Sparkle size={12} className="text-purple-400 fill-purple-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                             </div>
                             <div className="space-y-0.5">
-                              <p className="text-[11px] font-black text-purple-400">Генерируем бесшовную склейку...</p>
+                              <p className="text-[11px] font-black text-purple-400">Генерируем анимацию перехода для VEO 3...</p>
                               <p className="text-[9px] text-neutral-500 max-w-sm px-4">
-                                Анализируем контекст блоков для создания плавного перехода
+                                Формируем плавное перетекание от одной сцены к другой без затемнения, с проявлением логотипа на фоне
                               </p>
                             </div>
                           </div>
@@ -964,53 +1009,45 @@ export const PromptingTab = ({
                               </div>
                             </div>
 
-                            {/* Prompts columns */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              {/* 1. Visual Prompt */}
-                              <div className="space-y-1 bg-neutral-950/40 p-2.5 rounded-xl border border-neutral-800/40 hover:border-neutral-800 transition-colors">
-                                <div className="flex items-center justify-between pb-1 border-b border-neutral-800/40">
-                                  <span className="text-[9px] font-bold text-blue-400 uppercase tracking-wide flex items-center gap-1">
-                                    <ImageIcon size={10} />
-                                    <span>Изображение (Imagen)</span>
+                            {/* Single VEO 3 Animation Prompt */}
+                            <div className="space-y-2 bg-neutral-950/40 p-3 rounded-xl border border-neutral-800/50 hover:border-amber-500/30 transition-colors">
+                              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-neutral-800/40">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-black text-amber-400 uppercase tracking-wide flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
+                                    <Video size={11} className="text-amber-400" />
+                                    <span>Промпт анимации перехода (VEO 3)</span>
                                   </span>
-                                  <button
-                                    onClick={() => copyToClipboard(transitionPrompts[(scene.blockIndex ?? 0) - 1].visualPrompt, "Кадр перехода")}
-                                    className="p-1 text-neutral-500 hover:text-white rounded transition-all cursor-pointer hover:bg-neutral-800"
-                                    title="Скопировать"
-                                  >
-                                    <Copy size={11} />
-                                  </button>
+                                  <span className="text-[9px] font-mono font-bold text-amber-300/90 bg-amber-950/50 px-2 py-0.5 rounded border border-amber-500/30" title="В VEO 3 символ @ указывает на файл вашего логотипа">
+                                    @ logo (референс логотипа)
+                                  </span>
                                 </div>
-                                <p className="text-[10px] text-neutral-300 font-mono leading-normal line-clamp-3 select-all pt-1" title={transitionPrompts[(scene.blockIndex ?? 0) - 1].visualPrompt}>
-                                  {transitionPrompts[(scene.blockIndex ?? 0) - 1].visualPrompt}
-                                </p>
+                                <button
+                                  onClick={() => copyToClipboard(transitionPrompts[(scene.blockIndex ?? 0) - 1].animationPrompt, "Промпт анимации для VEO 3")}
+                                  className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                                  title="Скопировать промпт анимации для VEO 3"
+                                >
+                                  <Copy size={11} />
+                                  <span>Скопировать для VEO 3</span>
+                                </button>
                               </div>
 
-                              {/* 2. Motion Prompt */}
-                              <div className="space-y-1 bg-neutral-950/40 p-2.5 rounded-xl border border-neutral-800/40 hover:border-neutral-800 transition-colors">
-                                <div className="flex items-center justify-between pb-1 border-b border-neutral-800/40">
-                                  <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wide flex items-center gap-1">
-                                    <Video size={10} />
-                                    <span>Анимация (Veo)</span>
-                                  </span>
-                                  <button
-                                    onClick={() => copyToClipboard(transitionPrompts[(scene.blockIndex ?? 0) - 1].animationPrompt, "Промпт движения")}
-                                    className="p-1 text-neutral-500 hover:text-white rounded transition-all cursor-pointer hover:bg-neutral-800"
-                                    title="Скопировать"
-                                  >
-                                    <Copy size={11} />
-                                  </button>
-                                </div>
-                                <p className="text-[10px] text-neutral-300 font-mono leading-normal line-clamp-3 select-all pt-1" title={transitionPrompts[(scene.blockIndex ?? 0) - 1].animationPrompt}>
-                                  {transitionPrompts[(scene.blockIndex ?? 0) - 1].animationPrompt}
-                                </p>
+                              <p
+                                className="text-[11px] text-neutral-200 font-mono leading-relaxed select-all pt-1 bg-neutral-950/60 p-2.5 rounded-lg border border-neutral-900"
+                                title={transitionPrompts[(scene.blockIndex ?? 0) - 1].animationPrompt}
+                              >
+                                {transitionPrompts[(scene.blockIndex ?? 0) - 1].animationPrompt}
+                              </p>
+
+                              <div className="flex items-center gap-1.5 text-[9px] text-neutral-400 pt-0.5">
+                                <Sparkles size={10} className="text-amber-400 shrink-0" />
+                                <span>Символ <strong className="text-amber-300 font-mono">@</strong> в VEO 3 привязывает файл вашего логотипа, который появляется на фоне плавного перехода сцен</span>
                               </div>
                             </div>
                           </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center p-3 bg-neutral-950/20 rounded-xl border border-dashed border-neutral-800/60 text-center py-4">
                             <p className="text-[10px] text-neutral-500 font-medium">Переход еще не придуман</p>
-                            <p className="text-[9px] text-neutral-600 mt-0.5">Нажмите «Создать», чтобы ИИ сгенерировал промпты для бесшовной склейки</p>
+                            <p className="text-[9px] text-neutral-600 mt-0.5">Нажмите «Создать», чтобы ИИ сгенерировал единый промпт анимации для VEO 3: непрерывный переход сцен с логотипом на фоне</p>
                           </div>
                         )}
                       </div>
@@ -1202,15 +1239,25 @@ export const PromptingTab = ({
                             </button>
 
                             {/* Preset Wish Badges */}
-                            <div className="space-y-1.5">
-                              <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider block">Быстрые режимы (Claude & Hollywood):</span>
-                              <div className="flex flex-wrap gap-1.5">
+                            <div className="space-y-2">
+                              <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider block">
+                                Быстрые режимы (Claude & Hollywood):
+                              </span>
+                              <div className="flex flex-wrap gap-2">
                                 {[
-                                  { label: "🎥 Макро/Руки 35mm", wish: "Close-up on hands, 35mm lens, shallow depth of field, dust particles in light" },
-                                  { label: "🎬 Rack Focus", wish: "Slow smooth camera dolly and rack focus shifting smooth between objects" },
-                                  { label: "🌄 Панорама", wish: "Cinematic wide angle landscape shot with dramatic atmospheric horizon lighting" },
-                                  { label: "🗣️ Эмоция/Реакция", wish: "Cinematic medium close-up focusing on authentic human emotion and expression" },
-                                  { label: "✨ Новый цвет и свет", wish: "Change location ambiance, cinematic volumetric golden hour lighting and high contrast" }
+                                  { label: "🚁 Облет с дрона 360°", wish: "High altitude FPV drone flyover, 360 degree smooth orbit around the scene, epic cinematic perspective" },
+                                  { label: "🛸 FPV Дрифт / Влет", wish: "Ultra dynamic fast-paced FPV drone dive through obstacles, tight smooth cornering and seamless proximity pass" },
+                                  { label: "🎥 Макро / Руки 35mm", wish: "Close-up on hands and fine textures, 35mm lens, shallow depth of field, floating dust particles in volumetric light" },
+                                  { label: "🎬 Долли-зум (Vertigo)", wish: "Hitchcock vertigo dolly zoom effect, optical compression where background expands while subject stays fixed, intense visual drama" },
+                                  { label: "🏎️ Трэкинг / Follow Cam", wish: "Fast-paced dynamic follow-cam tracking shot smoothly gliding behind the moving subject with organic handheld motion" },
+                                  { label: "🎬 Rack Focus (Перевод)", wish: "Slow smooth camera dolly and rack focus shifting smoothly between foreground hero element and deep background" },
+                                  { label: "🌆 Кино-Гиперлапс", wish: "Cinematic hyperlapse with dynamic daylight shifting, streaming light reflections, and accelerated fluid motion" },
+                                  { label: "🌄 Панорама Золотого Часа", wish: "Cinematic ultra-wide landscape establishing shot with dramatic atmospheric horizon lighting and god rays" },
+                                  { label: "⏱️ Слоу-мо (120 FPS)", wish: "Ultra slow motion 120fps cinematic shot capturing micro-movements, liquid splashes and particles in suspended time" },
+                                  { label: "🗣️ Эмоция / Крупный план", wish: "Cinematic medium close-up focusing on authentic human facial emotion, micro-expressions and sharp eye reflections" },
+                                  { label: "✨ Голливудский свет", wish: "Blockbuster cinematic three-point lighting, teal and orange Hollywood color grading, volumetric mist and deep contrast" },
+                                  { label: "🕶️ Нуар / Киберпанк", wish: "Atmospheric film-noir moody shadows, high-contrast neon rim lighting, wet reflective surfaces and mystery haze" },
+                                  { label: "💥 Экшен POV (От 1-го лица)", wish: "First-person action POV perspective, wide-angle lens with subtle authentic motion vibrations and direct immersion" }
                                 ].map((preset, pIdx) => (
                                   <button
                                     key={`wish-preset-${preset.label}-${actualIndex}-${pIdx}`}
@@ -1221,7 +1268,7 @@ export const PromptingTab = ({
                                       handleRegenerateSingleScene(actualIndex, preset.wish);
                                     }}
                                     disabled={regeneratingSceneIndex === actualIndex}
-                                    className="px-2 py-1 bg-neutral-900 hover:bg-amber-500/10 hover:text-amber-300 text-neutral-400 border border-neutral-800 hover:border-amber-500/30 rounded-lg text-[9px] font-bold transition-all cursor-pointer disabled:opacity-50"
+                                    className="px-2.5 py-1.5 bg-neutral-900 hover:bg-amber-500/15 hover:text-amber-300 text-neutral-300 border border-neutral-800 hover:border-amber-500/40 rounded-lg text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm"
                                   >
                                     {preset.label}
                                   </button>
@@ -1232,14 +1279,14 @@ export const PromptingTab = ({
                             <button
                               type="button"
                               onClick={() => setOpenWishFormIndex(openWishFormIndex === actualIndex ? null : actualIndex)}
-                              className="text-[10px] font-semibold text-neutral-400 hover:text-amber-300 flex items-center justify-center gap-1 w-full pt-0.5 transition-colors cursor-pointer"
+                              className="text-xs font-semibold text-neutral-300 hover:text-amber-300 flex items-center justify-center gap-1.5 w-full pt-1 transition-colors cursor-pointer"
                             >
                               {openWishFormIndex === actualIndex ? "▲ Скрыть точные пожелания" : "✏️ Указать индивидуальные пожелания"}
                             </button>
 
                             {openWishFormIndex === actualIndex && (
-                              <div className="p-3 bg-neutral-950 rounded-xl border border-amber-500/30 space-y-2 animate-in fade-in duration-150">
-                                <label className="block text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                              <div className="p-3.5 bg-neutral-950 rounded-xl border border-amber-500/35 space-y-2.5 animate-in fade-in duration-150">
+                                <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
                                   Индивидуальные требования к сцене №{actualIndex + 1}:
                                 </label>
                                 <textarea
@@ -1247,14 +1294,14 @@ export const PromptingTab = ({
                                   value={sceneCustomWishes[actualIndex] || ''}
                                   onChange={(e) => setSceneCustomWishes({ ...sceneCustomWishes, [actualIndex]: e.target.value })}
                                   placeholder="Например: 'Сделай акцент на крупных планах рук с мукой, как в рецептурных роликах', или 'Добавь туман и свечение'..."
-                                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500 font-sans resize-none"
+                                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500 font-sans resize-none leading-relaxed"
                                 />
                                 <button
                                   onClick={() => handleRegenerateSingleScene(actualIndex, sceneCustomWishes[actualIndex])}
                                   disabled={regeneratingSceneIndex === actualIndex || !sceneCustomWishes[actualIndex]?.trim()}
-                                  className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-[10px] uppercase tracking-wider rounded-lg transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                                  className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-lg transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2 shadow-sm"
                                 >
-                                  {regeneratingSceneIndex === actualIndex ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                                  {regeneratingSceneIndex === actualIndex ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
                                   Сгенерировать вариант с пожеланием
                                 </button>
                               </div>
@@ -1267,12 +1314,12 @@ export const PromptingTab = ({
                           <div className="space-y-2 pb-2 border-b border-neutral-800/60">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Sparkles size={13} className="text-amber-400" />
+                                <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Sparkles size={14} className="text-amber-400" />
                                   AI Промпты для Кадров и Видео
                                 </span>
                                 {historyList.length > 1 && (
-                                  <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-[9px] font-extrabold text-amber-300">
+                                  <span className="px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs font-extrabold text-amber-300">
                                     Вариант {activeVersionIdx + 1} из {historyList.length}
                                   </span>
                                 )}
@@ -1282,17 +1329,17 @@ export const PromptingTab = ({
                                 <button
                                   onClick={() => handleRegenerateSingleScene(actualIndex, sceneCustomWishes[actualIndex])}
                                   disabled={regeneratingSceneIndex === actualIndex}
-                                  className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                                   title="Сгенерировать еще вариант этого кадра"
                                 >
                                   {regeneratingSceneIndex === actualIndex ? (
                                     <>
-                                      <Loader2 size={12} className="animate-spin text-amber-400" />
+                                      <Loader2 size={13} className="animate-spin text-amber-400" />
                                       Генерация...
                                     </>
                                   ) : (
                                     <>
-                                      <RefreshCw size={12} className="text-amber-400" />
+                                      <RefreshCw size={13} className="text-amber-400" />
                                       🎲 Ещё вариант
                                     </>
                                   )}
@@ -1308,10 +1355,10 @@ ${promptData.videoPrompt1 || ''}
 ${promptData.videoPrompt2 || ''}`;
                                       copyToClipboard(allText, `Все промпты для сцены ${actualIndex + 1}`);
                                     }}
-                                    className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-neutral-700"
+                                    className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-neutral-700"
                                     title="Скопировать оба промпта сцены сразу"
                                   >
-                                    <Copy size={12} />
+                                    <Copy size={13} />
                                     Скопировать оба промпта
                                   </button>
                                 )}
@@ -1320,18 +1367,18 @@ ${promptData.videoPrompt2 || ''}`;
 
                             {/* Version History Tabs Switcher */}
                             {historyList.length > 1 && (
-                              <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-1 scrollbar-hide">
-                                <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider shrink-0">История вариаций:</span>
+                              <div className="flex items-center gap-2 overflow-x-auto pt-1 pb-1 scrollbar-hide">
+                                <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider shrink-0">История вариаций:</span>
                                 {historyList.map((hItem: any, hIdx: number) => {
                                   const isActive = hIdx === activeVersionIdx;
                                   return (
                                     <button
                                       key={`prompting-history-ver-${actualIndex}-${hIdx}`}
                                       onClick={() => handleSwitchVersion(hIdx)}
-                                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer border ${
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer border ${
                                         isActive
                                           ? "bg-amber-500 text-black border-amber-400 font-extrabold shadow-sm"
-                                          : "bg-neutral-900 hover:bg-neutral-800 text-neutral-400 border-neutral-800"
+                                          : "bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800"
                                       }`}
                                     >
                                       #{hIdx + 1} {isActive ? "(Активный)" : ""}
@@ -1343,12 +1390,12 @@ ${promptData.videoPrompt2 || ''}`;
                           </div>
 
                           {/* РАКУРС 1 */}
-                          <div className="space-y-1.5">
+                          <div className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-1">
-                              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wide">
-                                <Video size={14} />
+                              <div className="flex items-center gap-2 text-sm font-bold text-emerald-400 uppercase tracking-wide">
+                                <Video size={16} />
                                 <span>Ракурс 1</span>
-                                <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-extrabold">
+                                <span className="px-2 py-0.5 rounded text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-extrabold">
                                   Veo 3
                                 </span>
                               </div>
@@ -1356,25 +1403,25 @@ ${promptData.videoPrompt2 || ''}`;
                                 <button 
                                   onClick={() => copyToClipboard(promptData.videoPrompt1, `Ракурс 1 для сцены ${actualIndex + 1}`)}
                                   disabled={!promptData.videoPrompt1}
-                                  className="p-1.5 text-neutral-500 hover:text-white rounded-lg hover:bg-neutral-800 transition-all disabled:opacity-50 cursor-pointer"
+                                  className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-all disabled:opacity-50 cursor-pointer"
                                   title="Скопировать промпт (Ракурс 1)"
                                 >
-                                  <Copy size={14} />
+                                  <Copy size={15} />
                                 </button>
                               </div>
                             </div>
-                            <div className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 text-xs text-neutral-300 font-mono leading-relaxed min-h-[80px]">
+                            <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 text-sm text-neutral-200 font-mono leading-relaxed min-h-[85px] selection:bg-amber-500/30">
                               {promptData.videoPrompt1 || (isGeneratingGlobalProduction ? "Генерация промпта..." : "Сгенерируйте стиль продакшена для получения промпта")}
                             </div>
                           </div>
 
                           {/* РАКУРС 2 */}
-                          <div className="space-y-1.5 pt-6 mt-6 border-t border-neutral-800/80">
+                          <div className="space-y-2 pt-6 mt-6 border-t border-neutral-800/80">
                             <div className="flex flex-wrap items-center justify-between gap-1">
-                              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wide">
-                                <Video size={14} />
+                              <div className="flex items-center gap-2 text-sm font-bold text-emerald-400 uppercase tracking-wide">
+                                <Video size={16} />
                                 <span>Ракурс 2</span>
-                                <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-extrabold">
+                                <span className="px-2 py-0.5 rounded text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-extrabold">
                                   Veo 3
                                 </span>
                               </div>
@@ -1382,14 +1429,14 @@ ${promptData.videoPrompt2 || ''}`;
                                 <button 
                                   onClick={() => copyToClipboard(promptData.videoPrompt2, `Ракурс 2 для сцены ${actualIndex + 1}`)}
                                   disabled={!promptData.videoPrompt2}
-                                  className="p-1.5 text-neutral-500 hover:text-white rounded-lg hover:bg-neutral-800 transition-all disabled:opacity-50 cursor-pointer"
+                                  className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-all disabled:opacity-50 cursor-pointer"
                                   title="Скопировать промпт (Ракурс 2)"
                                 >
-                                  <Copy size={14} />
+                                  <Copy size={15} />
                                 </button>
                               </div>
                             </div>
-                            <div className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 text-xs text-neutral-300 font-mono leading-relaxed min-h-[80px]">
+                            <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 text-sm text-neutral-200 font-mono leading-relaxed min-h-[85px] selection:bg-amber-500/30">
                               {promptData.videoPrompt2 || (isGeneratingGlobalProduction ? "Генерация промпта..." : "Сгенерируйте стиль продакшена для получения промпта")}
                             </div>
                           </div>
@@ -1441,8 +1488,8 @@ ${promptData.videoPrompt2 || ''}`;
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-150">
             <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
               <h4 className="text-sm font-black text-white flex items-center gap-2">
-                <FileText size={16} className="text-purple-400" />
-                <span>Сырой промпт перехода</span>
+                <FileText size={16} className="text-amber-400" />
+                <span>Сырой системный промпт перехода в VEO 3</span>
                 <span className="text-xs font-normal text-neutral-400">(Блок {viewPromptIndex + 1} → Блок {viewPromptIndex + 2})</span>
               </h4>
               <button
@@ -1454,37 +1501,59 @@ ${promptData.videoPrompt2 || ''}`;
             </div>
             <div className="p-4 overflow-y-auto flex-1 space-y-4">
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Это точный системный промпт, который отправляется в модель Gemini для генерации смыслового перехода между Блоками {viewPromptIndex + 1} и {viewPromptIndex + 2}:
+                Это точный системный промпт, который отправляется в модель Gemini для генерации единого видео-перехода в Google VEO 3 с фирменным эффектом золотых частиц и подстановкой вашего логотипа (<span className="text-amber-300 font-mono">@ logo</span>) между Блоками {viewPromptIndex + 1} и {viewPromptIndex + 2}:
               </p>
               <pre className="p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-[11px] text-neutral-300 font-mono whitespace-pre-wrap select-all max-h-[400px] overflow-y-auto leading-relaxed">
-                {getTransitionPromptTemplate(
-                  { 
-                    title: scriptStructure?.[viewPromptIndex]?.title || `Блок ${viewPromptIndex + 1}`,
-                    text: generatedBlocks?.[viewPromptIndex]?.text || scriptStructure?.[viewPromptIndex]?.text || ""
-                  },
-                  { 
-                    title: scriptStructure?.[viewPromptIndex + 1]?.title || `Блок ${viewPromptIndex + 2}`,
-                    text: generatedBlocks?.[viewPromptIndex + 1]?.text || scriptStructure?.[viewPromptIndex + 1]?.text || ""
-                  },
-                  promptImageStyle
-                )}
+                {(() => {
+                  const allUnified = getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
+                  const scenesA = allUnified.filter(s => s.blockIndex === viewPromptIndex);
+                  const scenesB = allUnified.filter(s => s.blockIndex === viewPromptIndex + 1);
+                  const lastA = scenesA.length > 0 ? scenesA[scenesA.length - 1] : null;
+                  const firstB = scenesB.length > 0 ? scenesB[0] : null;
+
+                  return getTransitionPromptTemplate(
+                    { 
+                      title: scriptStructure?.[viewPromptIndex]?.title || `Блок ${viewPromptIndex + 1}`,
+                      text: generatedBlocks?.[viewPromptIndex]?.text || scriptStructure?.[viewPromptIndex]?.text || "",
+                      lastSceneText: lastA?.text || "",
+                      lastSceneVisual: lastA?.visuals?.description || lastA?.description || lastA?.visualPrompt || ""
+                    },
+                    { 
+                      title: scriptStructure?.[viewPromptIndex + 1]?.title || `Блок ${viewPromptIndex + 2}`,
+                      text: generatedBlocks?.[viewPromptIndex + 1]?.text || scriptStructure?.[viewPromptIndex + 1]?.text || "",
+                      firstSceneText: firstB?.text || "",
+                      firstSceneVisual: firstB?.visuals?.description || firstB?.description || firstB?.visualPrompt || ""
+                    },
+                    promptImageStyle
+                  );
+                })()}
               </pre>
             </div>
             <div className="p-4 border-t border-neutral-800 flex justify-end gap-2">
               <button
                 onClick={() => {
+                  const allUnified = getUnifiedScriptScenes(scriptBreakdown, generatedBlocks, scriptStructure);
+                  const scenesA = allUnified.filter(s => s.blockIndex === viewPromptIndex);
+                  const scenesB = allUnified.filter(s => s.blockIndex === viewPromptIndex + 1);
+                  const lastA = scenesA.length > 0 ? scenesA[scenesA.length - 1] : null;
+                  const firstB = scenesB.length > 0 ? scenesB[0] : null;
+
                   const txt = getTransitionPromptTemplate(
                     { 
                       title: scriptStructure?.[viewPromptIndex]?.title || `Блок ${viewPromptIndex + 1}`,
-                      text: generatedBlocks?.[viewPromptIndex]?.text || scriptStructure?.[viewPromptIndex]?.text || ""
+                      text: generatedBlocks?.[viewPromptIndex]?.text || scriptStructure?.[viewPromptIndex]?.text || "",
+                      lastSceneText: lastA?.text || "",
+                      lastSceneVisual: lastA?.visuals?.description || lastA?.description || lastA?.visualPrompt || ""
                     },
                     { 
                       title: scriptStructure?.[viewPromptIndex + 1]?.title || `Блок ${viewPromptIndex + 2}`,
-                      text: generatedBlocks?.[viewPromptIndex + 1]?.text || scriptStructure?.[viewPromptIndex + 1]?.text || ""
+                      text: generatedBlocks?.[viewPromptIndex + 1]?.text || scriptStructure?.[viewPromptIndex + 1]?.text || "",
+                      firstSceneText: firstB?.text || "",
+                      firstSceneVisual: firstB?.visuals?.description || firstB?.description || firstB?.visualPrompt || ""
                     },
                     promptImageStyle
                   );
-                  navigator.clipboard.writeText(txt);
+                  copyTextToClipboard(txt);
                   toast.success("Промпт скопирован в буфер обмена!");
                 }}
                 className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"

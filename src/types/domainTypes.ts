@@ -11,6 +11,11 @@ export interface GeneratedIdea {
   duration?: string;
   tone?: string;
   viral_potential?: string;
+  color?: string;
+  colorType?: "custom" | "status" | "category";
+  status?: string;
+  category?: string;
+  playlist?: string;
 }
 
 export type ContentPlanItem = GeneratedIdea;
@@ -89,6 +94,58 @@ export interface AnalysisOptions {
   existingChannelVideos?: ChannelVideoInfo[];
 }
 
+export interface QuoteCardPrompt {
+  id: string;
+  quote: string;
+  authorOrContext: string;
+  visualPrompt: string;
+  designNotes: string;
+  aspectRatio: "1:1";
+  generatedImageUrl?: string;
+}
+
+export interface CommunityPost {
+  headline: string;
+  text: string;
+  poll?: {
+    question: string;
+    options: string[];
+  };
+  callToAction: string;
+}
+
+export interface TelegramPost {
+  title: string;
+  text: string;
+  bulletPoints: string[];
+  callToAction: string;
+  hashtags: string[];
+}
+
+export interface CarouselSlide {
+  slideNumber: number;
+  slideType: "hook" | "insight" | "quote" | "cta";
+  headline: string;
+  text: string;
+  imagePrompt?: string;
+  generatedImageUrl?: string;
+}
+
+export interface InstagramPost {
+  hookTitle: string;
+  caption: string;
+  carouselSlides: CarouselSlide[];
+  hashtags: string[];
+}
+
+export interface SocialPromoPackage {
+  communityPost: CommunityPost;
+  telegramPost: TelegramPost;
+  instagramPost: InstagramPost;
+  quoteCards: QuoteCardPrompt[];
+  generatedAt?: string;
+}
+
 export interface VideoSEO {
   title: string;
   titleVariants?: string[];
@@ -99,22 +156,58 @@ export interface VideoSEO {
   category?: string;
   targetAudience?: string;
   score?: number;
+  socialPromo?: SocialPromoPackage;
+}
+
+export interface CustomRule {
+  id: string;
+  title: string;
+  content: string;
+  isActive: boolean;
+}
+
+export interface CustomRuleAuditItem {
+  ruleId?: string;
+  ruleTitle: string;
+  status: 'passed' | 'failed' | 'warning';
+  details: string;
+  suggestedFix?: string;
+  targetField?: 'title' | 'description' | 'keywords' | 'hashtags' | 'pinnedComment' | 'all';
 }
 
 export interface SEOAnalysis {
   score: number;
   analysis: string;
+  scoreBreakdown?: {
+    titleScore: number;
+    descriptionScore: number;
+    keywordsScore: number;
+    rulesComplianceScore: number;
+  };
   improvements: {
     area: string;
     suggestion: string;
     suggestedValue: string;
     impact: 'high' | 'medium' | 'low';
+    isRuleViolation?: boolean;
+    ruleTitle?: string;
   }[];
   keywords?: {
     highFrequency: string[];
     lowFrequency: string[];
+    searchQueries?: string[];
   };
   googleSearchTips?: string[];
+  customRulesAudit?: {
+    totalRules: number;
+    passedRules: number;
+    items: CustomRuleAuditItem[];
+  };
+  ctrPrediction?: {
+    predictedCtr: number;
+    benchmark: string;
+    advice: string;
+  };
 }
 
 export interface TextVariation {
@@ -153,6 +246,7 @@ export interface ChannelStrategyResult {
 }
 
 export interface SceneBreakdown {
+  id?: string;
   scene?: string;
   description: string;
   text?: string;
@@ -160,6 +254,7 @@ export interface SceneBreakdown {
   duration?: number;
   timecode?: string;
   timeRange?: string;
+  visualPrompt?: string;
   voiceover?: {
     voiceName?: string;
     settings?: string;
@@ -183,6 +278,32 @@ export interface SceneBreakdown {
   sfx?: string;
 }
 
+export interface ShortsVisualScene {
+  text: string;
+  prompt: string;
+  videoPrompt1?: string;
+  videoPrompt2?: string;
+  shotType?: string;
+  shotTypeRu?: string;
+  cameraMovement?: string;
+  cameraMovementRu?: string;
+  focalLength?: string;
+  duration?: number;
+  sceneSummary?: string;
+}
+
+export interface CinematicShotProfile {
+  shotType: string;
+  shotTypeRu: string;
+  cameraMovement: string;
+  cameraMovementRu: string;
+  optics: string;
+  motionDirective: string;
+  speedDynamics: string;
+  microDynamicsExample: string;
+  foleyCategory: string;
+}
+
 export interface ScriptBlockStructure {
   title: string;
   type: string;
@@ -193,6 +314,9 @@ export interface ScriptBlockStructure {
 
 export interface GeneratedBlock {
   title?: string;
+  blockTitle?: string;
+  blockNumber?: number;
+  timeRange?: string;
   text: string;
   scenes?: any[];
   sfx?: string;
@@ -250,6 +374,7 @@ export interface ShortsSEO {
   hashtags: string[];
   keywords: string[];
   pinnedComment: string;
+  socialPromo?: SocialPromoPackage;
 }
 
 export interface TransitionPrompt {
@@ -314,6 +439,7 @@ export interface CompetitorChannel {
   engagement: number;
   topVideos: CompetitorVideo[];
   channelUrl?: string;
+  isCustom?: boolean;
 }
 
 export interface EvergreenNicheTrend {
@@ -475,5 +601,48 @@ export interface ShortsHashtagsResult {
   nicheHashtags?: string[];
   topicHashtags?: string[];
   explanation?: string;
+}
+
+export interface ShortsOutlierAnalysis {
+  formulas: string[];
+  titlePatterns?: string[];
+  topics: string[];
+  flopTopics?: string[];
+  emotionalTriggers: string[];
+  durationInsight: string;
+  freshnessInsight: string;
+  summaryAnalysis: string; // Task 1: Max 15 lines breakdown
+  framework: string; // Task 2: Topic + Angle + Title Type + Promise
+}
+
+export interface ShortsOutlierIdea {
+  id: string;
+  number: number;
+  title: string;
+  whyItWorks: string; // Task 3 format: "Почему сработает: [ссылка на аутлаер]"
+  visualTypes: string[]; // Task 3 format: "Что будет в кадре: [3-5 типов визуала]"
+  visualContent?: string[];
+  hook: string; // 3-second hook
+  trigger?: string;
+  emotionalTrigger?: string;
+  estimatedDuration?: string;
+  fullScript?: string;
+  scenes?: Array<{
+    timecode: string;
+    text: string;
+    visualPrompt: string;
+  }>;
+  isGenerated?: boolean;
+  color?: string;
+  colorType?: "custom" | "status" | "category";
+  status?: string;
+  category?: string;
+  playlist?: string;
+}
+
+export interface ShortsOutlierGenerationResult {
+  analysis: ShortsOutlierAnalysis;
+  ideas: ShortsOutlierIdea[];
+  timestamp: string;
 }
 

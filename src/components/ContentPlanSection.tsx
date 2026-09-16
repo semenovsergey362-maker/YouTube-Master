@@ -3,6 +3,7 @@ import { logger } from "../config/logger";
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ScrollFadeIn } from './ScrollFadeIn';
+import { PlaylistSelector } from "./common/PlaylistSelector";
 import { 
   Sparkles, 
   Upload, 
@@ -200,6 +201,15 @@ export const ContentPlanSection: React.FC<ContentPlanSectionProps> = ({
   // Manual items state
   const [manualTitle, setManualTitle] = useState('');
   const [manualDesc, setManualDesc] = useState('');
+  const [manualPlaylist, setManualPlaylist] = useState('');
+  const [userPlaylists, setUserPlaylists] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("yt_idea_playlists");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Draft items for preview
   const [draftItems, setDraftItems] = useState<ContentPlanItem[]>([]);
@@ -254,7 +264,7 @@ ${competitors ? `Анализ конкурентов: ${competitors}` : ''}
       `.trim();
 
       const result = await generateIdeasFromDescription(promptDescription, {
-        model: selectedModel || 'gemini-2.5-flash',
+        model: selectedModel || "gemini-3.1-flash-lite",
       });
 
       if (result && result.ideas && result.ideas.length > 0) {
@@ -299,7 +309,7 @@ ${competitors ? `Анализ конкурентов: ${competitors}` : ''}
     setGoogleQuery(query);
     try {
       const res = await generateIdeasFromGoogleSearch(query, {
-        model: selectedModel || 'gemini-3.1-pro',
+        model: selectedModel || "gemini-3.1-flash-lite",
       });
 
       if (res && res.ideas && res.ideas.length > 0) {
@@ -351,7 +361,7 @@ ${competitors ? `Анализ конкурентов: ${competitors}` : ''}
 
     try {
       const data = await importYouTubeVideoData(targetUrl, {
-        model: selectedModel || 'gemini-3.1-pro',
+        model: selectedModel || "gemini-3.1-flash-lite",
       });
 
       setImportedYouTubeData(data);
@@ -546,6 +556,14 @@ ${competitors ? `Анализ конкурентов: ${competitors}` : ''}
       return;
     }
 
+    if (manualPlaylist && !userPlaylists.includes(manualPlaylist)) {
+      const updated = [...userPlaylists, manualPlaylist];
+      setUserPlaylists(updated);
+      try {
+        localStorage.setItem("yt_idea_playlists", JSON.stringify(updated));
+      } catch (e) {}
+    }
+
     const newItem: ContentPlanItem = {
       id: `manual-${Date.now()}`,
       title: manualTitle.trim(),
@@ -559,7 +577,8 @@ ${competitors ? `Анализ конкурентов: ${competitors}` : ''}
     setSelectedIds((prev) => new Set([...Array.from(prev), draftItems.length]));
     setManualTitle('');
     setManualDesc('');
-    toast.success('Тема добавлена в предпросмотр');
+    setManualPlaylist('');
+    toast.success(manualPlaylist ? `Тема добавлена в предпросмотр (Плейлист: ${manualPlaylist})` : 'Тема добавлена в предпросмотр');
   };
 
   // Toggle selection
@@ -1509,6 +1528,31 @@ ${competitors ? `Анализ конкурентов: ${competitors}` : ''}
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1">
+                    Назначить плейлист (авто-предложения по теме канала)
+                  </label>
+                  <PlaylistSelector
+                    value={manualPlaylist}
+                    onChange={setManualPlaylist}
+                    playlists={userPlaylists}
+                    niche={selectedNiche || customNiche || nicheData?.niche || ""}
+                    ideaTitle={manualTitle}
+                    ideaDescription={manualDesc}
+                    onAddPlaylist={(name) => {
+                      if (!userPlaylists.includes(name)) {
+                        const next = [...userPlaylists, name];
+                        setUserPlaylists(next);
+                        try {
+                          localStorage.setItem("yt_idea_playlists", JSON.stringify(next));
+                        } catch (e) {}
+                      }
+                    }}
+                    showChips={true}
+                  />
+                </div>
+
                 <div className="flex justify-end">
                   <button
                     type="button"

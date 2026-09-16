@@ -25,6 +25,7 @@ import {
   Info
 } from "lucide-react";
 import { toast } from "sonner";
+import { copyToClipboard as copyTextToClipboard } from "../utils/helpers";
 
 interface AppSettingsModalProps {
   isOpen: boolean;
@@ -140,8 +141,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
   const callbackUrl = `${(appUrl || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, "")}/auth/callback`;
 
-  const copyToClipboard = (text: string, isCallback = false) => {
-    navigator.clipboard.writeText(text);
+  const handleCopyToClipboard = (text: string, isCallback = false) => {
+    copyTextToClipboard(text);
     if (isCallback) {
       setHasCopiedCallback(true);
       setTimeout(() => setHasCopiedCallback(false), 2000);
@@ -289,7 +290,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                     className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs font-mono text-emerald-400 select-all outline-none"
                   />
                   <button
-                    onClick={() => copyToClipboard(callbackUrl, true)}
+                    onClick={() => handleCopyToClipboard(callbackUrl, true)}
                     className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
                   >
                     {hasCopiedCallback ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
@@ -312,7 +313,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                     className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs font-mono text-neutral-200 focus:border-primary focus:outline-none"
                   />
                   <button
-                    onClick={() => copyToClipboard(appUrl, false)}
+                    onClick={() => handleCopyToClipboard(appUrl, false)}
                     className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
                   >
                     {hasCopiedUrl ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}

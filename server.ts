@@ -12,6 +12,16 @@ import http from "http";
 import cors from "cors";
 import { GoogleGenAI, Type } from "@google/genai";
 import os from "os";
+import { execFile } from "child_process";
+
+// Process safety handlers to prevent unhandled rejections from terminating server
+process.on("unhandledRejection", (reason: any) => {
+  console.error("[Process Warning] Unhandled Rejection intercepted:", reason?.message || reason);
+});
+
+process.on("uncaughtException", (error: any) => {
+  console.error("[Process Error] Uncaught Exception intercepted:", error?.message || error);
+});
 
 let aiInstance: GoogleGenAI | null = null;
 function getGeminiClient() {
@@ -48,61 +58,468 @@ function getGeminiClient() {
   return aiInstance;
 }
 
+// Rate limiter and queue state for Gemini API (designed specifically for Free Tier 15 RPM & Token Bursts)
+interface QueuedGeminiRequest {
+  id: string;
+  fn: () => Promise<any>;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+}
+
+const geminiRequestQueue: QueuedGeminiRequest[] = [];
+let isProcessingGeminiQueue = false;
+const requestTimestamps: number[] = [];
+const MIN_REQUEST_GAP_MS = 1100; // minimum gap between consecutive Gemini calls to avoid token bursts
+const MAX_REQUESTS_PER_MINUTE = 13; // safely under 15 RPM free-tier quota
+let lastRequestEndTime = 0;
+
+async function processGeminiQueue() {
+  if (isProcessingGeminiQueue) return;
+  isProcessingGeminiQueue = true;
+
+  while (geminiRequestQueue.length > 0) {
+    const item = geminiRequestQueue.shift();
+    if (!item) break;
+
+    const now = Date.now();
+    // Prune timestamps older than 60s
+    while (requestTimestamps.length > 0 && requestTimestamps[0] < now - 60000) {
+      requestTimestamps.shift();
+    }
+
+    // 1. Enforce RPM limit (max 13 requests per rolling 60 seconds)
+    if (requestTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
+      const oldestInWindow = requestTimestamps[0];
+      const waitTimeForRpm = Math.max(500, (oldestInWindow + 60000) - now + 300);
+      console.log(`[Gemini Free Tier Pacer] Staying safely within 15 RPM quota. Pacing next request by ${(waitTimeForRpm / 1000).toFixed(1)}s...`);
+      await new Promise(r => setTimeout(r, waitTimeForRpm));
+    }
+
+    // 2. Enforce minimum gap between calls
+    const timeSinceLastEnd = Date.now() - lastRequestEndTime;
+    if (timeSinceLastEnd < MIN_REQUEST_GAP_MS) {
+      await new Promise(r => setTimeout(r, MIN_REQUEST_GAP_MS - timeSinceLastEnd));
+    }
+
+    try {
+      requestTimestamps.push(Date.now());
+      const result = await item.fn();
+      lastRequestEndTime = Date.now();
+      item.resolve(result);
+    } catch (err) {
+      lastRequestEndTime = Date.now();
+      item.reject(err);
+    }
+  }
+
+  isProcessingGeminiQueue = false;
+}
+
+function queueGeminiCall<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    geminiRequestQueue.push({
+      id: Math.random().toString(36).substring(2, 9),
+      fn,
+      resolve,
+      reject
+    });
+    processGeminiQueue();
+  });
+}
+
+// Track temporary model cooldowns when hitting 429 quota or 503 high demand
+const modelCooldowns = new Map<string, number>();
+
+function extractRetryDelayMs(error: any): number {
+  try {
+    const rawDetails = error?.details ? JSON.stringify(error.details) : "";
+    const msg = `${error?.message || ""} ${rawDetails}`;
+
+    // 1. Check details array for explicit retryDelay from Google RPC
+    if (error?.details && Array.isArray(error.details)) {
+      const retryInfo = error.details.find((d: any) => d?.retryDelay);
+      if (retryInfo?.retryDelay) {
+        const sec = parseFloat(String(retryInfo.retryDelay).replace("s", ""));
+        if (!isNaN(sec) && sec > 0) return Math.ceil(sec * 1000) + 500;
+      }
+    }
+
+    // 2. Match seconds in error message: e.g. "retry in 47.157866787s" or retryDelay: "47s"
+    const match = msg.match(/retry in\s+([\d.]+)\s*s/i) || msg.match(/retryDelay["']?:\s*["']?([\d.]+)s/i);
+    if (match && match[1]) {
+      const sec = parseFloat(match[1]);
+      if (!isNaN(sec) && sec > 0) return Math.ceil(sec * 1000) + 500;
+    }
+
+    // 3. Match milliseconds: e.g. "retry in 573.379745ms"
+    const msMatch = msg.match(/retry in\s+([\d.]+)\s*ms/i);
+    if (msMatch && msMatch[1]) {
+      const ms = parseFloat(msMatch[1]);
+      if (!isNaN(ms) && ms > 0) return Math.ceil(ms) + 300;
+    }
+
+    // 4. Strict check for zero quota model (e.g. paid-only model without billing, limit: 0)
+    if (/\blimit:\s*0\b/i.test(msg) || /quotaValue["']?:\s*["']?0["']?/i.test(msg)) {
+      return 24 * 60 * 60 * 1000;
+    }
+  } catch (e) {}
+  return 3000; // default short 3s cooldown for temporary RPM bursts
+}
+
 async function generateContentWithFallback(ai: GoogleGenAI, modelPreferred: string, params: {
   contents: any;
   config?: any;
 }) {
-  const preferred = modelPreferred || "gemini-3.7-flash";
-  const fallbackModels = ["gemini-3.7-flash", "gemini-3.1-flash-lite"];
-  const models = [preferred, ...fallbackModels];
-  const uniqueModels = Array.from(new Set(models));
-  let lastError: any = null;
-
-  for (let mIdx = 0; mIdx < uniqueModels.length; mIdx++) {
-    const model = uniqueModels[mIdx];
-    const hasNextModel = mIdx < uniqueModels.length - 1;
-    let retries = 1;
-    while (retries >= 0) {
+  return queueGeminiCall(async () => {
+    let preferred = (modelPreferred || "gemini-3.5-flash-lite").trim();
+    const isImageModel = preferred.includes("-image") || preferred.includes("image");
+    
+    // Check if contents genuinely contains audio binary parts (not just the word "audio" in a prompt text!)
+    const isAudioTask = preferred.includes("transcribe") || (() => {
       try {
-        console.log(`[Gemini Request] Attempting with model: ${model}`);
-        const response = await ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config
-        });
-        return response;
-      } catch (error: any) {
-        lastError = error;
-        const errorMessage = (error.message || "").toLowerCase();
-        console.warn(`[Gemini Request Warning] Model ${model} failed (retries left: ${retries}). Error:`, error.message || error);
-        
-        if (errorMessage.includes("api key") || errorMessage.includes("key not valid") || errorMessage.includes("not found")) {
-          throw error;
+        const checkPart = (p: any) => {
+          const mime = p?.inlineData?.mimeType || p?.fileData?.mimeType;
+          return typeof mime === "string" && mime.toLowerCase().startsWith("audio/");
+        };
+        const c = params.contents;
+        if (Array.isArray(c)) {
+          for (const item of c) {
+            if (checkPart(item)) return true;
+            if (Array.isArray(item?.parts) && item.parts.some(checkPart)) return true;
+          }
+        } else if (typeof c === "object" && c !== null) {
+          if (checkPart(c)) return true;
+          if (Array.isArray(c?.parts) && c.parts.some(checkPart)) return true;
         }
+      } catch (e) {}
+      return false;
+    })();
 
-        const isHighDemand = errorMessage.includes("503") || 
-                             errorMessage.includes("high demand") || 
-                             errorMessage.includes("unavailable") || 
-                             errorMessage.includes("resource_exhausted") ||
-                             errorMessage.includes("quota");
-
-        if (isHighDemand && hasNextModel) {
-          console.warn(`[Gemini Request Warning] Model ${model} is experiencing high demand (503). Immediately cascading to fallback model: ${uniqueModels[mIdx + 1]}...`);
-          break;
+    // For general text tasks, pick a healthy candidate if preferred is currently cooling down
+    if (!isImageModel && !isAudioTask) {
+      if ((modelCooldowns.get(preferred) || 0) > Date.now()) {
+        const candidateHealthy = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
+        const found = candidateHealthy.find(m => (modelCooldowns.get(m) || 0) <= Date.now());
+        if (found) {
+          preferred = found;
         }
-
-        if (retries > 0) {
-          const delay = (2 - retries) * 600;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-        retries--;
       }
     }
-    if (hasNextModel) {
-      console.warn(`[Gemini Request Warning] Model ${model} exhausted, falling back to next available model: ${uniqueModels[mIdx + 1]}...`);
+    
+    let fallbackList: string[];
+    if (isImageModel) {
+      fallbackList = [preferred, "gemini-3.1-flash-lite-image", "gemini-3.1-flash-image", "gemini-3-pro-image"];
+    } else if (isAudioTask) {
+      fallbackList = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.1-flash-lite"];
+    } else {
+      fallbackList = [
+        preferred,
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+        "gemini-3.5-flash"
+      ];
     }
-  }
-  throw lastError || new Error("All models failed to generate content");
+
+    // Deduplicate and normalize model names
+    const uniqueModels: string[] = [];
+    for (const m of fallbackList) {
+      let normalized = m;
+      if (!m) continue;
+      if (m === "gemini-3.5-transcribe" || m.includes("transcribe")) {
+        normalized = "gemini-3.5-flash-lite";
+      } else if (
+        m === "gemini-3.5-flash-lite" ||
+        m === "gemini-3.6-flash" ||
+        m === "gemini-3.1-flash-lite" ||
+        m === "gemini-3.8-flash" ||
+        m === "gemini-flash-latest" ||
+        m === "gemini-3.5-flash" ||
+        m === "gemini-3.1-flash-lite-image" ||
+        m === "gemini-3.1-flash-image" ||
+        m === "gemini-3-pro-image"
+      ) {
+        normalized = m;
+      } else if (isImageModel) {
+        normalized = "gemini-3.1-flash-lite-image";
+      } else if (isAudioTask) {
+        normalized = "gemini-3.5-flash-lite";
+      } else {
+        normalized = "gemini-3.5-flash-lite";
+      }
+      if (!uniqueModels.includes(normalized)) {
+        uniqueModels.push(normalized);
+      }
+    }
+
+    const now = Date.now();
+    // Prioritize models that are NOT currently in cooldown.
+    // If a model is on cooldown (due to 503 high demand or 429 quota), do not attempt it if viable alternatives exist!
+    const availableModels = uniqueModels.filter(m => (modelCooldowns.get(m) || 0) <= now);
+    const modelsToTry = availableModels.length > 0
+      ? availableModels
+      : [...uniqueModels].sort((a, b) => (modelCooldowns.get(a) || 0) - (modelCooldowns.get(b) || 0));
+
+    let lastError: any = null;
+
+    for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
+      const model = modelsToTry[mIdx];
+      const hasNextModel = mIdx < modelsToTry.length - 1;
+
+      // In-place retry loop for the current model
+      const maxModelAttempts = 3;
+      for (let attempt = 1; attempt <= maxModelAttempts; attempt++) {
+        try {
+          console.log(`[Gemini Request] Calling model: ${model} (cascade ${mIdx + 1}/${modelsToTry.length}, attempt ${attempt}/${maxModelAttempts})`);
+          
+          const timeoutMs = 120000; // 2 minutes to safely handle rich structured generations
+          const responsePromise = ai.models.generateContent({
+            model,
+            contents: params.contents,
+            config: params.config
+          });
+          
+          const timerPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+              const err = new Error(`Model ${model} request timed out after ${timeoutMs / 1000}s`) as any;
+              err.status = 504;
+              reject(err);
+            }, timeoutMs);
+          });
+
+          const response = (await Promise.race([responsePromise, timerPromise])) as any;
+          
+          // Verify response contains actual content before returning (prevents returning empty candidated objects)
+          const firstCandidate = response?.candidates?.[0];
+          const hasCandidateParts = Boolean(firstCandidate?.content?.parts && firstCandidate.content.parts.length > 0);
+          const hasText = typeof response?.text === "string" && response.text.trim().length > 0;
+          if (!isImageModel && !hasText && !hasCandidateParts) {
+            console.warn(`[Gemini Request Cascade] Model ${model} returned empty content / no text parts. Cascading to next model...`);
+            if (hasNextModel) {
+              break;
+            }
+          }
+
+          // Model succeeded: remove any cooldown
+          modelCooldowns.delete(model);
+          return response;
+        } catch (error: any) {
+          const errorMessage = (error.message || "").toLowerCase();
+          const status = error.status || error.code;
+          const isZeroQuotaModel = 
+            /\blimit:\s*0\b/i.test(errorMessage) || 
+            /quotavalue["']?:\s*["']?0["']?/i.test(errorMessage);
+          
+          const isDailyQuotaExceeded =
+            errorMessage.includes("generaterequestsperday") ||
+            errorMessage.includes("limit: 20") ||
+            errorMessage.includes("limit:20") ||
+            errorMessage.includes("perdayperprojectpermodel") ||
+            errorMessage.includes("generatelanguage.googleapis.com/generate_content_free_tier_requests") ||
+            (errorMessage.includes("quota") && errorMessage.includes("gemini-3.8-flash"));
+
+          if (!isZeroQuotaModel || !hasNextModel) {
+            lastError = error;
+          }
+
+          if (errorMessage.includes("api key") || errorMessage.includes("key not valid") || errorMessage.includes("unregistered")) {
+            throw error;
+          }
+
+          const isNotFound = status === 404 ||
+                             errorMessage.includes("not_found") ||
+                             errorMessage.includes("404") ||
+                             errorMessage.includes("no longer available") ||
+                             errorMessage.includes("not found");
+
+          const isHighDemand = status === 503 ||
+                               errorMessage.includes("503") || 
+                               errorMessage.includes("high demand") || 
+                               errorMessage.includes("unavailable") ||
+                               errorMessage.includes("spikes in demand");
+
+          const isTimedOut = status === 504 ||
+                             errorMessage.includes("timed out") ||
+                             errorMessage.includes("timeout");
+
+          const isQuotaRateLimit = isZeroQuotaModel ||
+                                   isDailyQuotaExceeded ||
+                                   status === 429 ||
+                                   errorMessage.includes("429") ||
+                                   errorMessage.includes("resource_exhausted") ||
+                                   errorMessage.includes("quota") ||
+                                   errorMessage.includes("rate limit") ||
+                                   errorMessage.includes("overloaded") ||
+                                   errorMessage.includes("busy");
+
+          if (isNotFound) {
+            modelCooldowns.set(model, Date.now() + 24 * 60 * 60 * 1000);
+            console.warn(`[Gemini Request Cascade] Model ${model} is not available (404). Cascading...`);
+            break; // Skip to next model
+          }
+
+          if (isZeroQuotaModel) {
+            modelCooldowns.set(model, Date.now() + 24 * 60 * 60 * 1000);
+            console.warn(`[Gemini Request Cascade] Model ${model} has zero quota on current tier (limit: 0). Placed on 24h cooldown.`);
+            if (hasNextModel) {
+              console.warn(`[Gemini Request Cascade] Immediately cascading from ${model} to ${modelsToTry[mIdx + 1]}...`);
+            }
+            break;
+          }
+
+          // Daily Quota Exceeded (Free Tier 20 RPD limit)
+          if (isDailyQuotaExceeded || (status === 429 && errorMessage.includes("perday"))) {
+            const cdUntil = Date.now() + 24 * 60 * 60 * 1000;
+            modelCooldowns.set(model, cdUntil);
+            if (model === "gemini-3.8-flash") {
+              modelCooldowns.set("gemini-flash-latest", cdUntil);
+            }
+            console.warn(`[Gemini Quota Notice] Model ${model} reached daily free tier limit. Put on 24h cooldown.`);
+            if (hasNextModel) {
+              console.warn(`[Gemini Request Cascade] Immediately cascading from ${model} to ${modelsToTry[mIdx + 1]}...`);
+            }
+            break;
+          }
+
+          // 503 High Demand: model cluster is temporarily overloaded on Google servers.
+          if (isHighDemand) {
+            const cdDuration = 60 * 1000; // 60-second cooldown for temporary demand spikes
+            modelCooldowns.set(model, Date.now() + cdDuration);
+            console.warn(`[Gemini Request Cascade] Model ${model} is experiencing high demand (503). Placed on 60s cooldown.`);
+            if (hasNextModel) {
+              console.warn(`[Gemini Request Cascade] Immediately cascading to next model: ${modelsToTry[mIdx + 1]}...`);
+              break;
+            } else {
+              if (attempt < 2) {
+                console.warn(`[Gemini Request Retry] Waiting 2s before final attempt for ${model}...`);
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+              }
+              break;
+            }
+          }
+
+          // Request Timed Out: model stalled.
+          if (isTimedOut) {
+            modelCooldowns.set(model, Date.now() + 180 * 1000);
+            console.warn(`[Gemini Request Cascade] Model ${model} request timed out.`);
+            if (hasNextModel) {
+              console.warn(`[Gemini Request Cascade] Immediately cascading to next model: ${modelsToTry[mIdx + 1]}...`);
+              break;
+            } else {
+              if (attempt < 2) {
+                await new Promise(r => setTimeout(r, 1500));
+                continue;
+              }
+              break;
+            }
+          }
+
+          // Rate limit / 429 Quota
+          if (isQuotaRateLimit) {
+            const cooldownMs = extractRetryDelayMs(error);
+            modelCooldowns.set(model, Date.now() + cooldownMs);
+            console.warn(`[Gemini Request Cascade] Model ${model} rate-limited (429, cooldown ${Math.round(cooldownMs / 1000)}s).`);
+
+            // If it's a short RPM burst (under 3.5s) on gemini-3.1-flash-lite, pause and retry once before cascading
+            if (cooldownMs <= 3500 && attempt === 1 && model === "gemini-3.1-flash-lite") {
+              const waitTime = Math.max(cooldownMs, 1800);
+              console.warn(`[Gemini Pacer] Waiting ${(waitTime / 1000).toFixed(1)}s for short RPM reset on ${model}...`);
+              await new Promise(r => setTimeout(r, waitTime));
+              continue;
+            }
+
+            if (hasNextModel) {
+              console.warn(`[Gemini Request Cascade] Cascading to next model: ${modelsToTry[mIdx + 1]}...`);
+              break;
+            } else {
+              if (attempt < maxModelAttempts) {
+                const waitTime = Math.min(8000, Math.max(cooldownMs, 1500 * attempt));
+                console.warn(`[Gemini Free Tier Pacer] Waiting ${(waitTime / 1000).toFixed(1)}s before retry #${attempt + 1}...`);
+                await new Promise(r => setTimeout(r, waitTime));
+                continue;
+              }
+              break;
+            }
+          }
+
+          // Other unexpected errors
+          console.warn(`[Gemini Request Notice] Model ${model} encountered non-quota error (status: ${status}):`, error.message || error);
+          if (hasNextModel) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+            continue;
+          }
+        }
+      }
+    }
+
+    // Final emergency rescue attempt if all cascade models failed
+    if (!isImageModel) {
+      const rescueModels = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+        "gemini-3.5-flash"
+      ];
+      for (const rescueModel of rescueModels) {
+        // Skip models that are currently in active cooldown
+        if ((modelCooldowns.get(rescueModel) || 0) > Date.now()) {
+          continue;
+        }
+        try {
+          console.info(`[Gemini Emergency Rescue] Attempting rescue call with ${rescueModel}...`);
+          const rescuePromise = ai.models.generateContent({
+            model: rescueModel,
+            contents: params.contents,
+            config: params.config
+          });
+          const rescueTimer = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`Rescue call with ${rescueModel} timed out after 90s`)), 90000);
+          });
+          const rescueResponse = (await Promise.race([rescuePromise, rescueTimer])) as any;
+          modelCooldowns.delete(rescueModel);
+          return rescueResponse;
+        } catch (rescueErr: any) {
+          const rMsg = (rescueErr?.message || "").toLowerCase();
+          const rStatus = rescueErr?.status || rescueErr?.code;
+          if (rStatus === 503 || rMsg.includes("503") || rMsg.includes("high demand") || rMsg.includes("unavailable")) {
+            modelCooldowns.set(rescueModel, Date.now() + 60000);
+          } else if (rStatus === 429 || rMsg.includes("429") || rMsg.includes("quota")) {
+            const delay = extractRetryDelayMs(rescueErr);
+            modelCooldowns.set(rescueModel, Date.now() + delay);
+          }
+          console.info(`[Gemini Emergency Rescue] Rescue call with ${rescueModel} unavailable:`, rMsg.slice(0, 80));
+        }
+      }
+    }
+
+    if (lastError) {
+      const errMsg = (lastError.message || "").toLowerCase();
+      if (errMsg.includes("limit: 0") || errMsg.includes("resource_exhausted") || errMsg.includes("quota") || errMsg.includes("429")) {
+        const customErr = new Error("Временное ограничение частоты запросов Gemini API (квота). Пожалуйста, подождите несколько секунд и повторите генерацию.") as any;
+        customErr.status = 429;
+        throw customErr;
+      }
+      if (errMsg.includes("503") || errMsg.includes("high demand") || errMsg.includes("unavailable") || errMsg.includes("spikes in demand")) {
+        const customErr = new Error("Серверы Gemini временно испытывают высокую нагрузку (503). Пожалуйста, повторите запрос через несколько секунд.") as any;
+        customErr.status = 503;
+        throw customErr;
+      }
+      if (errMsg.includes("timed out") || errMsg.includes("timeout")) {
+        const customErr = new Error("Время ожидания ответа от модели Gemini истекло. Пожалуйста, повторите генерацию.") as any;
+        customErr.status = 504;
+        throw customErr;
+      }
+    }
+    throw lastError || new Error("All fallback Gemini models failed to generate content.");
+  });
 }
 
 function tryRepairJSON(text: string): any {
@@ -309,19 +726,33 @@ const _dirname = typeof __dirname !== "undefined" ? __dirname : "";
 
 
 // Local database stored persistently in project directory with fallback to tmp
+// Local database stored persistently in project directory with fallback to tmp and memory
 const PERSISTENT_DATA_FILE = path.join(process.cwd(), '.server_data.json');
+const BAK_DATA_FILE = path.join(process.cwd(), '.server_data.bak');
 const TMP_DATA_FILE = path.join(process.platform === 'win32' ? os.tmpdir() : '/tmp', 'server_data.json');
+let inMemoryDbCache: any = null;
 
 function getDataFilePath(): string {
   try {
     if (!fs.existsSync(PERSISTENT_DATA_FILE)) {
-      if (fs.existsSync(TMP_DATA_FILE)) {
+      if (fs.existsSync(BAK_DATA_FILE)) {
+        try {
+          const bak = fs.readFileSync(BAK_DATA_FILE, 'utf8');
+          fs.writeFileSync(PERSISTENT_DATA_FILE, bak, 'utf8');
+        } catch (_) {}
+      } else if (fs.existsSync(TMP_DATA_FILE)) {
         try {
           const legacy = fs.readFileSync(TMP_DATA_FILE, 'utf8');
           fs.writeFileSync(PERSISTENT_DATA_FILE, legacy, 'utf8');
         } catch (_) {}
       } else {
-        const initial = { scheduled_videos: [], youtube_tokens: {}, app_url: "" };
+        const initial = {
+          scheduled_videos: [],
+          youtube_tokens: {},
+          cached_channel_stats: {},
+          cached_performance: {},
+          app_url: ""
+        };
         fs.writeFileSync(PERSISTENT_DATA_FILE, JSON.stringify(initial, null, 2), 'utf8');
       }
     }
@@ -334,51 +765,86 @@ function getDataFilePath(): string {
 
 function readDb() {
   const filePath = getDataFilePath();
+  let content = "";
+
   if (fs.existsSync(filePath)) {
     try {
-      const content = fs.readFileSync(filePath, 'utf8');
-      if (!content.trim()) return { scheduled_videos: [], youtube_tokens: {}, app_url: "" };
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (_) {}
+  }
+
+  if (!content.trim() && fs.existsSync(BAK_DATA_FILE)) {
+    try {
+      content = fs.readFileSync(BAK_DATA_FILE, 'utf8');
+    } catch (_) {}
+  }
+
+  if (!content.trim() && fs.existsSync(TMP_DATA_FILE)) {
+    try {
+      content = fs.readFileSync(TMP_DATA_FILE, 'utf8');
+    } catch (_) {}
+  }
+
+  if (content && content.trim()) {
+    try {
       const data = JSON.parse(content);
+      if (data && typeof data === "object") {
+        data.scheduled_videos = Array.isArray(data.scheduled_videos) ? data.scheduled_videos : [];
+        data.youtube_tokens = data.youtube_tokens || {};
+        data.cached_channel_stats = data.cached_channel_stats || {};
+        data.cached_performance = data.cached_performance || {};
 
-      // One-way security migration: versions before the server-only OAuth
-      // configuration stored client credentials under api_keys. They are no
-      // longer read, so erase them from disk as soon as the legacy file is used.
-      // Legacy keys check removed to prevent data loss.
-      // We migrate them to youtube_oauth instead.
-      if (data && typeof data === "object" && "api_keys" in data) {
-        if (!data.youtube_oauth) {
-          data.youtube_oauth = {
-            client_id: data.api_keys.yt_client_id || "",
-            client_secret: data.api_keys.yt_client_secret || ""
-          };
+        if ("api_keys" in data) {
+          if (!data.youtube_oauth) {
+            data.youtube_oauth = {
+              client_id: data.api_keys.yt_client_id || "",
+              client_secret: data.api_keys.yt_client_secret || ""
+            };
+          }
+          delete data.api_keys;
         }
-        delete data.api_keys;
-        writeDb(data);
-      }
 
-      return data;
+        inMemoryDbCache = data;
+        return data;
+      }
     } catch (e) {
-      console.error("Error reading/parsing db file, resetting to default:", e);
-      const defaultData = { scheduled_videos: [], youtube_tokens: {}, app_url: "" };
-      writeDb(defaultData);
-      return defaultData;
+      console.error("Error parsing db file, falling back to memory cache:", e);
+      if (inMemoryDbCache) return inMemoryDbCache;
     }
   }
-  return { scheduled_videos: [], youtube_tokens: {}, app_url: "" };
+
+  if (inMemoryDbCache) return inMemoryDbCache;
+
+  const defaultData = {
+    scheduled_videos: [],
+    youtube_tokens: {},
+    cached_channel_stats: {},
+    cached_performance: {},
+    app_url: ""
+  };
+  inMemoryDbCache = defaultData;
+  return defaultData;
 }
 
 function writeDb(data: any) {
+  if (!data || typeof data !== "object") return;
+  inMemoryDbCache = data;
   const filePath = getDataFilePath();
+  const jsonStr = JSON.stringify(data, null, 2);
+
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(filePath, jsonStr, 'utf8');
   } catch (err) {
     console.error("Error writing to primary db file, using fallback:", err);
-    try {
-      fs.writeFileSync(TMP_DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
-    } catch (e2) {
-      console.error("Fatal error writing fallback db:", e2);
-    }
   }
+
+  try {
+    fs.writeFileSync(BAK_DATA_FILE, jsonStr, 'utf8');
+  } catch (_) {}
+
+  try {
+    fs.writeFileSync(TMP_DATA_FILE, jsonStr, 'utf8');
+  } catch (_) {}
 }
 
 function getUserKeyFromProfile(profile: any): string | null {
@@ -395,6 +861,11 @@ function getUserProfileStorageKey(userKey: string | null | undefined): string {
 
 function getCurrentUserKey(req?: express.Request): string | null {
   try {
+    const headerUserId = req?.headers?.["x-youtube-user-id"] as string;
+    if (headerUserId && headerUserId !== "undefined" && headerUserId !== "null") {
+      return String(headerUserId);
+    }
+
     if (req?.cookies?.youtube_user_id) {
       return String(req.cookies.youtube_user_id);
     }
@@ -425,24 +896,30 @@ function saveActiveAuthUser(dbData: any, userProfile: any, tokens: any) {
 }
 
 function getCookieOptions() {
-  const isProduction = process.env.NODE_ENV === "production";
   return {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" as const : "lax" as const,
-    maxAge: 30 * 24 * 60 * 60 * 1000
+    secure: true, // Always true because app runs over HTTPS in AI Studio iframe
+    sameSite: "none" as const, // Required for third-party cookie access in iframe
+    partitioned: true, // CHIPS support for modern browsers
+    maxAge: 365 * 24 * 60 * 60 * 1000 // 1 year persistence
   };
 }
 
 function getOAuth2Client(req?: express.Request) {
   const dbData = readDb();
   const dbOAuth = dbData.youtube_oauth || {};
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.OAUTH_CLIENT_ID || dbOAuth.client_id;
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.OAUTH_CLIENT_ID || dbOAuth.client_id || '732408976087-q0p1bn26qiivf3tmmjvc0b74qfiau1kg.apps.googleusercontent.com';
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.OAUTH_CLIENT_SECRET || dbOAuth.client_secret;
   let appUrl = (process.env.APP_URL || process.env.VITE_APP_URL || dbOAuth.app_url || "").trim();
 
+  if (!appUrl && req) {
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const host = req.headers["x-forwarded-host"] || req.get("host") || "localhost:3000";
+    appUrl = `${proto}://${host}`;
+  }
+
   if (!appUrl) {
-    throw new Error("APP_URL is not configured. Set APP_URL in the server environment.");
+    appUrl = "http://localhost:3000";
   }
 
   appUrl = appUrl.replace(/\/+$/, "");
@@ -460,21 +937,49 @@ function getOAuth2Client(req?: express.Request) {
 
 async function getYouTubeClient(req: express.Request, res: express.Response) {
   const dbData = readDb();
-  const activeUserKey = getCurrentUserKey(req) || "global";
+  const headerTokens = (req.headers["x-youtube-tokens"] as string) || (req.headers["authorization"]?.startsWith("Bearer ") ? req.headers["authorization"].substring(7) : "");
+  const headerUserId = req.headers["x-youtube-user-id"] as string;
+  const activeUserKey = headerUserId || getCurrentUserKey(req) || "global";
 
-  let tokensStr = req.cookies.youtube_tokens;
+  let tokensStr = (headerTokens && headerTokens !== "undefined" && headerTokens !== "null") ? headerTokens : req.cookies?.youtube_tokens;
+
   if (!tokensStr && dbData.youtube_tokens?.[activeUserKey]) {
     tokensStr = JSON.stringify(dbData.youtube_tokens[activeUserKey]);
   }
+  if (!tokensStr && dbData.active_user && dbData.youtube_tokens?.[dbData.active_user]) {
+    tokensStr = JSON.stringify(dbData.youtube_tokens[dbData.active_user]);
+  }
   if (!tokensStr && dbData.youtube_tokens?.["global"]) {
     tokensStr = JSON.stringify(dbData.youtube_tokens["global"]);
+  }
+  if (!tokensStr && dbData.youtube_tokens) {
+    const validKey = Object.keys(dbData.youtube_tokens).find(k => !k.endsWith('_user') && (dbData.youtube_tokens[k]?.access_token || dbData.youtube_tokens[k]?.refresh_token));
+    if (validKey) {
+      tokensStr = JSON.stringify(dbData.youtube_tokens[validKey]);
+    }
   }
 
   if (!tokensStr) {
     throw new Error("Not authenticated");
   }
 
-  const tokens = JSON.parse(tokensStr);
+  let tokens: any;
+  try {
+    tokens = typeof tokensStr === "string" ? JSON.parse(tokensStr) : tokensStr;
+  } catch (parseErr) {
+    throw new Error("Not authenticated");
+  }
+
+  if (tokens && typeof tokens === "object") {
+    // Keep server db in sync with client tokens
+    if (!dbData.youtube_tokens?.[activeUserKey] || JSON.stringify(dbData.youtube_tokens[activeUserKey]) !== JSON.stringify(tokens)) {
+      dbData.youtube_tokens = dbData.youtube_tokens || {};
+      dbData.youtube_tokens[activeUserKey] = tokens;
+      dbData.active_user = activeUserKey;
+      writeDb(dbData);
+    }
+  }
+
   const oauth2Client = getOAuth2Client(req);
   oauth2Client.setCredentials(tokens);
 
@@ -486,7 +991,9 @@ async function getYouTubeClient(req: express.Request, res: express.Response) {
     currentDb.active_user = activeUserKey;
     writeDb(currentDb);
 
-    res.cookie("youtube_tokens", JSON.stringify(combinedTokens), getCookieOptions());
+    try {
+      res.cookie("youtube_tokens", JSON.stringify(combinedTokens), getCookieOptions());
+    } catch (_) {}
   });
 
   return google.youtube({ version: "v3", auth: oauth2Client });
@@ -580,8 +1087,8 @@ async function startServer() {
 
   // Middleware
   app.use(cors());
-  app.use(express.json({ limit: "15mb" }));
-  app.use(express.urlencoded({ limit: "15mb", extended: true }));
+  app.use(express.json({ limit: "60mb" }));
+  app.use(express.urlencoded({ limit: "60mb", extended: true }));
   app.use(cookieParser());
 
   app.use((req, res, next) => {
@@ -669,8 +1176,7 @@ async function startServer() {
       if (/[^\x00-\x7F]/.test(cleanQuery)) {
         try {
           const ai = getGeminiClient();
-          const aiRes = await ai.models.generateContent({
-            model: "gemini-3.7-flash",
+          const aiRes = await generateContentWithFallback(ai, "gemini-3.1-flash-lite", {
             contents: `Translate and convert this video prompt/keywords into 2-4 English stock video search keywords (for Pexels API). Output ONLY English space-separated keywords without punctuation or quotes.
 Input: "${cleanQuery}"`
           });
@@ -743,20 +1249,36 @@ Input: "${cleanQuery}"`
   });
 
   app.get("/api/auth/me", async (req, res) => {
-    let tokensStr = req.cookies.youtube_tokens;
-    let userStr = req.cookies.google_user;
+    const headerTokens = (req.headers["x-youtube-tokens"] as string) || "";
+    const headerUserId = req.headers["x-youtube-user-id"] as string;
+    let tokensStr = (headerTokens && headerTokens !== "undefined" && headerTokens !== "null") ? headerTokens : req.cookies?.youtube_tokens;
+    let userStr = req.cookies?.google_user;
     const dbData = readDb();
-    const activeUserKey = getCurrentUserKey(req) || "global";
+    const activeUserKey = headerUserId || getCurrentUserKey(req) || dbData.active_user || "global";
 
     if (!tokensStr && dbData.youtube_tokens?.[activeUserKey]) {
       tokensStr = JSON.stringify(dbData.youtube_tokens[activeUserKey]);
-      res.cookie("youtube_tokens", tokensStr, getCookieOptions());
+      try { res.cookie("youtube_tokens", tokensStr, getCookieOptions()); } catch (_) {}
+    }
+    if (!tokensStr && dbData.active_user && dbData.youtube_tokens?.[dbData.active_user]) {
+      tokensStr = JSON.stringify(dbData.youtube_tokens[dbData.active_user]);
+      try { res.cookie("youtube_tokens", tokensStr, getCookieOptions()); } catch (_) {}
+    }
+    if (!tokensStr && dbData.youtube_tokens?.["global"]) {
+      tokensStr = JSON.stringify(dbData.youtube_tokens["global"]);
+      try { res.cookie("youtube_tokens", tokensStr, getCookieOptions()); } catch (_) {}
+    }
+    if (!tokensStr && dbData.youtube_tokens) {
+      const validKey = Object.keys(dbData.youtube_tokens).find(k => !k.endsWith('_user') && (dbData.youtube_tokens[k]?.access_token || dbData.youtube_tokens[k]?.refresh_token));
+      if (validKey) {
+        tokensStr = JSON.stringify(dbData.youtube_tokens[validKey]);
+      }
     }
 
     const userProfileKey = getUserProfileStorageKey(activeUserKey);
     if (!userStr && dbData.youtube_tokens?.[userProfileKey]) {
       userStr = JSON.stringify(dbData.youtube_tokens[userProfileKey]);
-      res.cookie("google_user", userStr, getCookieOptions());
+      try { res.cookie("google_user", userStr, getCookieOptions()); } catch (_) {}
     }
 
     if (!tokensStr) {
@@ -764,12 +1286,13 @@ Input: "${cleanQuery}"`
     }
 
     try {
+      const tokens = typeof tokensStr === "string" ? JSON.parse(tokensStr) : tokensStr;
+
       if (userStr) {
         const parsedUser = JSON.parse(userStr);
-        return res.json({ user: parsedUser });
+        return res.json({ user: parsedUser, tokens, activeUser: activeUserKey });
       }
 
-      const tokens = JSON.parse(tokensStr);
       const oauth2Client = getOAuth2Client(req);
       oauth2Client.setCredentials(tokens);
 
@@ -778,8 +1301,10 @@ Input: "${cleanQuery}"`
       const userInfo = userInfoRes.data;
       const userKey = getUserKeyFromProfile(userInfo) || activeUserKey || "global";
 
-      res.cookie("google_user", JSON.stringify(userInfo), getCookieOptions());
-      res.cookie("youtube_user_id", userKey, getCookieOptions());
+      try {
+        res.cookie("google_user", JSON.stringify(userInfo), getCookieOptions());
+        res.cookie("youtube_user_id", userKey, getCookieOptions());
+      } catch (_) {}
 
       try {
         dbData.youtube_tokens = dbData.youtube_tokens || {};
@@ -791,7 +1316,7 @@ Input: "${cleanQuery}"`
         console.error("Error writing user auth to db:", err);
       }
 
-      return res.json({ user: userInfo });
+      return res.json({ user: userInfo, tokens, activeUser: userKey });
     } catch (e: any) {
       return res.json({ user: null });
     }
@@ -810,9 +1335,11 @@ Input: "${cleanQuery}"`
       const userInfo = userInfoRes.data;
       const userKey = getUserKeyFromProfile(userInfo) || "global";
 
-      res.cookie("youtube_tokens", JSON.stringify(tokens), getCookieOptions());
-      res.cookie("google_user", JSON.stringify(userInfo), getCookieOptions());
-      res.cookie("youtube_user_id", userKey, getCookieOptions());
+      try {
+        res.cookie("youtube_tokens", JSON.stringify(tokens), getCookieOptions());
+        res.cookie("google_user", JSON.stringify(userInfo), getCookieOptions());
+        res.cookie("youtube_user_id", userKey, getCookieOptions());
+      } catch (_) {}
 
       const dbData = readDb();
       saveActiveAuthUser(dbData, userInfo, tokens);
@@ -822,14 +1349,24 @@ Input: "${cleanQuery}"`
         <html>
           <body>
             <script>
-              if (window.opener) {
-                window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                window.close();
-              } else {
+              const authData = {
+                type: 'OAUTH_AUTH_SUCCESS',
+                tokens: ${JSON.stringify(tokens)},
+                user: ${JSON.stringify(userInfo)},
+                userId: ${JSON.stringify(userKey)}
+              };
+              try {
+                if (window.opener) {
+                  window.opener.postMessage(authData, '*');
+                  setTimeout(() => window.close(), 400);
+                } else {
+                  window.location.href = '/';
+                }
+              } catch (e) {
                 window.location.href = '/';
               }
             </script>
-            <p>Authentication successful. This window should close automatically.</p>
+            <p>Authentication successful. This window will close automatically.</p>
           </body>
         </html>
       `);
@@ -842,6 +1379,9 @@ Input: "${cleanQuery}"`
   });
 
   app.get("/api/youtube/stats", async (req, res) => {
+    const dbData = readDb();
+    const activeUserKey = (req.headers["x-youtube-user-id"] as string) || getCurrentUserKey(req) || "global";
+
     try {
       const youtube = await getYouTubeClient(req, res);
       const response = await youtube.channels.list({
@@ -851,21 +1391,45 @@ Input: "${cleanQuery}"`
 
       const channel = response.data.items?.[0];
       if (!channel) {
+        if (dbData.cached_channel_stats?.[activeUserKey]) {
+          return res.json({ ...dbData.cached_channel_stats[activeUserKey], fromCache: true });
+        }
         return res.status(404).json({ error: "Channel not found" });
       }
 
-      res.json({
+      const statsData = {
         title: channel.snippet?.title,
         subscribers: channel.statistics?.subscriberCount,
         views: channel.statistics?.viewCount,
         videos: channel.statistics?.videoCount,
         thumbnail: channel.snippet?.thumbnails?.default?.url,
         isDemo: false
-      });
+      };
+
+      // Cache stats in DB
+      try {
+        dbData.cached_channel_stats = dbData.cached_channel_stats || {};
+        dbData.cached_channel_stats[activeUserKey] = statsData;
+        dbData.cached_channel_stats["global"] = statsData;
+        writeDb(dbData);
+      } catch (_) {}
+
+      res.json(statsData);
     } catch (error: any) {
       if (error.message === "Not authenticated") {
+        if (dbData.cached_channel_stats?.[activeUserKey]) {
+          return res.json({ ...dbData.cached_channel_stats[activeUserKey], fromCache: true });
+        }
         return res.status(401).json({ error: "Not authenticated" });
       }
+
+      if (dbData.cached_channel_stats?.[activeUserKey]) {
+        return res.json({ ...dbData.cached_channel_stats[activeUserKey], fromCache: true });
+      }
+      if (dbData.cached_channel_stats?.["global"]) {
+        return res.json({ ...dbData.cached_channel_stats["global"], fromCache: true });
+      }
+
       const errMsg = error.message || "";
       if (errMsg.includes("has not been used") || errMsg.includes("disabled") || errMsg.includes("Missing required credentials")) {
         return res.json({
@@ -885,6 +1449,9 @@ Input: "${cleanQuery}"`
   });
 
   app.get("/api/youtube/performance", async (req, res) => {
+    const dbData = readDb();
+    const activeUserKey = (req.headers["x-youtube-user-id"] as string) || getCurrentUserKey(req) || "global";
+
     try {
       const youtube = await getYouTubeClient(req, res);
       const analytics = google.youtubeAnalytics({ version: "v2", auth: (youtube as any).context._options.auth });
@@ -927,7 +1494,7 @@ Input: "${cleanQuery}"`
         weightedRetention: acc.weightedRetention + video.retention * video.views
       }), { views: 0, impressions: 0, weightedCtr: 0, weightedRetention: 0 });
 
-      res.json({
+      const perfResult = {
         period: { startDate: formatDate(startDate), endDate: formatDate(endDate) },
         videos,
         summary: {
@@ -935,8 +1502,24 @@ Input: "${cleanQuery}"`
           retention: totals.views ? totals.weightedRetention / totals.views : 0,
           views: totals.views
         }
-      });
+      };
+
+      try {
+        dbData.cached_performance = dbData.cached_performance || {};
+        dbData.cached_performance[activeUserKey] = perfResult;
+        dbData.cached_performance["global"] = perfResult;
+        writeDb(dbData);
+      } catch (_) {}
+
+      res.json(perfResult);
     } catch (error: any) {
+      if (dbData.cached_performance?.[activeUserKey]) {
+        return res.json({ ...dbData.cached_performance[activeUserKey], fromCache: true });
+      }
+      if (dbData.cached_performance?.["global"]) {
+        return res.json({ ...dbData.cached_performance["global"], fromCache: true });
+      }
+
       const message = error.message || "Failed to fetch YouTube Analytics";
       if (message.includes("insufficient authentication scopes") || message.includes("forbidden")) {
         return res.status(403).json({ error: "Reconnect YouTube to grant Analytics access", requiresReconnect: true });
@@ -1012,8 +1595,68 @@ Input: "${cleanQuery}"`
     }
   });
 
+  app.get("/api/youtube/playlists", async (req, res) => {
+    try {
+      const youtube = await getYouTubeClient(req, res);
+      const response = await youtube.playlists.list({
+        part: ["snippet", "contentDetails", "status"],
+        mine: true,
+        maxResults: 50
+      });
+
+      const playlists = response.data.items?.map((item: any) => ({
+        id: item.id,
+        title: item.snippet?.title || "Без названия",
+        description: item.snippet?.description || "",
+        thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.default?.url || "",
+        itemCount: item.contentDetails?.itemCount || 0,
+        privacyStatus: item.status?.privacyStatus || "public",
+        publishedAt: item.snippet?.publishedAt || new Date().toISOString()
+      })) || [];
+
+      res.json({ playlists, isDemo: false });
+    } catch (error: any) {
+      // Demo mock playlists
+      const mockPlaylists = [
+        {
+          id: "demo-pl-1",
+          title: "Полный курс & Базовые основы",
+          description: "Пошаговое руководство от базовых принципов до уверенных результатов. Все серии в правильной логической последовательности.",
+          thumbnail: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=60",
+          itemCount: 6,
+          privacyStatus: "public",
+          publishedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString()
+        },
+        {
+          id: "demo-pl-2",
+          title: "Топ фишек и скрытых возможностей",
+          description: "Продвинутые приемы, неочевидные лайфхаки и разбор кейсов для ускорения работы.",
+          thumbnail: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=400&auto=format&fit=crop&q=60",
+          itemCount: 12,
+          privacyStatus: "public",
+          publishedAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+        },
+        {
+          id: "demo-pl-3",
+          title: "Разборы ошибок и Антикейсы",
+          description: "Чего ни в коем случае нельзя делать. Анализируем частые грабли и как их избежать.",
+          thumbnail: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400&auto=format&fit=crop&q=60",
+          itemCount: 4,
+          privacyStatus: "unlisted",
+          publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+        }
+      ];
+
+      res.json({
+        playlists: mockPlaylists,
+        isDemo: true,
+        error: error.message || "Using demo mode"
+      });
+    }
+  });
+
   app.post("/api/youtube/create-playlist", async (req, res) => {
-    const { title, description } = req.body;
+    const { title, description, privacyStatus = "public" } = req.body;
     try {
       const youtube = await getYouTubeClient(req, res);
       const response = await youtube.playlists.insert({
@@ -1024,25 +1667,64 @@ Input: "${cleanQuery}"`
             description: description || "Создано с помощью AI Studio"
           },
           status: {
-            privacyStatus: "public"
+            privacyStatus: privacyStatus || "public"
           }
         }
       });
-      res.json({ playlist: response.data, isDemo: false });
+      res.json({
+        playlist: {
+          id: response.data.id,
+          title: response.data.snippet?.title || title,
+          description: response.data.snippet?.description || description,
+          thumbnail: response.data.snippet?.thumbnails?.medium?.url || response.data.snippet?.thumbnails?.default?.url || "",
+          itemCount: 0,
+          privacyStatus: response.data.status?.privacyStatus || privacyStatus,
+          publishedAt: response.data.snippet?.publishedAt || new Date().toISOString()
+        },
+        isDemo: false
+      });
     } catch (error: any) {
       // Demo mock fallback if no credentials/tokens are provided, or if user is offline
       const mockPlaylist = {
         id: `demo-playlist-${Date.now()}`,
-        snippet: {
-          title: title || "Новый плейлист (Демо)",
-          description: description || "Описание создано автоматически.",
-          publishedAt: new Date().toISOString(),
-        }
+        title: title || "Новый плейлист (Демо)",
+        description: description || "Описание создано автоматически.",
+        thumbnail: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=60",
+        itemCount: 0,
+        privacyStatus: privacyStatus || "public",
+        publishedAt: new Date().toISOString()
       };
       res.json({
         playlist: mockPlaylist,
         isDemo: true,
         error: error.message || "Using demo mode"
+      });
+    }
+  });
+
+  app.post("/api/youtube/playlists/add-item", async (req, res) => {
+    const { playlistId, videoId } = req.body;
+    try {
+      const youtube = await getYouTubeClient(req, res);
+      const response = await youtube.playlistItems.insert({
+        part: ["snippet"],
+        requestBody: {
+          snippet: {
+            playlistId,
+            resourceId: {
+              kind: "youtube#video",
+              videoId: videoId || "demo-video-id"
+            }
+          }
+        }
+      });
+      res.json({ item: response.data, isDemo: false, success: true });
+    } catch (error: any) {
+      res.json({
+        isDemo: true,
+        success: true,
+        message: "Элемент успешно привязан к плейлисту (демо-режим)",
+        error: error.message || "Demo mode"
       });
     }
   });
@@ -1139,10 +1821,11 @@ Input: "${cleanQuery}"`
   });
 
   app.post("/api/auth/logout", (req, res) => {
-    const activeUserKey = getCurrentUserKey(req);
-    res.clearCookie("youtube_tokens");
-    res.clearCookie("google_user");
-    res.clearCookie("youtube_user_id");
+    const activeUserKey = (req.headers["x-youtube-user-id"] as string) || getCurrentUserKey(req);
+    const cookieOpts = getCookieOptions();
+    res.clearCookie("youtube_tokens", cookieOpts);
+    res.clearCookie("google_user", cookieOpts);
+    res.clearCookie("youtube_user_id", cookieOpts);
 
     try {
       const dbData = readDb();
@@ -1150,9 +1833,13 @@ Input: "${cleanQuery}"`
         if (activeUserKey) {
           delete dbData.youtube_tokens[activeUserKey];
           delete dbData.youtube_tokens[getUserProfileStorageKey(activeUserKey)];
+          if (dbData.cached_channel_stats) delete dbData.cached_channel_stats[activeUserKey];
+          if (dbData.cached_performance) delete dbData.cached_performance[activeUserKey];
         }
         delete dbData.youtube_tokens["global"];
         delete dbData.youtube_tokens["global_user"];
+        if (dbData.cached_channel_stats) delete dbData.cached_channel_stats["global"];
+        if (dbData.cached_performance) delete dbData.cached_performance["global"];
       }
       delete dbData.active_user;
       writeDb(dbData);
@@ -1170,6 +1857,86 @@ Input: "${cleanQuery}"`
 
 
 
+
+  app.get("/api/youtube/channel-info", async (req: express.Request, res: express.Response) => {
+    const rawInput = (req.query.url as string || req.query.handle as string || "").trim();
+    if (!rawInput) {
+      return res.status(400).json({ error: "URL or handle is required" });
+    }
+
+    try {
+      let targetUrl = rawInput;
+      if (targetUrl.startsWith("@")) {
+        targetUrl = `https://www.youtube.com/${targetUrl}`;
+      } else if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+        targetUrl = `https://www.youtube.com/@${targetUrl}`;
+      }
+
+      const response = await fetch(targetUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `YouTube responded with status ${response.status}` });
+      }
+
+      const html = await response.text();
+
+      // Extract title
+      let title = "";
+      const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)">/);
+      if (ogTitleMatch) title = ogTitleMatch[1];
+
+      // Extract subscriber count text
+      let subs = "";
+      const subsMatch1 = html.match(/•\s*⁨?([0-9.,\s\u00a0]+(?:тыс|млн|млрд|k|m|b)?\.?\s*подписчик[^\/⁩"]*)/i);
+      if (subsMatch1) {
+        subs = subsMatch1[1].replace(/[\u200e\u200f\u2066\u2067\u2068\u2069]/g, "").trim();
+      } else {
+        const subsMatch2 = html.match(/"subscriberCountText":\{"accessibility":\{"accessibilityData":\{"label":"([^"]+)"/);
+        if (subsMatch2) {
+          subs = subsMatch2[1];
+        } else {
+          const subsMatch3 = html.match(/([0-9.,\s\u00a0]+(?:тыс|млн|млрд|k|m|b)?\.?\s*подписчик[^\/⁩"]*)/i);
+          if (subsMatch3) {
+            subs = subsMatch3[1].replace(/[\u200e\u200f\u2066\u2067\u2068\u2069]/g, "").trim();
+          } else {
+            const subsMatch4 = html.match(/([0-9.,\s\u00a0]+(?:k|m|b)?\.?\s*subscribers?)/i);
+            if (subsMatch4) subs = subsMatch4[1].trim();
+          }
+        }
+      }
+
+      if (subs) {
+        subs = subs.replace(/\s*(?:подписчик(?:ов|а)?|subscribers?)\.?/gi, "").trim();
+      }
+
+      // Extract avatar
+      let avatar = "";
+      const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)">/);
+      if (ogImageMatch) avatar = ogImageMatch[1];
+
+      // Extract description
+      let desc = "";
+      const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)">/);
+      if (ogDescMatch) desc = ogDescMatch[1];
+
+      res.json({
+        success: true,
+        title,
+        subs: subs || null,
+        avatar,
+        desc,
+        url: targetUrl
+      });
+    } catch (error: any) {
+      console.error("Error fetching YouTube channel info:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch channel info" });
+    }
+  });
 
   app.get("/api/youtube/competitor-analysis", async (req: express.Request, res: express.Response) => {
     const query = req.query.query as string;
@@ -1227,7 +1994,7 @@ Input: "${cleanQuery}"`
         Используй букву "ё" везде, где она должна быть. Ответ должен быть на русском языке.
       `;
 
-      const response = await generateContentWithFallback(ai, "gemini-3.7-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.1-flash-lite", {
         contents: prompt,
         config: {
           responseMimeType: "application/json"
@@ -1303,7 +2070,7 @@ Input: "${cleanQuery}"`
         Язык ответа: Русский. Используй букву "ё".
       `;
 
-      const response = await generateContentWithFallback(ai, "gemini-3.7-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.1-flash-lite", {
         contents: prompt,
         config: {
           responseMimeType: "application/json"
@@ -1361,7 +2128,7 @@ Input: "${cleanQuery}"`
         Используй букву "ё" везде, где она должна быть. Ответ должен быть на русском языке.
       `;
 
-      const response = await generateContentWithFallback(ai, "gemini-3.7-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.1-flash-lite", {
         contents: prompt,
         config: {
           responseMimeType: "application/json"
@@ -1395,7 +2162,7 @@ Input: "${cleanQuery}"`
 
       const prompt = `Ты — эксперт по дизайну YouTube обложек (превью). Проанализируй загруженное изображение-референс и опиши его визуальный стиль. Твое описание будет использовано для генерации новой обложки с похожей эстетикой. Укажи ключевые особенности: цветовую палитру (например, темный фон с неоновым синим и фиолетовым свечением, яркий оранжевый акцент), тип освещения (контрастный свет, свечение сзади), стиль текста (если есть), общую композицию (правило третей, фокус на персонаже слева) и настроение (динамичное, игровое, премиальное, научно-популярное). Будь лаконичен, напиши описание на русском языке длиной не более 3-4 предложений.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-3.7-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.1-flash-lite", {
         contents: [
           {
             inlineData: {
@@ -1416,19 +2183,65 @@ Input: "${cleanQuery}"`
   });
 
   app.post("/api/gemini/generate", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
     try {
-      const { model, contents, config } = req.body;
+      const { model, contents, config, generationConfig } = req.body || {};
       const ai = getGeminiClient();
-      const targetModel = model || "gemini-2.5-flash";
-      const response = await ai.models.generateContent({
-        model: targetModel,
+      let targetModel = (model || "gemini-3.5-flash-lite").trim();
+      if (!targetModel.includes("image") && !targetModel.includes("transcribe")) {
+        if (
+          targetModel === "gemini-3.1-pro-preview" ||
+          targetModel === "gemini-3.1-pro" ||
+          targetModel.includes("pro")
+        ) {
+          targetModel = "gemini-3.5-flash-lite";
+        }
+      }
+      const resolvedConfig = config || generationConfig || {};
+      const response = await generateContentWithFallback(ai, targetModel, {
         contents: contents || "",
-        config: config || {}
+        config: resolvedConfig
       });
-      res.json(response);
+      let extractedText = "";
+      try {
+        extractedText = response.text || "";
+      } catch (e) {
+        if (response?.candidates?.[0]?.content?.parts) {
+          extractedText = response.candidates[0].content.parts.map((p: any) => p?.text || "").join("");
+        }
+      }
+      res.json({
+        ...response,
+        text: extractedText
+      });
     } catch (error: any) {
-      console.error("[Gemini Server Route Error]:", error);
-      res.status(500).json({ error: error.message || "Gemini API error" });
+      console.error("[Gemini Server Route Error]:", error?.message || error);
+      const rawMsg = error?.message || String(error || "");
+      let statusCode = error?.status || error?.code || 500;
+      if (typeof statusCode !== "number" || statusCode < 400 || statusCode > 599) {
+        if (rawMsg.includes("503") || rawMsg.includes("high demand") || rawMsg.includes("unavailable")) {
+          statusCode = 503;
+        } else if (rawMsg.includes("504") || rawMsg.includes("timed out") || rawMsg.includes("timeout")) {
+          statusCode = 504;
+        } else if (rawMsg.includes("429") || rawMsg.includes("quota") || rawMsg.includes("квота") || rawMsg.includes("resource_exhausted")) {
+          statusCode = 429;
+        } else {
+          statusCode = 500;
+        }
+      }
+
+      let cleanMsg = rawMsg;
+      try {
+        if (cleanMsg.includes('{"error":')) {
+          const jsonStart = cleanMsg.indexOf('{"error":');
+          const parsed = JSON.parse(cleanMsg.slice(jsonStart));
+          if (parsed?.error?.message) {
+            cleanMsg = parsed.error.message;
+          }
+        }
+      } catch (e) {}
+
+      res.status(statusCode).json({ error: cleanMsg, status: statusCode });
     }
   });
 
@@ -1465,6 +2278,212 @@ Input: "${cleanQuery}"`
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Server-side fast FFmpeg audio extraction helper with professional audio preprocessing
+  async function extractAudioChunksWithFFmpeg(filePath: string, chunkDurationSec: number = 60) {
+    const tmpWavPath = path.join(UPLOADS_DIR, `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.wav`);
+    try {
+      // Step 1: Attempt extraction with highpass, lowpass, noise reduction (afftdn), and speech loudness normalization (loudnorm / dynaudnorm)
+      const runFFmpeg = (audioFilter: string) => {
+        return new Promise<void>((resolve, reject) => {
+          const args = [
+            "-y",
+            "-i", filePath,
+            "-vn",
+            "-af", audioFilter,
+            "-ac", "1",
+            "-ar", "16000",
+            "-c:a", "pcm_s16le",
+            tmpWavPath
+          ];
+          execFile("/usr/bin/ffmpeg", args, { timeout: 180000 }, (error, stdout, stderr) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          });
+        });
+      };
+
+      try {
+        // Highpass (80Hz rumble cut), Lowpass (7.5kHz hiss cut), FFT denoiser (-25dB noise floor), and dynamic audio normalization
+        await runFFmpeg("highpass=f=80,lowpass=f=7500,afftdn=nf=-25,dynaudnorm=p=0.9:s=5,loudnorm=I=-16:TP=-1.5:LRA=11");
+      } catch (filterErr) {
+        console.warn("[FFmpeg Advanced Audio Filter Fallback]: Retrying with simple highpass & loudness normalization:", filterErr);
+        try {
+          await runFFmpeg("highpass=f=80,lowpass=f=7500,loudnorm=I=-16:TP=-1.5:LRA=11");
+        } catch (basicFilterErr) {
+          console.warn("[FFmpeg Basic Audio Filter Fallback]: Retrying without filters:", basicFilterErr);
+          await runFFmpeg("aresample=16000");
+        }
+      }
+
+      if (!fs.existsSync(tmpWavPath)) {
+        throw new Error("Аудиодорожка не была сгенерирована");
+      }
+
+      const wavBuffer = fs.readFileSync(tmpWavPath);
+      const dataSize = Math.max(0, wavBuffer.byteLength - 44);
+      const durationSec = Math.max(1, dataSize / 32000); // 16000 samples/sec * 2 bytes/sample (16-bit mono)
+
+      const bytesPerChunk = Math.floor(chunkDurationSec * 32000);
+      const numChunks = Math.max(1, Math.ceil(dataSize / bytesPerChunk));
+
+      const chunks = [];
+      let totalSizeBytes = 0;
+
+      for (let i = 0; i < numChunks; i++) {
+        const startOffset = 44 + i * bytesPerChunk;
+        const endOffset = Math.min(44 + (i + 1) * bytesPerChunk, wavBuffer.byteLength);
+        const chunkPcmData = wavBuffer.subarray(startOffset, endOffset);
+        const chunkPcmLength = chunkPcmData.byteLength;
+
+        const chunkWavBuf = Buffer.alloc(44 + chunkPcmLength);
+        chunkWavBuf.write("RIFF", 0);
+        chunkWavBuf.writeUInt32LE(36 + chunkPcmLength, 4);
+        chunkWavBuf.write("WAVE", 8);
+        chunkWavBuf.write("fmt ", 12);
+        chunkWavBuf.writeUInt32LE(16, 16);
+        chunkWavBuf.writeUInt16LE(1, 20); // PCM
+        chunkWavBuf.writeUInt16LE(1, 22); // mono
+        chunkWavBuf.writeUInt32LE(16000, 24); // 16000 Hz
+        chunkWavBuf.writeUInt32LE(32000, 28); // byte rate (16000 * 1 * 2)
+        chunkWavBuf.writeUInt16LE(2, 32); // block align
+        chunkWavBuf.writeUInt16LE(16, 34); // 16-bit
+        chunkWavBuf.write("data", 36);
+        chunkWavBuf.writeUInt32LE(chunkPcmLength, 40);
+        chunkPcmData.copy(chunkWavBuf, 44);
+
+        totalSizeBytes += chunkWavBuf.byteLength;
+        const base64 = chunkWavBuf.toString("base64");
+        const startSec = (i * bytesPerChunk) / 32000;
+        const endSec = Math.min(durationSec, ((i + 1) * bytesPerChunk) / 32000);
+
+        chunks.push({
+          index: i,
+          totalChunks: numChunks,
+          startSec,
+          endSec,
+          durationSec: endSec - startSec,
+          base64,
+          mimeType: "audio/wav",
+        });
+      }
+
+      return {
+        chunks,
+        durationSec,
+        sampleRate: 16000,
+        totalSizeBytes,
+      };
+    } finally {
+      if (fs.existsSync(tmpWavPath)) {
+        try { fs.unlinkSync(tmpWavPath); } catch (_) {}
+      }
+    }
+  }
+
+  // 1. Direct audio extraction for files <= 25MB
+  app.post("/api/media/extract-audio-direct", upload.single("file"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "Файл не был загружен" });
+    }
+    const uploadedFilePath = req.file.path;
+    try {
+      const chunkDurationSec = req.body.chunkDurationSec ? Number(req.body.chunkDurationSec) : 60;
+      const result = await extractAudioChunksWithFFmpeg(uploadedFilePath, chunkDurationSec);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[extract-audio-direct error]:", err);
+      res.status(500).json({ error: err.message || "Ошибка извлечения аудио" });
+    } finally {
+      if (fs.existsSync(uploadedFilePath)) {
+        try { fs.unlinkSync(uploadedFilePath); } catch (_) {}
+      }
+    }
+  });
+
+  // 2. Chunked audio extraction for large media files (bypasses browser ArrayBuffer limit & Nginx 32M limit)
+  app.post("/api/media/upload-chunk", upload.single("chunk"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "Фрагмент не передан" });
+    }
+
+    const { uploadId, chunkIndex, totalChunks } = req.body;
+    if (!uploadId) {
+      if (fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      return res.status(400).json({ error: "Отсутствует uploadId" });
+    }
+
+    // Sanitize uploadId to prevent directory traversal
+    const safeUploadId = uploadId.replace(/[^a-zA-Z0-9_-]/g, "");
+    const partFilePath = path.join(UPLOADS_DIR, `chunked_${safeUploadId}.tmp`);
+    const cIdx = parseInt(chunkIndex, 10);
+    const tChunks = parseInt(totalChunks, 10);
+
+    try {
+      // Append this chunk to part file
+      const chunkData = fs.readFileSync(req.file.path);
+      fs.appendFileSync(partFilePath, chunkData);
+
+      // Remove the multer temp chunk file
+      if (fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+
+      // If this is the last chunk, execute FFmpeg audio extraction
+      if (cIdx >= tChunks - 1) {
+        console.log(`[Chunked Upload] Completed all ${tChunks} chunks for ${safeUploadId}. Processing audio extraction...`);
+        const chunkDurationSec = req.body.chunkDurationSec ? Number(req.body.chunkDurationSec) : 60;
+        const result = await extractAudioChunksWithFFmpeg(partFilePath, chunkDurationSec);
+
+        // Cleanup part file
+        if (fs.existsSync(partFilePath)) {
+          try { fs.unlinkSync(partFilePath); } catch (_) {}
+        }
+
+        return res.json({ completed: true, result });
+      }
+
+      // Chunk accepted, waiting for more
+      return res.json({ completed: false, chunkIndex: cIdx });
+    } catch (err: any) {
+      console.error("[upload-chunk error]:", err);
+      if (fs.existsSync(partFilePath)) {
+        try { fs.unlinkSync(partFilePath); } catch (_) {}
+      }
+      if (fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      return res.status(500).json({ error: err.message || "Ошибка обработки фрагмента файла" });
+    }
+  });
+
+  // Abort / cleanup partial upload
+  app.post("/api/media/upload-chunk-abort", (req, res) => {
+    const { uploadId } = req.body;
+    if (uploadId) {
+      const safeUploadId = uploadId.replace(/[^a-zA-Z0-9_-]/g, "");
+      const partFilePath = path.join(UPLOADS_DIR, `chunked_${safeUploadId}.tmp`);
+      if (fs.existsSync(partFilePath)) {
+        try { fs.unlinkSync(partFilePath); } catch (_) {}
+      }
+    }
+    res.json({ ok: true });
+  });
+
+  // Global API error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[Express API Error Handler]:", err);
+    if (!res.headersSent) {
+      res.status(err.status || 500).json({ error: err.message || "Внутренняя ошибка сервера" });
+    } else {
+      next(err);
+    }
   });
 
   // Vite middleware for development

@@ -26,7 +26,9 @@ import {
   Clock,
   TrendingUp,
   FolderPlus,
-  ListPlus
+  ListPlus,
+  CheckCircle2,
+  Target
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyToClipboard } from '../utils/helpers';
@@ -56,7 +58,7 @@ export const TopicTreeAndSerializationSection: React.FC<TopicTreeAndSerializatio
   onApplyEpisodesToIdeas,
   onSelectEpisodeForScript
 }) => {
-  const { ideaSeries: seriesList, setIdeaSeries: setSeriesList } = useApp();
+  const { ideaSeries: seriesList, setIdeaSeries: setSeriesList, scriptTopic } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [activeView, setActiveView] = useState<'tree' | 'episodes' | 'create'>('episodes');
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
@@ -692,41 +694,88 @@ export const TopicTreeAndSerializationSection: React.FC<TopicTreeAndSerializatio
                             {episode.episodeNumber}
                           </div>
 
-                          <div className="p-5 rounded-2xl bg-neutral-900/90 border border-border/80 hover:border-emerald-500/40 transition-all space-y-4">
-                            {/* Episode Title & Metadata */}
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs font-extrabold uppercase text-emerald-400 tracking-wider">
-                                    Серия {episode.episodeNumber} из {activeSeries.episodes.length}
-                                  </span>
-                                  {episode.duration && (
-                                    <span className="px-2 py-0.5 rounded bg-black/40 border border-white/10 text-[10px] text-neutral-400 flex items-center gap-1">
-                                      <Clock size={10} /> {episode.duration}
+                          {(() => {
+                            const isWorkingTopic = Boolean(
+                              scriptTopic && 
+                              episode.title && 
+                              scriptTopic.trim().toLowerCase() === episode.title.trim().toLowerCase()
+                            );
+                            return (
+                              <div className={`p-5 rounded-2xl relative overflow-hidden transition-all space-y-4 ${
+                                isWorkingTopic
+                                  ? "bg-gradient-to-br from-emerald-950/40 via-neutral-900 to-neutral-900 border-2 border-emerald-500/70 shadow-xl shadow-emerald-500/15 ring-1 ring-emerald-400/40"
+                                  : "bg-neutral-900/90 border border-border/80 hover:border-emerald-500/40"
+                              }`}>
+                                {/* Colored Accent Bar on Left Edge */}
+                                {isWorkingTopic && (
+                                  <div 
+                                    className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-emerald-400 via-teal-400 to-emerald-600 shadow-[0_0_12px_rgba(16,185,129,0.8)] z-10" 
+                                    title="Рабочая тема сценария"
+                                  />
+                                )}
+
+                                {/* Status Badge for Active Working Topic */}
+                                {isWorkingTopic && (
+                                  <div className="flex items-center justify-between gap-2 pb-1 border-b border-emerald-500/20">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm shadow-emerald-500/25">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                      <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />
+                                      <span>Рабочая тема сценария</span>
                                     </span>
-                                  )}
-                                  {episode.viral_potential && (
-                                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
-                                      <TrendingUp size={10} /> {episode.viral_potential}
+                                    <span className="text-[9px] font-bold text-emerald-400/90 hidden sm:inline-flex items-center gap-1 bg-emerald-950/70 px-1.5 py-0.5 rounded-md border border-emerald-500/30">
+                                      <Target size={10} className="text-emerald-400 shrink-0" />
+                                      <span>Активна</span>
                                     </span>
+                                  </div>
+                                )}
+
+                                {/* Episode Title & Metadata */}
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-extrabold uppercase text-emerald-400 tracking-wider">
+                                        Серия {episode.episodeNumber} из {activeSeries.episodes.length}
+                                      </span>
+                                      {episode.duration && (
+                                        <span className="px-2 py-0.5 rounded bg-black/40 border border-white/10 text-[10px] text-neutral-400 flex items-center gap-1">
+                                          <Clock size={10} /> {episode.duration}
+                                        </span>
+                                      )}
+                                      {episode.viral_potential && (
+                                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
+                                          <TrendingUp size={10} /> {episode.viral_potential}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h4 className={`text-base font-bold transition-colors ${isWorkingTopic ? "text-emerald-200" : "text-white"}`}>
+                                      {episode.title}
+                                    </h4>
+                                  </div>
+
+                                  {/* Script Trigger */}
+                                  {onSelectEpisodeForScript && (
+                                    <button
+                                      onClick={() => onSelectEpisodeForScript(episode.title, episode.duration, episode.tone)}
+                                      className={`self-start md:self-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                                        isWorkingTopic
+                                          ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/60 shadow-sm shadow-emerald-500/25 ring-1 ring-emerald-500/40"
+                                          : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20"
+                                      }`}
+                                    >
+                                      {isWorkingTopic ? (
+                                        <>
+                                          <Check size={14} className="text-emerald-400" />
+                                          <span>В работе ✓</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <FileText size={14} />
+                                          <span>Написать сценарий</span>
+                                        </>
+                                      )}
+                                    </button>
                                   )}
                                 </div>
-                                <h4 className="text-base font-bold text-white">
-                                  {episode.title}
-                                </h4>
-                              </div>
-
-                              {/* Script Trigger */}
-                              {onSelectEpisodeForScript && (
-                                <button
-                                  onClick={() => onSelectEpisodeForScript(episode.title, episode.duration, episode.tone)}
-                                  className="self-start md:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                                >
-                                  <FileText size={14} />
-                                  <span>Написать сценарий</span>
-                                </button>
-                              )}
-                            </div>
 
                             {/* Description */}
                             {episode.description && (
@@ -806,7 +855,9 @@ export const TopicTreeAndSerializationSection: React.FC<TopicTreeAndSerializatio
                                 )}
                               </div>
                             )}
-                          </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}

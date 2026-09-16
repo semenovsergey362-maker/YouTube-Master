@@ -1163,11 +1163,17 @@ ${thumbnail ? `Ссылка на изображение: ${thumbnail}` : ""}`;
 
         {/* Background Image */}
         <img
-          src={thumbnail || "https://picsum.photos/seed/youtube/640/360"}
+          src={thumbnail || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=640&auto=format&fit=crop&q=80"}
           alt="Thumbnail"
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           referrerPolicy="no-referrer"
           id="youtube-preview-image"
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (!target.src.includes('unsplash')) {
+              target.src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=640&auto=format&fit=crop&q=80";
+            }
+          }}
         />
 
         {/* --- BACKGROUND DIMMING OVERLAY --- */}

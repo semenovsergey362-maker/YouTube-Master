@@ -150,7 +150,16 @@ try {
 
 export async function refreshAuthSession(): Promise<any> {
   try {
-    const res = await fetch("/api/auth/me", { credentials: "same-origin" });
+    const savedTokens = safeStorage.getItem('yt_auth_tokens') || '';
+    const savedUserId = safeStorage.getItem('youtube_user_id') || '';
+    const headers: Record<string, string> = {};
+    if (savedTokens) headers['x-youtube-tokens'] = savedTokens;
+    if (savedUserId) headers['x-youtube-user-id'] = savedUserId;
+
+    const res = await fetch("/api/auth/me", {
+      credentials: "include",
+      headers
+    });
     if (!res.ok) return null;
     
     const contentType = res.headers.get("content-type");
@@ -158,6 +167,12 @@ export async function refreshAuthSession(): Promise<any> {
     
     const data = await res.json();
     if (data && data.user) {
+      if (data.tokens) {
+        safeStorage.setItem('yt_auth_tokens', typeof data.tokens === 'string' ? data.tokens : JSON.stringify(data.tokens));
+      }
+      if (data.activeUser) {
+        safeStorage.setItem('youtube_user_id', data.activeUser);
+      }
       mockUser = {
         uid: data.user.id || data.user.email || "google-user",
         email: data.user.email,

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { QuotaHeaderWidget } from "./QuotaIndicator";
 import {
   Menu,
   Cpu,
@@ -16,10 +17,8 @@ import {
 } from "lucide-react";
 
 const MODELS = [
-  { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
-  { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash" },
-  { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
-  { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro" },
+  { id: "gemini-3.1-flash-lite", name: "Gemini 3.1 Flash Lite (Основная • 1500 RPD)" },
+  { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Сбалансированная • Резервная)" },
 ];
 
 export interface HeaderProps {
@@ -52,22 +51,27 @@ export const Header: React.FC<HeaderProps> = ({
   onSwitchAccount,
 }) => {
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsUserDropdownOpen(false);
       }
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) {
+        setIsToolsDropdownOpen(false);
+      }
     };
-    if (isUserDropdownOpen) {
+    if (isUserDropdownOpen || isToolsDropdownOpen) {
       document.addEventListener("mousedown", handleOutsideClick);
     }
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
-  }, [isUserDropdownOpen]);
+  }, [isUserDropdownOpen, isToolsDropdownOpen]);
 
   const userName = user?.displayName || (user?.email ? user.email.split("@")[0] : "Пользователь Google");
   const userEmail = user?.email || "";
@@ -77,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-30 bg-neutral-950/90 border-b border-neutral-800 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
+        <div className="flex items-center justify-between h-16 gap-3">
           {/* Left: Hamburger + Current Page Title */}
           <div className="flex items-center gap-3">
             <button
@@ -96,60 +100,72 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Right Controls */}
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* Model Selector */}
-            <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-800 rounded-xl px-2.5 py-1.5">
-              <Cpu size={14} className="text-accent" />
-              <select
-                value={activeModel}
-                onChange={(e) => setActiveModel(e.target.value)}
-                className="bg-transparent text-xs font-bold text-neutral-200 focus:outline-none cursor-pointer"
+          <div className="flex items-center gap-2">
+            {/* Unified AI Capsule (Model Selector + Quota Meter) */}
+            <QuotaHeaderWidget
+              activeModel={activeModel}
+              setActiveModel={setActiveModel}
+              modelsList={MODELS}
+              onOpenLimits={onOpenLimits}
+            />
+
+            {/* Combined Tools / Settings Dropdown */}
+            <div className="relative" ref={toolsRef}>
+              <button
+                onClick={() => setIsToolsDropdownOpen((prev) => !prev)}
+                className="p-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-sm"
+                title="Настройки, история и правила ИИ"
               >
-                {MODELS.map((m) => (
-                  <option key={m.id} value={m.id} className="bg-neutral-900 text-neutral-200">
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+                <Settings size={16} className="text-neutral-400 group-hover:text-white" />
+                <span className="hidden sm:inline">Инструменты</span>
+                <ChevronDown
+                  size={12}
+                  className={`text-neutral-400 transition-transform ${
+                    isToolsDropdownOpen ? "rotate-180 text-white" : ""
+                  }`}
+                />
+              </button>
+
+              {/* Tools Popover Menu */}
+              {isToolsDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl p-1.5 z-50 text-xs animate-in fade-in slide-in-from-top-2 duration-150 space-y-0.5">
+                  <button
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenHistory();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-xl transition-all text-left cursor-pointer font-medium"
+                  >
+                    <History size={15} className="text-accent" />
+                    <span>История сессий и версий</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenInstructions();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-xl transition-all text-left cursor-pointer font-medium"
+                  >
+                    <Sliders size={15} className="text-cyan-400" />
+                    <span>Правила и инструкции ИИ</span>
+                  </button>
+
+                  <div className="my-1 border-t border-neutral-800/80" />
+
+                  <button
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenSettings();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-xl transition-all text-left cursor-pointer font-medium"
+                  >
+                    <Settings size={15} className="text-neutral-400" />
+                    <span>Настройки приложения</span>
+                  </button>
+                </div>
+              )}
             </div>
-
-            {/* History Button */}
-            <button
-              onClick={onOpenHistory}
-              className="hidden md:flex p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition-all cursor-pointer items-center gap-1.5 text-xs font-semibold"
-              title="История проектов и сессий"
-            >
-              <History size={16} />
-              <span>История</span>
-            </button>
-
-            {/* Custom Instructions */}
-            <button
-              onClick={onOpenInstructions}
-              className="hidden lg:flex p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition-all cursor-pointer items-center gap-1.5 text-xs font-semibold"
-              title="Инструкции для ИИ"
-            >
-              <Sliders size={16} />
-              <span>Правила</span>
-            </button>
-
-            {/* Limits */}
-            <button
-              onClick={onOpenLimits}
-              className="p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-              title="Лимиты и квоты"
-            >
-              <Sparkles size={16} className="text-amber-400" />
-            </button>
-
-            {/* Settings */}
-            <button
-              onClick={onOpenSettings}
-              className="p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition-all cursor-pointer"
-              title="Настройки"
-            >
-              <Settings size={16} />
-            </button>
 
             {/* Google User Profile or Sign-In Button */}
             <div className="pl-1 sm:pl-2 border-l border-neutral-800" ref={dropdownRef}>

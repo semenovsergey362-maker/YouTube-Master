@@ -5,12 +5,18 @@ import { ScrollFadeIn } from '../ScrollFadeIn';
 import { 
   Film, Sparkles, Loader2, Eye, Split, Bot, Quote, BarChart3, Download, Search, Check, X, Camera,
   Palette, Edit2, Save, Target, Copy, Trash2, RefreshCw, Upload, Clock, Layers, ArrowRight, Wand2,
-  Plus, CheckCircle2, ChevronDown, ChevronUp, Tag, Zap, Sliders, AlertCircle, AlertTriangle, TrendingUp, LayoutTemplate
+  Plus, CheckCircle2, ChevronDown, ChevronUp, Tag, Zap, Sliders, AlertCircle, AlertTriangle, TrendingUp, LayoutTemplate,
+  ShieldCheck, Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { evaluateCTR, optimizeTitle } from '../../services/geminiService';
-import { copyToClipboard, generateScriptBlockTimestamps, handleAppError } from '../../utils/helpers';
+import { evaluateCTR, optimizeTitle, expandDescriptionWithAI, generateLsiKeywordsWithAI, generate3TitleVariantsAI, generateSocialPromoPackage } from '../../services/geminiService';
+import { copyToClipboard, generateScriptBlockTimestamps, extractScriptBlockRefs, handleAppError } from '../../utils/helpers';
 import { useApp } from '../../context/AppContext';
+import { YouTubeCardPreview as DefaultYouTubeCardPreview } from '../YouTubeCardPreview';
+import { safeStorage } from '../../lib/storage';
+import { enforceCustomRulesOnVideoSEO } from '../../services/ai/seoService';
+import { VideoTimestampsModal } from '../VideoTimestampsModal';
+import { SocialPromoSection } from '../common/SocialPromoSection';
 
 interface TextBackgroundPlateProps {
   bgStyle: string;
@@ -416,6 +422,7 @@ export const SEOTab = (props: any) => {
 
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [editedDesc, setEditedDesc] = useState('');
+  const [isMediaTimestampsModalOpen, setIsMediaTimestampsModalOpen] = useState(false);
 
   const [isEditingKeywords, setIsEditingKeywords] = useState(false);
   const [editedKeywords, setEditedKeywords] = useState('');
@@ -607,12 +614,109 @@ export const SEOTab = (props: any) => {
     renderExportDropdown,
     handleForceRegenerateThumbnailStyle,
     customInstructions = "",
-    isCustomInstructionsEnabled = false
+    isCustomInstructionsEnabled = false,
+    setIsCustomInstructionsEnabled,
+    customRules = [],
+    setCustomRules,
+    handleApplyAllRuleFixes,
+    setShowCustomInstructionsModal,
   } = props;
 
-  const CardPreviewComponent = YouTubeCardPreview || (({ title }: any) => <div className="p-4 bg-neutral-900 rounded-xl border border-neutral-800 text-white font-bold">{title || "Превью"}</div>);
+  const handleToggleRule = (ruleId: string) => {
+    if (!setCustomRules) return;
+    const updated = (customRules || []).map((r: any) => 
+      r.id === ruleId ? { ...r, isActive: !r.isActive } : r
+    );
+    setCustomRules(updated);
+    // If activating a rule, auto-enable master rules toggle so rules take effect immediately
+    const isActivating = updated.some((r: any) => r.id === ruleId && r.isActive);
+    if (isActivating && !isCustomInstructionsEnabled && setIsCustomInstructionsEnabled) {
+      setIsCustomInstructionsEnabled(true);
+      safeStorage.setItem("yt_custom_instructions_enabled", "true");
+    }
+    safeStorage.setItem("yt_custom_rules", JSON.stringify(updated));
+    toast.success("Статус правила обновлен!");
+  };
+
+  const handleToggleMasterRules = () => {
+    if (!setIsCustomInstructionsEnabled) return;
+    const nextState = !isCustomInstructionsEnabled;
+    setIsCustomInstructionsEnabled(nextState);
+    safeStorage.setItem("yt_custom_instructions_enabled", String(nextState));
+    toast.success(nextState ? "Кастомные правила включены для SEO!" : "Кастомные правила отключены");
+  };
+
+  const getActiveRulesText = (): string => {
+    const activeRules = (customRules || []).filter((r: any) => r && r.isActive && (r.content || r.ruleText));
+    if (activeRules.length > 0) {
+      return activeRules
+        .map((r: any) => (r.title ? `[ПРАВИЛО: ${r.title}]\n` : "") + (r.content || r.ruleText || "").trim())
+        .join("\n\n");
+    }
+    return isCustomInstructionsEnabled ? (customInstructions || "").trim() : "";
+  };
+
+  const CardPreviewComponent = YouTubeCardPreview || DefaultYouTubeCardPreview;
 
   const activeTopic = (scriptTopic && scriptTopic.trim()) ? scriptTopic.trim() : (selectedIdea || "");
+  const activeNiche = nicheData?.name || nicheData?.title || (typeof nicheData === 'string' ? nicheData : 'Общая');
+
+  const [localIsGeneratingSocial, setLocalIsGeneratingSocial] = useState(false);
+  const isGeneratingSocialActive = props.isGeneratingSocial !== undefined ? props.isGeneratingSocial : localIsGeneratingSocial;
+
+  const onGenerateSocialPromo = async () => {
+    if (props.handleGenerateSocialPromo) {
+      return props.handleGenerateSocialPromo();
+    }
+    const topicToUse = activeTopic || videoSEO?.title || "видео";
+    if (!topicToUse) {
+      toast.error("Сначала выберите идею или введите заголовок");
+      return;
+    }
+    setLocalIsGeneratingSocial(true);
+    const toastId = toast.loading("ИИ генерирует посты для YouTube, TG, IG и 1:1 цитаты...");
+    try {
+      let scriptContentText = "";
+      if (generatedBlocks) {
+        const blocksArr = Array.isArray(generatedBlocks) ? generatedBlocks : Object.values(generatedBlocks);
+        scriptContentText = blocksArr
+          .map((b: any) => b?.text || "")
+          .filter(Boolean)
+          .join("\n\n");
+      }
+
+      const socialPackage = await generateSocialPromoPackage({
+        title: videoSEO?.title || topicToUse,
+        description: videoSEO?.description || "",
+        scriptText: scriptContentText,
+        isShorts: false,
+        branding: selectedBranding || nicheData?.branding,
+        niche: nicheData,
+        customInstructions: isCustomInstructionsEnabled ? customInstructions : undefined,
+      });
+
+      if (videoSEO) {
+        setVideoSEO({
+          ...videoSEO,
+          socialPromo: socialPackage,
+        });
+      } else {
+        setVideoSEO({
+          title: topicToUse,
+          description: "",
+          keywords: "",
+          socialPromo: socialPackage,
+        });
+      }
+      toast.success("Кросс-платформенные посты и 1:1 карточки-цитаты готовы!", { id: toastId });
+    } catch (err) {
+      logger.error("Error generating social promo in SEOTab:", err);
+      toast.error("Ошибка при генерации постов");
+      toast.dismiss(toastId);
+    } finally {
+      setLocalIsGeneratingSocial(false);
+    }
+  };
 
   if (!nicheData) return null;
 
@@ -892,136 +996,34 @@ ${tagsFormatted}`;
     toast.info(`Рекомендация "${removedItem?.area || 'аудита'}" удалена из списка.`);
   };
 
-  // Apply Google Search Tip to Description
-  const handleApplyGoogleTipToDesc = (tipText: string, index: number) => {
-    if (!videoSEO) return;
-    const currentDesc = videoSEO.description || "";
-    const updatedDesc = `${currentDesc}\n\n• ${tipText}`.trim();
-    setVideoSEO({ ...videoSEO, description: updatedDesc });
-
-    handleRemoveGoogleTip(index);
-    toast.success("Совет Google Search успешно добавлен в описание!");
-  };
-
-  // Apply Google Search Tip to Keywords/Tags
-  const handleApplyGoogleTipToTags = (tipText: string, index: number) => {
-    if (!videoSEO) return;
-    const keywordsToAdd = tipText
-      .replace(/[^a-zA-Zа-яА-Я0-9\s,]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 3)
-      .slice(0, 4)
-      .join(' ');
-
-    if (keywordsToAdd) {
-      addKeywordToTags(keywordsToAdd);
-    }
-    handleRemoveGoogleTip(index);
-    toast.success("Ключевые фразы из совета добавлены в теги!");
-  };
-
-  // Remove individual Google Search Tip
-  const handleRemoveGoogleTip = (index: number) => {
-    if (!seoAnalysis || !seoAnalysis.googleSearchTips) return;
-    const updated = [...seoAnalysis.googleSearchTips];
-    updated.splice(index, 1);
-    setSeoAnalysis({
-      ...seoAnalysis,
-      googleSearchTips: updated
-    });
-  };
-
-  // Apply ALL Google Search Tips to Description and clear
-  const handleApplyAllGoogleTips = () => {
-    if (!videoSEO || !seoAnalysis?.googleSearchTips?.length) return;
-    const tipsFormatted = seoAnalysis.googleSearchTips.map((tip: string) => `• ${tip}`).join('\n');
-    const updatedDesc = `${videoSEO.description || ''}\n\nРекомендации Google Search:\n${tipsFormatted}`.trim();
-    setVideoSEO({ ...videoSEO, description: updatedDesc });
-    setSeoAnalysis({ ...seoAnalysis, googleSearchTips: [] });
-    toast.success("Все рекомендации Google Search применены к описанию!");
-  };
-
-  // Requirement 4: Title Quality Indicator Calculation
-  const getTitleQualityMetrics = (titleStr: string, keywordsStr: string) => {
-    const trimmedTitle = (titleStr || "").trim();
-    const len = trimmedTitle.length;
-    
-    const keywords = keywordsStr
-      ? keywordsStr.split(',').map(s => s.trim()).filter(s => s.length > 2)
-      : [];
-
-    const lowerTitle = trimmedTitle.toLowerCase();
-    const matchedKeywords = keywords.filter(kw => lowerTitle.includes(kw.toLowerCase()));
-
-    let lenStatus: 'optimal' | 'warning' | 'danger' | 'empty' = 'optimal';
-    let lenLabel = "";
-    let lenScore = 0;
-
-    if (len === 0) {
-      lenStatus = 'empty';
-      lenLabel = 'Заголовок не заполнен';
-      lenScore = 0;
-    } else if (len < 20) {
-      lenStatus = 'warning';
-      lenLabel = `Слишком короткий (${len} симв.) — мало контекста для поиска YouTube`;
-      lenScore = 40;
-    } else if (len >= 40 && len <= 70) {
-      lenStatus = 'optimal';
-      lenLabel = `Идеальная длина (${len} симв.) — полностью виден на мобильных и ПК`;
-      lenScore = 100;
-    } else if (len > 20 && len < 40) {
-      lenStatus = 'optimal';
-      lenLabel = `Хорошая длина (${len} симв.) — рекомендуем добавить еще 1 ключевое слово`;
-      lenScore = 80;
-    } else if (len > 70 && len <= 90) {
-      lenStatus = 'warning';
-      lenLabel = `Длинный заголовок (${len} симв.) — может частично обрезаться на смартфонах`;
-      lenScore = 60;
-    } else {
-      lenStatus = 'danger';
-      lenLabel = `Слишком длинный (${len} симв.) — YouTube обрезает заголовки длиннее 70-90 символов`;
-      lenScore = 20;
-    }
-
-    const kwScore = keywords.length === 0 ? 50 : Math.min(100, Math.round((matchedKeywords.length / Math.min(keywords.length, 3)) * 100));
-    const hasHook = /(как|топ|почему|секрет|ошибка|лучший|правда|новый|быстрый|пошагово|обзор|\d+|\!|\?)/i.test(trimmedTitle);
-    const hookScore = hasHook ? 100 : 40;
-
-    const totalScore = Math.round((lenScore * 0.4) + (kwScore * 0.4) + (hookScore * 0.2));
-
-    return {
-      len,
-      lenStatus,
-      lenLabel,
-      matchedKeywords,
-      hasHook,
-      totalScore
-    };
-  };
-
-  // Requirement 2: Extended AI Generators for Title, Description & Keywords
-  const handleEnhanceTitleAI = async (style: 'ctr' | 'seo' | 'short') => {
+  // Regenerate 3 Title Variants with AI
+  const handleRegenerate3Titles = async () => {
     if (!videoSEO) return;
     setIsGeneratingAITitle(true);
-    const toastId = toast.loading("ИИ с генерирует улучшенный вариант заголовка...");
+    const toastId = toast.loading("ИИ генерирует 3 новых контрастных варианта заголовка...");
     try {
-      const baseTitle = videoSEO.title || activeTopic || "";
-      if (style === 'ctr') {
-        const opt = await optimizeTitle(baseTitle);
-        setVideoSEO({ ...videoSEO, title: opt });
-        toast.success("Заголовок оптимизирован для максимального CTR!", { id: toastId });
-      } else if (style === 'seo') {
-        const keywordsStr = videoSEO.keywords ? videoSEO.keywords.split(',')[0] : '';
-        const seoTitle = `${baseTitle} — ${keywordsStr ? keywordsStr.trim() : 'Пошаговый разбор'} (2026)`;
-        setVideoSEO({ ...videoSEO, title: seoTitle });
-        toast.success("Заголовок оптимизирован под поисковый интент!", { id: toastId });
-      } else if (style === 'short') {
-        const shortTitle = baseTitle.length > 50 ? baseTitle.substring(0, 47) + '...' : baseTitle;
-        setVideoSEO({ ...videoSEO, title: shortTitle });
-        toast.success("Заголовок укорочен для отличной видимости на мобильных!", { id: toastId });
+      const topic = activeTopic || videoSEO.title || "видео";
+      const activeRulesText = getActiveRulesText();
+
+      const variants = await generate3TitleVariantsAI(
+        topic,
+        activeNiche || "Общая",
+        videoSEO.title,
+        activeRulesText ? { customInstructions: activeRulesText } : undefined
+      );
+
+      if (variants && variants.length > 0) {
+        const enforced = enforceCustomRulesOnVideoSEO({
+          ...videoSEO,
+          title: variants[0],
+          titleVariants: variants
+        }, activeRulesText);
+
+        setVideoSEO(enforced);
+        toast.success("Сгенерировано 3 новых варианта заголовка с учетом правил!", { id: toastId });
       }
     } catch (e) {
-      handleAppError(e, "Генерация заголовка");
+      handleAppError(e, "Генерация вариантов заголовков");
       toast.dismiss(toastId);
     } finally {
       setIsGeneratingAITitle(false);
@@ -1031,29 +1033,45 @@ ${tagsFormatted}`;
   const handleExpandDescriptionAI = async () => {
     if (!videoSEO) return;
     setIsGeneratingAIDesc(true);
-    const toastId = toast.loading("ИИ структурирует и расширяет описание...");
+    const toastId = toast.loading("ИИ генерирует глубокое описание по стандарту 2026 года...");
     try {
       const baseDesc = videoSEO.description || "";
       const baseTitle = videoSEO.title || activeTopic || "";
       const timestampsStr = blockTimestamps.map(b => `${b.timeCode} - ${b.title}`).join('\n');
 
-      const expandedDesc = `📌 О ЧЕМ ЭТО ВИДЕО:
-${baseTitle}
-В этом выпуске мы подробно разберем ключевые аспекты, практические примеры и проверенные решения.
+      // Собираем текст сценария для фактической глубины
+      let scriptContentText = "";
+      if (generatedBlocks) {
+        const blocksArr = Array.isArray(generatedBlocks) ? generatedBlocks : Object.values(generatedBlocks);
+        scriptContentText = blocksArr
+          .map((b: any) => {
+            const t = b?.text || "";
+            return t.replace(/\[[^\]]+\]/g, "").replace(/\([^)]+\)/g, "").trim();
+          })
+          .filter(Boolean)
+          .join('\n\n');
+      }
 
-⏱️ ТАЙМКОДЫ И ГЛАВЫ:
-${timestampsStr}
+      const brand = selectedBranding?.name || (typeof nicheData?.branding?.names?.[0] === 'string' ? nicheData.branding.names[0] : nicheData?.branding?.names?.[0]?.name);
+      const activeRulesText = getActiveRulesText();
 
-💡 КЛЮЧЕВЫЕ ВЫВОДЫ И ССЫЛКИ:
-• Поделитесь этим видео с друзьями, кому актуальна тема!
-• Подписывайтесь на канал, чтобы не пропустить следующие полезные разборы.
-• Пишите ваше мнение и вопросы в комментариях ниже!
+      const expandedDesc = await expandDescriptionWithAI(
+        activeTopic || baseTitle,
+        baseDesc,
+        baseTitle,
+        timestampsStr,
+        scriptContentText,
+        brand,
+        activeRulesText ? { customInstructions: activeRulesText } : undefined
+      );
 
-🔍 ТЕГИ И ПОИСКОВЫЕ ЗАПРОСЫ:
-${videoSEO.keywords || ''}`;
+      const enforced = enforceCustomRulesOnVideoSEO({
+        ...videoSEO,
+        description: expandedDesc
+      }, activeRulesText);
 
-      setVideoSEO({ ...videoSEO, description: expandedDesc.trim() });
-      toast.success("Описание расширено и структурировано с таймкодами!", { id: toastId });
+      setVideoSEO(enforced);
+      toast.success("Описание расширено с глубокой фактурой, таймкодами и соблюдением правил!", { id: toastId });
     } catch (e) {
       handleAppError(e, "Расширение описания");
       toast.dismiss(toastId);
@@ -1065,25 +1083,37 @@ ${videoSEO.keywords || ''}`;
   const handleExpandKeywordsAI = async () => {
     if (!videoSEO) return;
     setIsGeneratingAIKeywords(true);
-    const toastId = toast.loading("ИИ генерирует LSI ключевые фразы...");
+    const toastId = toast.loading("ИИ подбирает реальные LSI и поисковые запросы аудитории...");
     try {
-      const currentKeywords = videoSEO.keywords ? videoSEO.keywords.split(',').map(s => s.trim()).filter(Boolean) : [];
       const baseTopic = activeTopic || videoSEO.title || "видео";
-      const lsiAdditions = [
-        `${baseTopic} 2026`,
-        `как сделать ${baseTopic}`,
-        `пошаговая инструкция`,
-        `полезные советы`,
-        `обзор и разбор`,
-        `секреты и фишки`,
-        `топ ошибок`
-      ];
+      let scriptContentText = "";
+      if (generatedBlocks) {
+        const blocksArr = Array.isArray(generatedBlocks) ? generatedBlocks : Object.values(generatedBlocks);
+        scriptContentText = blocksArr
+          .map((b: any) => b?.text || "")
+          .filter(Boolean)
+          .slice(0, 5)
+          .join('\n');
+      }
 
-      const merged = Array.from(new Set([...currentKeywords, ...lsiAdditions])).join(', ');
-      setVideoSEO({ ...videoSEO, keywords: merged });
-      toast.success("LSI ключевые слова успешно добавлены в теги!", { id: toastId });
+      const activeRulesText = getActiveRulesText();
+
+      const merged = await generateLsiKeywordsWithAI(
+        baseTopic,
+        videoSEO.keywords || "",
+        scriptContentText,
+        activeRulesText ? { customInstructions: activeRulesText } : undefined
+      );
+
+      const enforced = enforceCustomRulesOnVideoSEO({
+        ...videoSEO,
+        keywords: merged
+      }, activeRulesText);
+
+      setVideoSEO(enforced);
+      toast.success("LSI и Long-tail запросы успешно добавлены в теги!", { id: toastId });
     } catch (e) {
-      handleAppError(e, "Добавление тегов");
+      handleAppError(e, "Генерация LSI тегов");
       toast.dismiss(toastId);
     } finally {
       setIsGeneratingAIKeywords(false);
@@ -1134,24 +1164,99 @@ ${videoSEO.keywords || ''}`;
                 </div>
               </div>
 
-              {/* Active Instructions / Brandbook Indicator */}
-              {(isCustomInstructionsEnabled || Boolean(customInstructions?.trim()) || Boolean(brandName)) && (
-                <div className="p-2.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-300">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Sparkles size={13} className="animate-pulse text-emerald-400 shrink-0" />
-                    <span className="truncate">
-                      <strong>Синхронизация с брендбуком:</strong> {brandName ? `Канал "${brandName}"` : 'Пользовательские правила ИИ активны'}
-                    </span>
-                  </div>
-                  {brandColors && (
-                    <div className="flex items-center gap-1">
-                      {Array.isArray(brandColors) && brandColors.slice(0, 3).map((c: string, idx: number) => (
-                        <span key={`brand-color-${c}-${idx}`} className="w-2.5 h-2.5 rounded-full border border-neutral-700" style={{ backgroundColor: c }} />
-                      ))}
+              {/* Active Custom Rules & Brandbook Panel */}
+              <div className="p-3 bg-neutral-900/70 rounded-xl border border-neutral-800/80 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={16} className={isCustomInstructionsEnabled ? "text-emerald-400 animate-pulse" : "text-neutral-500"} />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white">
+                          Кастомные правила для SEO
+                        </span>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                          isCustomInstructionsEnabled 
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                            : "bg-neutral-800 text-neutral-400 border-neutral-700"
+                        }`}>
+                          {isCustomInstructionsEnabled 
+                            ? `${(customRules || []).filter((r: any) => r.isActive).length} активно` 
+                            : 'Отключены'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-neutral-400">
+                        {isCustomInstructionsEnabled 
+                          ? "Учитываются при генерации заголовка, описания, тегов и проверяются аудитом"
+                          : "Включите, чтобы SEO строго соблюдало ваши правила канала"}
+                      </p>
                     </div>
-                  )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {setIsCustomInstructionsEnabled && (
+                      <button
+                        type="button"
+                        onClick={handleToggleMasterRules}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
+                          isCustomInstructionsEnabled
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30"
+                            : "bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700"
+                        }`}
+                      >
+                        {isCustomInstructionsEnabled ? "Включено" : "Включить"}
+                      </button>
+                    )}
+                    {setShowCustomInstructionsModal && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomInstructionsModal(true)}
+                        className="p-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border border-neutral-700 transition-colors"
+                        title="Настроить правила и инструкции"
+                      >
+                        <Settings size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
+
+                {/* Rules List Chips */}
+                {isCustomInstructionsEnabled && (customRules || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1 border-t border-neutral-800/60">
+                    {(customRules || []).map((rule: any) => (
+                      <button
+                        key={`seo-rule-${rule.id}`}
+                        type="button"
+                        onClick={() => handleToggleRule(rule.id)}
+                        className={`px-2 py-0.5 text-[10px] font-medium rounded-md border flex items-center gap-1 transition-all ${
+                          rule.isActive
+                            ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
+                            : "bg-neutral-950 text-neutral-500 border-neutral-800 hover:text-neutral-400 line-through"
+                        }`}
+                        title={rule.promptSnippet || rule.title}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${rule.isActive ? "bg-emerald-400" : "bg-neutral-600"}`} />
+                        <span className="truncate max-w-[140px]">{rule.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Brandbook Synced Indicator */}
+                {brandName && (
+                  <div className="pt-1 border-t border-neutral-800/60 flex items-center justify-between text-[10px] text-neutral-400">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles size={11} className="text-yellow-400" /> Брендбук канала: <strong className="text-white">"{brandName}"</strong>
+                    </span>
+                    {brandColors && Array.isArray(brandColors) && (
+                      <div className="flex items-center gap-1">
+                        {brandColors.slice(0, 3).map((c: string, idx: number) => (
+                          <span key={`seo-brand-c-${idx}`} className="w-2 h-2 rounded-full border border-neutral-700" style={{ backgroundColor: c }} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Idea Preview Card */}
               {activeTopic ? (
@@ -1180,213 +1285,164 @@ ${videoSEO.keywords || ''}`;
                   animate={{ opacity: 1, y: 0 }}
                   className="space-y-4 rounded-[28px] border border-neutral-800/80 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.10),_transparent_28%),linear-gradient(135deg,_rgba(12,12,12,1)_0%,_rgba(17,17,17,1)_48%,_rgba(8,20,16,1)_100%)] p-3.5 shadow-[0_22px_50px_rgba(0,0,0,0.28)]"
                 >
-                  {/* Title Section */}
-                  <div className="space-y-2 rounded-2xl border border-neutral-800/80 bg-gradient-to-br from-neutral-950 via-neutral-950 to-emerald-950/10 p-3 shadow-[0_12px_28px_rgba(16,185,129,0.05)]">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
+                  {/* Title Section: 3 Variants */}
+                  <div className="space-y-3 rounded-2xl border border-neutral-800/80 bg-gradient-to-br from-neutral-950 via-neutral-950 to-emerald-950/10 p-3.5 shadow-[0_12px_28px_rgba(16,185,129,0.05)]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="px-1.5 py-0.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-[9px] font-black uppercase tracking-[0.16em] text-emerald-400">Title</span>
-                        <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">Оптимизированный заголовок</span>
+                        <h5 className="text-xs font-bold text-white uppercase tracking-wider">
+                          3 варианта заголовка
+                        </h5>
                       </div>
                       <div className="flex items-center gap-2">
-                        {isEditingTitle ? (
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                if (!editedTitle.trim()) {
-                                  toast.error("Заголовок не может быть пустым");
-                                  return;
-                                }
-                                setVideoSEO({ ...videoSEO, title: editedTitle.trim() });
-                                setIsEditingTitle(false);
-                                toast.success("Заголовок сохранен");
-                              }}
-                              className="text-[10px] text-emerald-400 hover:text-emerald-300 uppercase font-bold flex items-center gap-1"
-                            >
-                              <Check size={11} /> Сохранить
-                            </button>
-                            <button 
-                              onClick={() => setIsEditingTitle(false)}
-                              className="text-[10px] text-red-400 hover:text-red-300 uppercase font-bold flex items-center gap-1"
-                            >
-                              <X size={11} /> Отмена
-                            </button>
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={() => {
-                              setEditedTitle(videoSEO.title);
-                              setIsEditingTitle(true);
-                            }}
-                            className="text-[10px] text-neutral-400 hover:text-white uppercase font-bold flex items-center gap-1"
-                          >
-                            <Edit2 size={10} /> Изменить
-                          </button>
-                        )}
-                        <button 
-                          onClick={handleAnalyzeTitles}
-                          disabled={isAnalyzingTitles}
-                          className="text-[10px] text-yellow-500 hover:text-yellow-400 uppercase font-bold flex items-center gap-1"
+                        <button
+                          type="button"
+                          onClick={handleRegenerate3Titles}
+                          disabled={isGeneratingAITitle}
+                          className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1.5"
+                          title="Сгенерировать 3 новых контрастных варианта"
                         >
-                          {isAnalyzingTitles ? <Loader2 size={10} className="animate-spin" /> : <Eye size={10} />}
-                          Уникальность
+                          {isGeneratingAITitle ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                          <span>Сгенерировать еще 3</span>
                         </button>
                       </div>
                     </div>
-                    {isEditingTitle ? (
-                      <input
-                        type="text"
-                        value={editedTitle}
-                        onChange={(e) => setEditedTitle(e.target.value)}
-                        className="w-full p-3 bg-neutral-950 rounded-lg border border-accent text-sm font-bold text-white focus:outline-none focus:ring-1 focus:ring-accent"
-                      />
-                    ) : (
-                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800 text-sm font-bold text-white leading-snug">
-                        {videoSEO.title}
-                      </div>
-                    )}
 
-                    {/* REQUIREMENT 4: Title Quality Indicator Widget */}
-                    {(() => {
-                      const metrics = getTitleQualityMetrics(videoSEO.title, videoSEO.keywords);
-                      return (
-                        <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-800 space-y-2">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                              <Target size={14} className={metrics.totalScore >= 75 ? "text-emerald-400" : metrics.totalScore >= 50 ? "text-yellow-400" : "text-red-400"} />
-                              <span className="text-[10px] font-bold text-white uppercase tracking-wider">
-                                Индикатор качества заголовка
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                metrics.lenStatus === 'optimal' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                                metrics.lenStatus === 'warning' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-                                'bg-red-500/10 text-red-400 border-red-500/30'
-                              }`}>
-                                {metrics.len} / 100 симв.
-                              </span>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                metrics.totalScore >= 75 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                                metrics.totalScore >= 50 ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30' :
-                                'bg-red-500/10 text-red-400 border-red-500/30'
-                              }`}>
-                                Оценка: {metrics.totalScore}%
-                              </span>
-                            </div>
-                          </div>
+                    {/* 3 Title Cards */}
+                    <div className="space-y-2">
+                      {(() => {
+                        const current = (videoSEO.title || "").trim();
+                        const rawList = Array.isArray(videoSEO.titleVariants)
+                          ? videoSEO.titleVariants.map((s: any) => String(s).trim()).filter(Boolean)
+                          : [];
+                        const combined = [current, ...rawList.filter(v => v !== current)].filter(Boolean);
+                        const titlesToDisplay = combined.length === 0
+                          ? [current || "Заголовок видео"]
+                          : combined.length === 1
+                          ? [combined[0], `${combined[0]}: главный секрет`, `Как сделать ${combined[0]}`]
+                          : combined.length === 2
+                          ? [combined[0], combined[1], `3 ключевых правила: ${combined[0]}`]
+                          : combined.slice(0, 3);
 
-                          <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full transition-all duration-300 ${
-                                metrics.totalScore >= 75 ? 'bg-emerald-400' : metrics.totalScore >= 50 ? 'bg-yellow-400' : 'bg-red-400'
+                        return titlesToDisplay.map((titleText: string, idx: number) => {
+                          const isSelected = videoSEO.title === titleText;
+                          return (
+                            <div
+                              key={`title-option-${idx}-${titleText.slice(0, 10)}`}
+                              className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                                isSelected
+                                  ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                  : 'bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900/90'
                               }`}
-                              style={{ width: `${metrics.totalScore}%` }}
-                            />
-                          </div>
-
-                          <p className="text-[11px] text-neutral-300 leading-snug">
-                            • {metrics.lenLabel}
-                          </p>
-
-                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-neutral-800/60 text-[10px]">
-                            <span className="text-neutral-500 font-bold uppercase text-[9px]">Теги в заголовке:</span>
-                            {metrics.matchedKeywords.length > 0 ? (
-                              metrics.matchedKeywords.map((kw: string, i: number) => (
-                                <span key={`matched-kw-${kw}-${i}`} className="px-1.5 py-0.2 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded font-semibold">
-                                  ✓ {kw}
+                            >
+                              <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
+                                  isSelected ? 'bg-emerald-500 text-black' : 'bg-neutral-800 text-neutral-400'
+                                }`}>
+                                  {idx + 1}
                                 </span>
-                              ))
-                            ) : (
-                              <span className="text-red-400/80 italic text-[10px]">
-                                ⚠️ Ключевые фразы из списка тегов не найдены в заголовке
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
+                                <div className="min-w-0 flex-1">
+                                  <p className={`text-xs sm:text-sm font-semibold leading-snug break-words ${
+                                    isSelected ? 'text-white font-bold' : 'text-neutral-300'
+                                  }`}>
+                                    {titleText}
+                                  </p>
+                                  <span className="text-[10px] text-neutral-500 font-mono mt-0.5 block">
+                                    {titleText.length} / 70 симв.
+                                  </span>
+                                </div>
+                              </div>
 
-                    {/* REQUIREMENT 2: Quick AI Title Enhancers */}
-                    <div className="p-2.5 bg-neutral-950/60 rounded-lg border border-neutral-800 space-y-1.5">
-                      <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1">
-                        <Zap size={10} className="text-yellow-400" /> Быстрые ИИ-усилители заголовка:
-                      </span>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <button
-                          onClick={() => handleEnhanceTitleAI('ctr')}
-                          disabled={isGeneratingAITitle}
-                          className="px-2 py-1 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 border border-yellow-500/20 rounded text-[9px] font-bold transition-all text-center"
-                        >
-                          ⚡ CTR / Кликабельный
-                        </button>
-                        <button
-                          onClick={() => handleEnhanceTitleAI('seo')}
-                          disabled={isGeneratingAITitle}
-                          className="px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/20 rounded text-[9px] font-bold transition-all text-center"
-                        >
-                          🔍 Поисковый / LSI
-                        </button>
-                        <button
-                          onClick={() => handleEnhanceTitleAI('short')}
-                          disabled={isGeneratingAITitle}
-                          className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 rounded text-[9px] font-bold transition-all text-center"
-                        >
-                          📱 Мобильный / Короткий
-                        </button>
-                      </div>
+                              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    copyToClipboard(titleText);
+                                    toast.success("Заголовок скопирован в буфер");
+                                  }}
+                                  className="p-1.5 hover:bg-neutral-800 text-neutral-400 hover:text-white rounded-lg transition-colors"
+                                  title="Скопировать заголовок"
+                                >
+                                  <Copy size={13} />
+                                </button>
+
+                                {isSelected ? (
+                                  <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-lg text-[11px] font-bold flex items-center gap-1">
+                                    <Check size={12} /> Выбран
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setVideoSEO({ ...videoSEO, title: titleText });
+                                      toast.success(`Выбран вариант ${idx + 1}`);
+                                    }}
+                                    className="px-2.5 py-1 bg-neutral-800 hover:bg-emerald-500 hover:text-black text-neutral-300 rounded-lg text-[11px] font-bold transition-all"
+                                  >
+                                    Выбрать
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
 
-                    {/* A/B Testing Variants for Titles */}
-                    {videoSEO.titleVariants && videoSEO.titleVariants.length > 0 && (
-                      <div className="mt-2 space-y-1.5">
-                        <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider flex items-center gap-1">
-                          <Split size={9} className="text-accent" /> Варианты для A/B теста:
-                        </p>
-                        <div className="grid grid-cols-1 gap-1.5">
-                          {videoSEO.titleVariants.map((variant: string, idx: number) => (
-                            <button
-                              key={`title-variant-${variant}-${idx}`}
-                              onClick={() => {
-                                setVideoSEO({ ...videoSEO, title: variant });
-                                toast.success('Заголовок обновлен!');
-                              }}
-                              className="text-left p-2 bg-neutral-950/50 border border-neutral-800 rounded-lg text-xs text-neutral-300 hover:text-white hover:border-accent/50 transition-all group relative flex items-center justify-between"
-                            >
-                              <span className="truncate pr-16">{variant}</span>
-                              <span className="opacity-0 group-hover:opacity-100 text-[8px] font-bold text-accent uppercase bg-accent/10 px-1.5 py-0.5 rounded shrink-0">Применить</span>
-                            </button>
-                          ))}
+                    {/* Manual Title Edit / Fine-tuning */}
+                    <div className="pt-1">
+                      {isEditingTitle ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editedTitle}
+                            onChange={(e) => setEditedTitle(e.target.value)}
+                            className="flex-1 px-3 py-1.5 bg-neutral-900 border border-emerald-500/50 rounded-lg text-xs font-semibold text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            placeholder="Отредактируйте выбранный заголовок..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!editedTitle.trim()) {
+                                toast.error("Заголовок не может быть пустым");
+                                return;
+                              }
+                              const updatedTitle = editedTitle.trim();
+                              const updatedVariants = (videoSEO.titleVariants || []).map((v: string) => 
+                                v === videoSEO.title ? updatedTitle : v
+                              );
+                              if (!updatedVariants.includes(updatedTitle)) {
+                                updatedVariants[0] = updatedTitle;
+                              }
+                              setVideoSEO({ ...videoSEO, title: updatedTitle, titleVariants: updatedVariants });
+                              setIsEditingTitle(false);
+                              toast.success("Заголовок обновлен");
+                            }}
+                            className="px-2.5 py-1.5 bg-emerald-500 text-black rounded-lg text-[11px] font-bold hover:bg-emerald-400 transition-colors flex items-center gap-1 shrink-0"
+                          >
+                            <Check size={12} /> Сохранить
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingTitle(false)}
+                            className="px-2 py-1.5 text-neutral-400 hover:text-white rounded-lg text-[11px] font-bold shrink-0"
+                          >
+                            Отмена
+                          </button>
                         </div>
-                      </div>
-                    )}
-                    
-                    {titleAnalysis && (
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.98 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="mt-2 p-3 bg-neutral-950 rounded-lg border border-yellow-500/30 space-y-2"
-                      >
-                        <div className="flex items-start gap-2">
-                          <Bot className="text-yellow-500 shrink-0 mt-0.5" size={14} />
-                          <p className="text-xs text-neutral-300 italic leading-snug">{titleAnalysis.analysis}</p>
-                        </div>
-                        <div className="space-y-1.5">
-                          <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Альтернативы:</p>
-                          <div className="grid grid-cols-1 gap-1.5">
-                            {titleAnalysis.alternatives.map((alt: string, idx: number) => (
-                              <button
-                                key={`title-analysis-alt-${alt}-${idx}`}
-                                onClick={() => applyBroadSEOChange('title', alt)}
-                                className="text-left p-2 bg-neutral-900 border border-neutral-800 rounded text-xs text-neutral-300 hover:text-white hover:border-yellow-500/50 transition-all flex items-center justify-between group"
-                              >
-                                <span className="truncate pr-12">{alt}</span>
-                                <span className="opacity-0 group-hover:opacity-100 text-[8px] font-bold text-yellow-500 uppercase shrink-0">Выбрать</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditedTitle(videoSEO.title);
+                            setIsEditingTitle(true);
+                          }}
+                          className="text-[10px] text-neutral-500 hover:text-neutral-300 font-semibold flex items-center gap-1 transition-colors"
+                        >
+                          <Edit2 size={10} /> Изменить текст выбранного заголовка вручную
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Description Section */}
@@ -1395,6 +1451,12 @@ ${videoSEO.keywords || ''}`;
                       <div className="flex items-center gap-2">
                         <span className="px-1.5 py-0.5 rounded-md border border-amber-500/20 bg-amber-500/10 text-[9px] font-black uppercase tracking-[0.16em] text-amber-400">Desc</span>
                         <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">Описание видео</span>
+                        <span 
+                          className="text-[10px] px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-400 font-mono flex items-center gap-1"
+                          title="Первые 200 символов попадают в видимый сниппет поисковой выдачи YouTube и Google до кнопки «Ещё». Здесь обязательны ключевые запросы темы!"
+                        >
+                          Сниппет: <strong className={((isEditingDesc ? editedDesc : (videoSEO.description || '')).length >= 50) ? 'text-amber-400 font-bold' : 'text-neutral-500'}>{Math.min(200, (isEditingDesc ? editedDesc : (videoSEO.description || '')).length)}/200</strong> зн.
+                        </span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <button
@@ -1404,6 +1466,14 @@ ${videoSEO.keywords || ''}`;
                           className="text-[9px] text-purple-300 hover:text-white uppercase font-bold flex items-center gap-1 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20"
                         >
                           <Wand2 size={10} /> ИИ-структура описания
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsMediaTimestampsModalOpen(true)}
+                          className="text-[9px] text-emerald-400 hover:text-emerald-300 uppercase font-bold flex items-center gap-1 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20 transition-all cursor-pointer shadow-sm hover:bg-emerald-500/20"
+                          title="Определить точные таймкоды и главы по загруженному видео или аудио файлу с помощью ИИ"
+                        >
+                          <Film size={10} className="text-emerald-400" /> 🎥 Таймкоды по видео (ИИ)
                         </button>
                         <button
                           type="button"
@@ -1463,6 +1533,9 @@ ${videoSEO.keywords || ''}`;
                         {videoSEO.description}
                       </div>
                     )}
+                    <p className="text-[10px] text-neutral-500 flex items-center gap-1.5 px-0.5">
+                      <span className="text-amber-400 font-semibold">SEO-правило:</span> в первых 200 символах описания (до кнопки «Ещё») обязательно должны присутствовать ключевые поисковые запросы по теме ролика.
+                    </p>
                   </div>
 
                   {/* YouTube Studio Tags & Keywords */}
@@ -1608,39 +1681,265 @@ ${videoSEO.keywords || ''}`;
                       animate={{ opacity: 1, height: 'auto' }}
                       className="p-4 bg-neutral-950 rounded-xl border border-yellow-500/30 space-y-4"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-1">
-                        <h5 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                          <BarChart3 size={14} className="text-yellow-500" /> Результаты SEO-аудита
-                        </h5>
-                        <div className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          seoAnalysis.score >= 80 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                          seoAnalysis.score >= 50 ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' :
-                          'bg-red-500/10 text-red-400 border border-red-500/20'
-                        }`}>
-                          Счет: {seoAnalysis.score}/100
+                      {/* Header with Total Score and Status */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-800">
+                        <div className="flex items-center gap-2">
+                          <BarChart3 size={18} className="text-yellow-500" />
+                          <div>
+                            <h5 className="text-xs font-bold text-white uppercase tracking-wider">
+                              Глубокий SEO-аудит и проверка правил
+                            </h5>
+                            <p className="text-[10px] text-neutral-400">
+                              Оценка метаданных, кликабельности и соответствия стандартам YouTube
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                            seoAnalysis.score >= 80 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                            seoAnalysis.score >= 50 ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30' :
+                            'bg-red-500/15 text-red-400 border border-red-500/30'
+                          }`}>
+                            <span className="text-[10px] uppercase font-semibold text-neutral-400">SEO Score:</span>
+                            <span>{seoAnalysis.score}/100</span>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Detailed Score Breakdown */}
+                      {seoAnalysis.scoreBreakdown && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                          <div className="p-2.5 bg-neutral-900/70 border border-neutral-800/80 rounded-lg text-center space-y-0.5">
+                            <span className="text-[9px] text-neutral-500 font-bold uppercase">Заголовок</span>
+                            <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
+                              {seoAnalysis.scoreBreakdown.titleScore}/100
+                            </div>
+                            <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                              <div 
+                                className="bg-blue-500 h-full rounded-full transition-all" 
+                                style={{ width: `${seoAnalysis.scoreBreakdown.titleScore}%` }} 
+                              />
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 bg-neutral-900/70 border border-neutral-800/80 rounded-lg text-center space-y-0.5">
+                            <span className="text-[9px] text-neutral-500 font-bold uppercase">Описание</span>
+                            <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
+                              {seoAnalysis.scoreBreakdown.descriptionScore}/100
+                            </div>
+                            <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                              <div 
+                                className="bg-emerald-500 h-full rounded-full transition-all" 
+                                style={{ width: `${seoAnalysis.scoreBreakdown.descriptionScore}%` }} 
+                              />
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 bg-neutral-900/70 border border-neutral-800/80 rounded-lg text-center space-y-0.5">
+                            <span className="text-[9px] text-neutral-500 font-bold uppercase">Ключи и теги</span>
+                            <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
+                              {seoAnalysis.scoreBreakdown.keywordsScore}/100
+                            </div>
+                            <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                              <div 
+                                className="bg-purple-500 h-full rounded-full transition-all" 
+                                style={{ width: `${seoAnalysis.scoreBreakdown.keywordsScore}%` }} 
+                              />
+                            </div>
+                          </div>
+
+                          <div className={`p-2.5 rounded-lg text-center space-y-0.5 border ${
+                            seoAnalysis.scoreBreakdown.rulesComplianceScore >= 90
+                              ? "bg-emerald-500/10 border-emerald-500/30"
+                              : "bg-red-500/10 border-red-500/30"
+                          }`}>
+                            <span className="text-[9px] font-bold uppercase text-neutral-400">Кастомные правила</span>
+                            <div className={`text-sm font-bold flex items-center justify-center gap-1 ${
+                              seoAnalysis.scoreBreakdown.rulesComplianceScore >= 90 ? "text-emerald-400" : "text-red-400"
+                            }`}>
+                              {seoAnalysis.scoreBreakdown.rulesComplianceScore}/100
+                            </div>
+                            <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all ${
+                                  seoAnalysis.scoreBreakdown.rulesComplianceScore >= 90 ? "bg-emerald-400" : "bg-red-400"
+                                }`} 
+                                style={{ width: `${seoAnalysis.scoreBreakdown.rulesComplianceScore}%` }} 
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CTR PREDICTION CARD */}
+                      {seoAnalysis.ctrPrediction && (
+                        <div className="p-3 bg-gradient-to-r from-neutral-900 via-neutral-900/90 to-blue-950/30 border border-blue-500/20 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <TrendingUp size={16} className="text-blue-400 shrink-0" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white">
+                                  Прогноз CTR: ~{seoAnalysis.ctrPrediction.predictedCTR}
+                                </span>
+                                <span className="text-[10px] text-neutral-400">
+                                  (Бенчмарк ниши: {seoAnalysis.ctrPrediction.benchmarkCTR})
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-blue-200/80 leading-snug mt-0.5">
+                                {seoAnalysis.ctrPrediction.ctrKeyAdvice}
+                              </p>
+                            </div>
+                          </div>
+                          <span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded border shrink-0 ${
+                            seoAnalysis.ctrPrediction.potential === 'high' 
+                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                              : 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
+                          }`}>
+                            Потенциал: {seoAnalysis.ctrPrediction.potential === 'high' ? 'Высокий' : 'Умеренный'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* CUSTOM RULES AUDIT PANEL */}
+                      {seoAnalysis.customRulesAudit && seoAnalysis.customRulesAudit.items && seoAnalysis.customRulesAudit.items.length > 0 && (
+                        <div className="p-3.5 bg-neutral-900/90 border border-emerald-500/30 rounded-xl space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck size={16} className="text-emerald-400" />
+                              <h6 className="text-xs font-bold text-white uppercase tracking-wider">
+                                Аудит кастомных правил канала
+                              </h6>
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                                seoAnalysis.customRulesAudit.passedRules === seoAnalysis.customRulesAudit.totalRules
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                  : 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
+                              }`}>
+                                Соблюдено: {seoAnalysis.customRulesAudit.passedRules} из {seoAnalysis.customRulesAudit.totalRules}
+                              </span>
+                            </div>
+
+                            {seoAnalysis.customRulesAudit.passedRules < seoAnalysis.customRulesAudit.totalRules && handleApplyAllRuleFixes && (
+                              <button
+                                type="button"
+                                onClick={handleApplyAllRuleFixes}
+                                className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
+                              >
+                                <Zap size={12} className="text-emerald-400" />
+                                Применить все исправления правил в 1 клик
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            {seoAnalysis.customRulesAudit.items.map((auditItem: any, idx: number) => {
+                              const isPassed = auditItem.status === 'passed';
+                              const isWarning = auditItem.status === 'warning';
+                              return (
+                                <div 
+                                  key={`rule-audit-item-${idx}`}
+                                  className={`p-2.5 rounded-lg border text-xs space-y-1.5 transition-colors ${
+                                    isPassed 
+                                      ? 'bg-emerald-500/5 border-emerald-500/20 text-neutral-300' 
+                                      : isWarning 
+                                      ? 'bg-yellow-500/5 border-yellow-500/25 text-neutral-300'
+                                      : 'bg-red-500/5 border-red-500/30 text-neutral-200'
+                                  }`}
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 font-semibold text-white">
+                                      {isPassed ? (
+                                        <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                                      ) : isWarning ? (
+                                        <AlertTriangle size={13} className="text-yellow-400 shrink-0" />
+                                      ) : (
+                                        <AlertCircle size={13} className="text-red-400 shrink-0" />
+                                      )}
+                                      <span>{auditItem.ruleTitle}</span>
+                                    </div>
+                                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${
+                                      isPassed ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                      isWarning ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
+                                      'bg-red-500/20 text-red-400 border-red-500/30'
+                                    }`}>
+                                      {isPassed ? 'Соблюдено' : isWarning ? 'Внимание' : 'Нарушено'}
+                                    </span>
+                                  </div>
+
+                                  <p className="text-[11px] text-neutral-300 leading-snug">
+                                    {auditItem.details}
+                                  </p>
+
+                                  {!isPassed && auditItem.suggestedFix && (
+                                    <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-800/60">
+                                      <div className="text-[10px] text-neutral-400 truncate max-w-md font-mono bg-neutral-950/80 px-2 py-1 rounded border border-neutral-800">
+                                        Исправление: {auditItem.suggestedFix.length > 70 ? auditItem.suggestedFix.substring(0, 70) + '...' : auditItem.suggestedFix}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          applyBroadSEOChange(
+                                            auditItem.targetField || 'description',
+                                            auditItem.suggestedFix,
+                                            {
+                                              ruleTitle: auditItem.ruleTitle,
+                                              targetField: auditItem.targetField,
+                                              isRuleViolation: true,
+                                            }
+                                          )
+                                        }
+                                        className="px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold rounded transition-all flex items-center gap-1"
+                                      >
+                                        <Check size={11} /> Исправить по правилу
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       
                       {seoAnalysis.analysis && (
-                        <p className="text-xs text-neutral-300 italic leading-relaxed">
-                          {seoAnalysis.analysis}
-                        </p>
+                        <div className="p-3 bg-neutral-900/40 rounded-lg border border-neutral-800/80">
+                          <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block mb-1">
+                            Резюме аудитора:
+                          </span>
+                          <p className="text-xs text-neutral-300 italic leading-relaxed">
+                            {seoAnalysis.analysis}
+                          </p>
+                        </div>
                       )}
 
                       {/* SEO Audit Improvements List - Dynamic Apply & Remove */}
                       <div className="space-y-2.5">
-                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
-                          Замечания аудита ({seoAnalysis.improvements?.length || 0})
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                            Точечные замечания аудита ({seoAnalysis.improvements?.length || 0})
+                          </span>
+                        </div>
 
                         {seoAnalysis.improvements && seoAnalysis.improvements.length > 0 ? (
                           seoAnalysis.improvements.map((imp: any, i: number) => (
-                            <div key={`seo-audit-item-${i}`} className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800 space-y-2 relative group hover:border-yellow-500/40 transition-colors">
+                            <div 
+                              key={`seo-audit-item-${i}`} 
+                              className={`p-3 bg-neutral-900/60 rounded-lg border space-y-2 relative group transition-colors ${
+                                imp.isRuleViolation ? 'border-red-500/40 hover:border-red-500/60' : 'border-neutral-800 hover:border-yellow-500/40'
+                              }`}
+                            >
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="text-[10px] font-bold text-white uppercase flex items-center gap-1.5">
-                                  <Sparkles size={11} className="text-yellow-500 shrink-0" />
-                                  {imp.area}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold text-white uppercase flex items-center gap-1.5">
+                                    <Sparkles size={11} className={imp.isRuleViolation ? "text-red-400" : "text-yellow-500"} />
+                                    {imp.area}
+                                  </span>
+                                  {imp.isRuleViolation && (
+                                    <span className="px-1.5 py-0.2 bg-red-500/20 text-red-300 border border-red-500/30 rounded text-[9px] font-bold">
+                                      Кастомное правило
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-1.5">
                                   <span className={`text-[8px] font-bold uppercase px-1.5 py-0.2 rounded ${
                                     imp.impact === 'high' ? 'bg-red-500/10 text-red-400' :
@@ -1670,7 +1969,11 @@ ${videoSEO.keywords || ''}`;
                               <div className="flex items-center gap-2 pt-1">
                                 <button 
                                   onClick={() => handleApplySEOImprovement({ ...imp }, i)}
-                                  className="w-full py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 text-[10px] font-bold uppercase rounded-lg transition-colors border border-yellow-500/20 flex items-center justify-center gap-1.5"
+                                  className={`w-full py-1.5 text-[10px] font-bold uppercase rounded-lg transition-colors border flex items-center justify-center gap-1.5 ${
+                                    imp.isRuleViolation 
+                                      ? 'bg-red-500/15 hover:bg-red-500/25 text-red-300 border-red-500/30'
+                                      : 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/20'
+                                  }`}
                                 >
                                   <Check size={12} /> Применить и убрать из списка
                                 </button>
@@ -1684,112 +1987,6 @@ ${videoSEO.keywords || ''}`;
                             <p className="text-[10px] text-neutral-400">Заголовок, описание и ключевые слова максимально оптимизированы.</p>
                           </div>
                         )}
-
-                        {/* Keywords Recommendations */}
-                        {seoAnalysis.keywords && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                            <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-lg space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-1">
-                                <h6 className="text-[10px] font-bold text-blue-400 uppercase flex items-center gap-1">
-                                  <BarChart3 size={11} /> Высокочастотные
-                                </h6>
-                                <button
-                                  onClick={() => addAllKeywordsToTags(seoAnalysis.keywords.highFrequency, "высокочастотные")}
-                                  className="text-[9px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/20 font-semibold"
-                                >
-                                  + Все в теги
-                                </button>
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {seoAnalysis.keywords.highFrequency.map((kw: string, idx: number) => (
-                                  <button key={`seo-kw-hi-${idx}`} onClick={() => addKeywordToTags(kw)} className="px-1.5 py-0.5 bg-blue-500/10 hover:bg-blue-500/30 text-blue-300 border border-blue-500/20 rounded text-[9px] transition-all"
-                                  >
-                                    + {kw}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-lg space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-1">
-                                <h6 className="text-[10px] font-bold text-purple-400 uppercase flex items-center gap-1">
-                                  <Target size={11} /> Низкочастотные
-                                </h6>
-                                <button
-                                  onClick={() => addAllKeywordsToTags(seoAnalysis.keywords.lowFrequency, "низкочастотные")}
-                                  className="text-[9px] bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/20 font-semibold"
-                                >
-                                  + Все в теги
-                                </button>
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {seoAnalysis.keywords.lowFrequency.map((kw: string, idx: number) => (
-                                  <button key={`seo-kw-lo-${idx}`} onClick={() => addKeywordToTags(kw)} className="px-1.5 py-0.5 bg-purple-500/10 hover:bg-purple-500/30 text-purple-300 border border-purple-500/20 rounded text-[9px] transition-all"
-                                  >
-                                    + {kw}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* GOOGLE SEARCH TIPS SECTION */}
-                        <div className="p-3.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl space-y-2.5 mt-4">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <h6 className="text-[10px] font-bold text-emerald-400 uppercase flex items-center gap-1.5">
-                              <Search size={12} /> Рекомендации Google Search
-                            </h6>
-                            {seoAnalysis.googleSearchTips && seoAnalysis.googleSearchTips.length > 0 && (
-                              <button
-                                onClick={handleApplyAllGoogleTips}
-                                className="px-2 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-bold border border-emerald-500/20 rounded transition-all"
-                              >
-                                Применить все советы в описание
-                              </button>
-                            )}
-                          </div>
-
-                          {seoAnalysis.googleSearchTips && seoAnalysis.googleSearchTips.length > 0 ? (
-                            <div className="space-y-2">
-                              {seoAnalysis.googleSearchTips.map((tip: string, idx: number) => (
-                                <div key={`seo-google-tip-${idx}`} className="p-2.5 bg-neutral-900/80 border border-neutral-800 rounded-lg space-y-2">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="text-[11px] text-neutral-300 leading-relaxed flex items-start gap-1.5">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
-                                      <span>{tip}</span>
-                                    </p>
-                                    <button
-                                      onClick={() => handleRemoveGoogleTip(idx)}
-                                      className="text-neutral-500 hover:text-red-400 transition-colors shrink-0 p-0.5"
-                                      title="Удалить совет"
-                                    >
-                                      <X size={12} />
-                                    </button>
-                                  </div>
-                                  <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-neutral-800/60">
-                                    <button
-                                      onClick={() => handleApplyGoogleTipToDesc(tip, idx)}
-                                      className="px-2 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-bold rounded border border-emerald-500/20"
-                                    >
-                                      + В описание
-                                    </button>
-                                    <button
-                                      onClick={() => handleApplyGoogleTipToTags(tip, idx)}
-                                      className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[9px] font-bold rounded border border-neutral-700"
-                                    >
-                                      + В теги
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="p-2 text-center text-[10px] text-emerald-400 font-semibold">
-                              ✓ Все рекомендации Google Search применены.
-                            </div>
-                          )}
-                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -2757,6 +2954,45 @@ ${videoSEO.keywords || ''}`;
           </ScrollFadeIn>
         </div>
       </div>
+
+      {/* Social Media Cross-Promotion & 1:1 Quote Cards Section */}
+      <ScrollFadeIn delay={0.15}>
+        <SocialPromoSection
+          socialData={videoSEO?.socialPromo || null}
+          isGenerating={isGeneratingSocialActive}
+          onGenerate={onGenerateSocialPromo}
+          title={videoSEO?.title || activeTopic}
+          sourceType="seo"
+          channelName={selectedBranding?.name || (typeof nicheData?.branding?.names?.[0] === "string" ? nicheData.branding.names[0] : nicheData?.branding?.names?.[0]?.name) || "YouTube Канал"}
+        />
+      </ScrollFadeIn>
+
+      {/* Video/Audio Timestamps & Chapters Modal */}
+      <VideoTimestampsModal
+        isOpen={isMediaTimestampsModalOpen}
+        onClose={() => setIsMediaTimestampsModalOpen(false)}
+        videoTitle={videoSEO?.title || activeTopic}
+        niche={activeNiche}
+        scriptBlocks={extractScriptBlockRefs(scriptStructure, generatedBlocks)}
+        referenceScript={
+          scriptStructure && generatedBlocks
+            ? (Array.isArray(generatedBlocks) ? generatedBlocks : Object.values(generatedBlocks))
+                .map((b: any) => b?.text || b?.content || "")
+                .filter(Boolean)
+                .join("\n\n")
+            : ""
+        }
+        currentDescription={videoSEO?.description || ""}
+        onApplyTimestamps={(updatedDescription) => {
+          if (videoSEO) {
+            setVideoSEO({
+              ...videoSEO,
+              description: updatedDescription,
+            });
+          }
+        }}
+        activeModel={props.activeModel}
+      />
     </div>
   );
 };

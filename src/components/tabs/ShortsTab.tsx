@@ -21,10 +21,36 @@ import {
   Heart,
   Activity,
   Copy,
+  Subtitles,
+  Flame,
+  CheckCircle2,
+  Zap,
+  Target,
+  Compass,
+  HelpCircle,
+  Play,
+  Trash2,
+  Check,
+  ShieldCheck,
+  Table,
+  FileCode,
+  PlusCircle,
+  BarChart3,
+  AlertTriangle,
+  AlertCircle,
+  FileJson,
 } from "lucide-react";
-import { getFullScriptText } from "../../utils/helpers";
-import { optimizeTitle, type CutShortItem, type NicheData, type GeneratedBlock } from "../../services/geminiService";
+import { getFullScriptText, exportToCSV, exportToMarkdown, copyToClipboard } from "../../utils/helpers";
+import { optimizeTitle, type CutShortItem, type NicheData, type GeneratedBlock, type ShortsOutlierIdea } from "../../services/geminiService";
 import { useShortsGeneration } from "../../hooks/useShortsGeneration";
+import { SubtitlesModal } from "../SubtitlesModal";
+import { ShortsIdeasExportModal } from "../ShortsIdeasExportModal";
+import { AddCustomShortModal } from "../AddCustomShortModal";
+import { ShortsJsonImportExportModal } from "../modals/ShortsJsonImportExportModal";
+import { formatShortsIdeasToCSV, formatShortsIdeasToMarkdown } from "../../utils/shortsExportHelper";
+import { SocialPromoSection } from "../common/SocialPromoSection";
+import { IdeaCardContextMenu, computeCardColorStyles } from "../common/IdeaCardContextMenu";
+import { IdeaPlaylistSuggestionBanner } from "../common/IdeaPlaylistSuggestionBanner";
 
 export interface ShortsTabProps {
   nicheData: NicheData | null;
@@ -44,8 +70,22 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
   if (!nicheData) return null;
 
   const {
-    shortsActiveSubTab = "cuts",
+    shortsActiveSubTab = "outliers",
     setShortsActiveSubTab = () => {},
+    outlierAnalysis = null,
+    setOutlierAnalysis = () => {},
+    outlierIdeas = [],
+    setOutlierIdeas = () => {},
+    isAnalyzingOutliers = false,
+    isGeneratingIdeaScript = {},
+    customCompetitorInput = "",
+    setCustomCompetitorInput = () => {},
+    customOutlierPrompt = "",
+    setCustomOutlierPrompt = () => {},
+    handleAnalyzeCompetitorOutliers = () => {},
+    handleGenerateScriptFromOutlierIdea = () => {},
+    handleClearOutlierMemory = () => {},
+    handleDeleteOutlierIdea = () => {},
     longFormScriptToCut = "",
     setLongFormScriptToCut = () => {},
     cutShortsResults = [],
@@ -58,6 +98,13 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
     selectedShortForSeo = "",
     setSelectedShortForSeo = () => {},
     shortsSeoResult = null,
+    shortsSeoAnalysis = null,
+    isAnalyzingShortsSeoAudit = false,
+    handleAnalyzeShortsSEO,
+    handleApplyAllShortsRuleFixes,
+    applyBroadShortsSEOChange,
+    handleApplyShortsSEOImprovement,
+    handleRemoveShortsAuditImprovement,
     isGeneratingShortsSeo,
     generatingLoopForCard,
     shortsSeoError,
@@ -88,11 +135,35 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
     handleCutLongFormScript,
     handleGenerateLoopForCard,
     handleGenerateShortsVisuals,
+    handleRegenerateSingleSceneVisual,
+    regeneratingSceneIdx,
     handleDeleteShort,
     handleGenerateShortsSeo,
     handleAnalyzeShortsCtr,
     handleExportShortsZip,
+    handleAddCustomIdea,
+    handleAddCustomDirectScript,
   } = shorts;
+
+  const getAreaLabel = (area?: string) => {
+    if (!area) return "Оптимизация";
+    const a = area.toLowerCase().trim();
+    if (a.includes("title") || a.includes("заголов")) return "Заголовок";
+    if (a.includes("desc") || a.includes("описан")) return "Описание";
+    if (a.includes("kw") || a.includes("key") || a.includes("ключ") || a.includes("тег")) return "Ключевые слова";
+    if (a.includes("hash") || a.includes("хеш")) return "Хештеги";
+    if (a.includes("comment") || a.includes("коммент")) return "Закрепленный комментарий";
+    if (a.includes("rule") || a.includes("правил")) return "Кастомное правило";
+    return area;
+  };
+
+  const getImpactLabel = (impact?: string) => {
+    const imp = (impact || "").toLowerCase().trim();
+    if (imp === "high") return "Высокий приоритет";
+    if (imp === "medium") return "Средний приоритет";
+    if (imp === "low") return "Низкий приоритет";
+    return impact || "Рекомендация";
+  };
 
   const currentSeoToShow =
     cutShortsResults.find(
@@ -100,6 +171,53 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
         item.loopEnding?.loopedFullScript === selectedShortForSeo ||
         item.script === selectedShortForSeo
     )?.seo || shortsSeoResult;
+
+  const [isAddCustomModalOpen, setIsAddCustomModalOpen] = React.useState(false);
+  const [subtitlesModalData, setSubtitlesModalData] = React.useState<{
+    isOpen: boolean;
+    script: string;
+    title: string;
+  }>({
+    isOpen: false,
+    script: "",
+    title: "",
+  });
+
+  const [isIdeasExportModalOpen, setIsIdeasExportModalOpen] = React.useState(false);
+  const [isJsonModalOpen, setIsJsonModalOpen] = React.useState(false);
+  const [copiedIdeaId, setCopiedIdeaId] = React.useState<string | null>(null);
+  const [contextMenuShort, setContextMenuShort] = React.useState<{ id: string; title: string; position: { x: number; y: number } } | null>(null);
+
+  const handleImportIdeasFromJson = (newIdeas: ShortsOutlierIdea[], mode: "append" | "replace") => {
+    if (mode === "replace") {
+      setOutlierIdeas(newIdeas);
+    } else {
+      setOutlierIdeas((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const filteredNew = newIdeas.filter((item) => !existingIds.has(item.id));
+        return [...prev, ...filteredNew];
+      });
+    }
+  };
+
+  const handleCopyText = (text: string, id: string, label: string) => {
+    copyToClipboard(text);
+    setCopiedIdeaId(id);
+    toast.success(`${label} скопирован в буфер обмена!`);
+    setTimeout(() => setCopiedIdeaId(null), 2000);
+  };
+
+  const handleOpenSubtitlesModal = (script: string, title?: string) => {
+    if (!script || !script.trim()) {
+      toast.error("Сценарий Shorts пуст");
+      return;
+    }
+    setSubtitlesModalData({
+      isOpen: true,
+      script,
+      title: title || "Shorts",
+    });
+  };
 
   return (
     <div className="space-y-6" id="shorts-tab-root">
@@ -119,6 +237,75 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            id="shorts-add-custom-top-btn"
+            onClick={() => setIsAddCustomModalOpen(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-neutral-950 font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer text-[10px] shadow-sm shadow-amber-500/20"
+            title="Добавить свою идею или готовый сценарий для Shorts"
+          >
+            <PlusCircle size={13} className="text-neutral-950" />
+            <span>Добавить свой Shorts</span>
+          </button>
+
+          <button
+            id="shorts-subtitles-top-btn"
+            onClick={() => {
+              const activeScript =
+                selectedShortForVisuals ||
+                selectedShortForSeo ||
+                (cutShortsResults[0]?.loopEnding?.loopedFullScript || cutShortsResults[0]?.script) ||
+                "";
+              const activeTitle =
+                cutShortsResults.find(
+                  (item) =>
+                    item.loopEnding?.loopedFullScript === activeScript ||
+                    item.script === activeScript
+                )?.title || "Shorts";
+
+              if (!activeScript) {
+                toast.error("Сначала сгенерируйте сценарии Shorts");
+                return;
+              }
+              handleOpenSubtitlesModal(activeScript, activeTitle);
+            }}
+            className="px-3 py-1.5 bg-gradient-to-r from-primary/15 to-emerald-500/15 hover:from-primary/25 hover:to-emerald-500/25 text-primary border border-primary/30 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer text-[10px] shadow-sm"
+            title="Создать и экспортировать субтитры в формате TXT, SRT, SBV для Shorts"
+          >
+            <Subtitles size={13} className="text-primary" />
+            <span>Субтитры (SRT, SBV, TXT)</span>
+          </button>
+
+          <button
+            id="shorts-export-ideas-top-btn"
+            onClick={() => {
+              if (outlierIdeas.length === 0 && cutShortsResults.length === 0) {
+                toast.info("Сначала сгенерируйте идеи в разделе «ИИ-Аналитик: Новые Shorts» или нарезки сценария");
+                return;
+              }
+              setIsIdeasExportModalOpen(true);
+            }}
+            className="px-3 py-1.5 bg-gradient-to-r from-amber-500/15 via-yellow-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer text-[10px] shadow-sm"
+            title="Экспорт списка идей Shorts в Excel/CSV, Markdown, TXT, PDF, JSON или буфер обмена"
+          >
+            <Table size={13} className="text-amber-400" />
+            <span>Экспорт идей</span>
+            {(outlierIdeas.length > 0 || cutShortsResults.length > 0) && (
+              <span className="px-1.5 py-0.2 bg-amber-500/30 text-amber-200 rounded-full text-[9px] font-bold">
+                {outlierIdeas.length || cutShortsResults.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            id="shorts-json-import-export-btn"
+            onClick={() => setIsJsonModalOpen(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-amber-500/15 via-yellow-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer text-[10px] shadow-sm"
+            title="Импорт и экспорт тем Shorts в формате JSON"
+          >
+            <FileJson size={13} className="text-amber-400" />
+            <span>JSON Тем</span>
+          </button>
+
           <button
             id="shorts-apply-longform-seo-btn"
             onClick={() => handleApplyLongFormSeoToShorts()}
@@ -143,7 +330,8 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
       {/* Sub-Tabs Navigation */}
       <div className="sticky top-16 z-30 bg-neutral-950/90 backdrop-blur-md py-3 border-b border-neutral-800/80 -mx-4 px-4 sm:-mx-6 sm:px-6 md:-mx-8 md:px-8 flex gap-5 overflow-x-auto scrollbar-none mb-4">
         {[
-          { id: "cut", label: "Умная нарезка Long-Form", icon: Scissors },
+          { id: "outliers", label: "ИИ-Аналитик: Новые Shorts (10 идей)", icon: Flame, badge: outlierIdeas.length > 0 ? outlierIdeas.length : undefined },
+          { id: "cut", label: "Умная нарезка Long-Form", icon: Scissors, badge: cutShortsResults.length > 0 ? cutShortsResults.length : undefined },
           { id: "visuals", label: "Визуализация", icon: Palette },
           { id: "seo", label: "SEO", icon: Search },
         ].map((tab, tIdx) => {
@@ -155,15 +343,22 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
               id={`shorts-subtab-${tab.id}`}
               onClick={() => setShortsActiveSubTab(tab.id as any)}
               className={`flex items-center gap-2 pb-1 text-sm font-semibold transition-all relative cursor-pointer whitespace-nowrap ${
-                isActive ? "text-accent" : "text-neutral-400 hover:text-neutral-200"
+                isActive ? "text-amber-400 font-bold" : "text-neutral-400 hover:text-neutral-200"
               }`}
             >
-              <IconComp size={16} />
+              <IconComp size={16} className={isActive ? "text-amber-400" : "text-neutral-400"} />
               <span>{tab.label}</span>
+              {tab.badge !== undefined && (
+                <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
+                  isActive ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-neutral-800 text-neutral-400"
+                }`}>
+                  {tab.badge}
+                </span>
+              )}
               {isActive && (
                 <motion.div
                   layoutId="activeShortsSubTabLine"
-                  className="absolute -bottom-[17px] left-0 right-0 h-0.5 bg-accent rounded-full"
+                  className="absolute -bottom-[17px] left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 rounded-full"
                 />
               )}
             </button>
@@ -172,6 +367,595 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
       </div>
 
       {/* Content for subtabs */}
+      {shortsActiveSubTab === "outliers" && (
+        <div className="space-y-6" id="shorts-outliers-container">
+          {/* Main Control Panel */}
+          <div className="bg-neutral-900 border border-neutral-800/80 p-5 rounded-2xl space-y-4 shadow-xl">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <Flame className="text-amber-400" size={20} />
+                  Поиск аутлаеров конкурентов и генерация 10 идей
+                </h4>
+                <p className="text-xs text-neutral-400 mt-1 max-w-3xl leading-relaxed">
+                  ИИ находит видео-аутлаеры (набравшие &ge;2x просмотров от медианы каналов ниши), строит формулу успеха, исключает темы ваших существующих видео и генерирует 10 реализуемых идей с готовыми хуками.
+                </p>
+              </div>
+
+              {outlierAnalysis?.framework && (
+                <div className="flex items-center gap-2 self-start md:self-auto">
+                  <span className="text-[11px] px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-full font-medium flex items-center gap-1.5">
+                    <CheckCircle2 size={12} className="text-amber-400" />
+                    Память ниши активна
+                  </span>
+                  <button
+                    onClick={handleClearOutlierMemory}
+                    className="text-[11px] px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border border-neutral-700 cursor-pointer transition-colors"
+                    title="Сбросить сохранённый фреймворк ниши и начать заново"
+                  >
+                    Сбросить
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input Options Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-neutral-800/60">
+              {/* Competitors Source */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
+                  <span>Каналы конкурентов для анализа</span>
+                  <span className="text-[10px] text-neutral-400 font-normal">
+                    {nicheData.competitors && nicheData.competitors.length > 0
+                      ? `Найдено в нише: ${nicheData.competitors.length}`
+                      : "Ввод вручную"}
+                  </span>
+                </label>
+                
+                {nicheData.competitors && nicheData.competitors.length > 0 ? (
+                  <div className="p-2.5 bg-neutral-950/70 border border-neutral-800 rounded-xl space-y-1.5 max-h-24 overflow-y-auto text-xs scrollbar-thin">
+                    <div className="flex flex-wrap gap-1.5">
+                      {nicheData.competitors.map((c, idx) => (
+                        <span key={idx} className="px-2 py-0.5 bg-neutral-800/80 border border-neutral-700 text-neutral-200 rounded-md text-[11px]">
+                          {c.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-neutral-950/40 border border-neutral-800/60 rounded-xl text-xs text-neutral-400">
+                    Каналы будут исследованы автоматически по нише «{nicheData.niche}».
+                  </div>
+                )}
+
+                <input
+                  type="text"
+                  value={customCompetitorInput}
+                  onChange={(e) => setCustomCompetitorInput(e.target.value)}
+                  placeholder="Доп. каналы или ключевые слова (через запятую)..."
+                  className="w-full text-xs px-3 py-2 bg-neutral-950/90 border border-neutral-800 focus:border-amber-500/50 rounded-xl text-white outline-none transition-colors placeholder:text-neutral-600"
+                />
+              </div>
+
+              {/* Angle / Additional Preferences */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
+                  <span>Дополнительный угол или акцент (опционально)</span>
+                  <span className="text-[10px] text-neutral-400 font-normal">Канон / тон / фокус</span>
+                </label>
+                <textarea
+                  value={customOutlierPrompt}
+                  onChange={(e) => setCustomOutlierPrompt(e.target.value)}
+                  placeholder="Например: Сфокусируйся на малоизвестных фактах, без призывов к подписке, держи хронометраж до 45 секунд..."
+                  rows={3}
+                  className="w-full text-xs p-2.5 bg-neutral-950/90 border border-neutral-800 focus:border-amber-500/50 rounded-xl text-white outline-none transition-colors resize-none placeholder:text-neutral-600"
+                />
+              </div>
+            </div>
+
+            {/* Launch Button */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-[11px] text-neutral-400 flex items-center gap-1.5">
+                <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
+                <span>Фильтр повторов: существующие видео вашего канала будут автоматически исключены.</span>
+              </div>
+
+              <button
+                id="run-outliers-analysis-btn"
+                onClick={() => handleAnalyzeCompetitorOutliers()}
+                disabled={isAnalyzingOutliers}
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 disabled:opacity-50 text-neutral-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isAnalyzingOutliers ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Анализируем аутлаеры ниши...</span>
+                  </>
+                ) : (
+                  <>
+                    <Flame size={16} />
+                    <span>{outlierIdeas.length > 0 ? "Перезапустить анализ и выдать 10 новых идей" : "Найти аутлаеры и сгенерировать 10 идей"}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Section 1: Outlier Analysis Breakdown & Niche Framework (Task 1 & Task 2) */}
+          {outlierAnalysis && (
+            <div className="bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-950 border border-amber-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-neutral-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 bg-amber-500/10 rounded-lg text-amber-400 border border-amber-500/20">
+                    <Target size={18} />
+                  </div>
+                  <div>
+                    <h5 className="text-sm font-bold text-white">
+                      Разбор аутлаеров и Формула успеха ниши
+                    </h5>
+                    <p className="text-[11px] text-neutral-400">
+                      Сводка закономерностей вирусных Shorts (&ge;2x просмотров)
+                    </p>
+                  </div>
+                </div>
+
+                {outlierAnalysis.framework && (
+                  <span className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 bg-neutral-800/80 text-amber-300 rounded-md border border-neutral-700">
+                    Задача 2: Framework Saved
+                  </span>
+                )}
+              </div>
+
+              {/* Niche Framework Formula Box */}
+              {outlierAnalysis.framework && (
+                <div className="p-4 bg-amber-950/20 border border-amber-500/40 rounded-xl space-y-1.5">
+                  <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
+                    <Compass size={14} />
+                    Формула идеальной темы Shorts для ниши:
+                  </div>
+                  <div className="text-xs sm:text-sm font-semibold text-amber-100 italic">
+                    «{outlierAnalysis.framework}»
+                  </div>
+                </div>
+              )}
+
+              {/* Outlier Insights 4-Columns Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                {/* Title Patterns */}
+                <div className="p-3 bg-neutral-950/60 border border-neutral-800/80 rounded-xl space-y-2">
+                  <div className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
+                    <Zap size={14} className="text-amber-400" />
+                    Паттерны названий
+                  </div>
+                  <ul className="text-[11px] text-neutral-400 space-y-1">
+                    {outlierAnalysis.titlePatterns && outlierAnalysis.titlePatterns.length > 0 ? (
+                      outlierAnalysis.titlePatterns.map((p, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <span className="text-amber-400 font-bold">•</span>
+                          <span>{p}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-neutral-500">Паттерны выявлены в формуле</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Emotional Triggers */}
+                <div className="p-3 bg-neutral-950/60 border border-neutral-800/80 rounded-xl space-y-2">
+                  <div className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
+                    <Heart size={14} className="text-rose-400" />
+                    Триггеры эмоций
+                  </div>
+                  <ul className="text-[11px] text-neutral-400 space-y-1">
+                    {outlierAnalysis.emotionalTriggers && outlierAnalysis.emotionalTriggers.length > 0 ? (
+                      outlierAnalysis.emotionalTriggers.map((t, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <span className="text-rose-400 font-bold">•</span>
+                          <span>{t}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-neutral-500">Удивление, парадокс, инсайт</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Duration & Pacing */}
+                <div className="p-3 bg-neutral-950/60 border border-neutral-800/80 rounded-xl space-y-2">
+                  <div className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
+                    <Gauge size={14} className="text-blue-400" />
+                    Длина и темп
+                  </div>
+                  <p className="text-[11px] text-neutral-300 leading-relaxed">
+                    {outlierAnalysis.durationInsight || "40-90 секунд. Плотный темп без воды, хук в первые 2 секунды, раскрытие темы до конца."}
+                  </p>
+                </div>
+
+                {/* Flop / Avoid Topics */}
+                <div className="p-3 bg-neutral-950/60 border border-neutral-800/80 rounded-xl space-y-2">
+                  <div className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
+                    <X size={14} className="text-red-400" />
+                    Что проваливается
+                  </div>
+                  <ul className="text-[11px] text-neutral-400 space-y-1">
+                    {outlierAnalysis.flopTopics && outlierAnalysis.flopTopics.length > 0 ? (
+                      outlierAnalysis.flopTopics.map((f, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <span className="text-red-400 font-bold">✕</span>
+                          <span>{f}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-neutral-500">Абстрактные темы без визуальных якорей</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Section 2: 10 Generated Ready-To-Shoot Ideas (Task 3) */}
+          {outlierIdeas && outlierIdeas.length > 0 ? (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-900/60 p-3 rounded-xl border border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sparkles className="text-amber-400" size={17} />
+                    10 готовых идей для Shorts
+                  </h4>
+                  <span className="px-2 py-0.5 bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-full text-xs font-bold">
+                    {outlierIdeas.length}
+                  </span>
+                </div>
+
+                {/* Quick Export Actions & Add Custom */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setIsAddCustomModalOpen(true)}
+                    className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Добавить свою идею или сценарий Shorts"
+                  >
+                    <PlusCircle size={12} className="text-amber-400" />
+                    <span>+ Своя идея</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsJsonModalOpen(true)}
+                    className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Импортировать или экспортировать список тем Shorts в формате JSON"
+                  >
+                    <FileJson size={12} className="text-amber-400" />
+                    <span>JSON (Импорт / Экспорт)</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const csv = formatShortsIdeasToCSV(outlierIdeas, {
+                        niche: nicheData.niche,
+                        channelName: selectedBranding?.name,
+                        framework: outlierAnalysis?.framework,
+                      });
+                      const dateStr = new Date().toISOString().split('T')[0];
+                      exportToCSV(csv, `Shorts_Ideas_${dateStr}`);
+                      toast.success(`Экспортировано ${outlierIdeas.length} идей в CSV (Excel)!`);
+                    }}
+                    className="px-2.5 py-1 bg-neutral-800 hover:bg-emerald-950/40 text-neutral-200 hover:text-emerald-300 border border-neutral-700 hover:border-emerald-500/40 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Скачать таблицу CSV для Excel или Google Таблиц"
+                  >
+                    <Table size={12} className="text-emerald-400" />
+                    <span>CSV (Excel)</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const md = formatShortsIdeasToMarkdown(outlierIdeas, {
+                        niche: nicheData.niche,
+                        channelName: selectedBranding?.name,
+                        framework: outlierAnalysis?.framework,
+                      });
+                      const dateStr = new Date().toISOString().split('T')[0];
+                      exportToMarkdown(md, `Shorts_Ideas_${dateStr}`);
+                      toast.success(`Файл Markdown (.md) сохранен!`);
+                    }}
+                    className="px-2.5 py-1 bg-neutral-800 hover:bg-blue-950/40 text-neutral-200 hover:text-blue-300 border border-neutral-700 hover:border-blue-500/40 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Скачать структурированный Markdown файл"
+                  >
+                    <FileCode size={12} className="text-blue-400" />
+                    <span>Markdown</span>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      const text = formatShortsIdeasToMarkdown(outlierIdeas, {
+                        niche: nicheData.niche,
+                        channelName: selectedBranding?.name,
+                        framework: outlierAnalysis?.framework,
+                      });
+                      const success = await copyToClipboard(text);
+                      if (success) {
+                        toast.success("Все 10 идей скопированы в буфер обмена!");
+                      } else {
+                        toast.error("Не удалось скопировать");
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white border border-neutral-700 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Скопировать все идеи в буфер обмена для Telegram или заметок"
+                  >
+                    <Copy size={12} />
+                    <span>Копировать всё</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsIdeasExportModalOpen(true)}
+                    className="px-3 py-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Открыть мастер экспорта с выбором формата (PDF, CSV, MD, TXT) и опций"
+                  >
+                    <Download size={12} />
+                    <span>Все форматы...</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {outlierIdeas.map((idea, idx) => {
+                  const isGen = isGeneratingIdeaScript[idea.id];
+                  const isDone = idea.isGenerated;
+                  const { cardStyle, accentBarStyle, activeHex } = computeCardColorStyles(
+                    idea.color,
+                    idea.colorType,
+                    idea.status || (isDone ? "Готово" : "Идея"),
+                    idea.category
+                  );
+
+                  return (
+                    <div
+                      key={idea.id || idx}
+                      style={cardStyle}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenuShort({ id: idea.id, title: idea.title, position: { x: e.clientX, y: e.clientY } });
+                      }}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 shadow-lg relative overflow-hidden ${
+                        isDone
+                          ? "bg-amber-950/15 border-amber-500/40"
+                          : "bg-neutral-900/90 hover:bg-neutral-900 border-neutral-800/90 hover:border-neutral-700"
+                      }`}
+                    >
+                      {activeHex && (
+                        <div
+                          style={accentBarStyle}
+                          className="absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl z-10"
+                          title={`Цвет карточки: ${activeHex}`}
+                        />
+                      )}
+
+                      <div className="space-y-3">
+                        {/* Header: Number, Title & Duration */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-neutral-800 text-amber-400 font-black text-xs flex items-center justify-center shrink-0">
+                              #{idx + 1}
+                            </span>
+                            <h5 className="text-xs sm:text-sm font-bold text-white leading-snug">
+                              {idea.title}
+                            </h5>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                setContextMenuShort({ id: idea.id, title: idea.title, position: { x: Math.max(10, rect.left - 180), y: rect.bottom + 6 } });
+                              }}
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                activeHex 
+                                  ? "text-white bg-neutral-800 border border-neutral-700 shadow-sm" 
+                                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+                              }`}
+                              title="Выбрать цвет карточки Shorts"
+                            >
+                              <Palette size={13} style={{ color: activeHex || undefined }} />
+                            </button>
+                            <button
+                              onClick={() => handleCopyText(idea.title, `title-${idea.id}`, "Заголовок")}
+                              className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+                              title="Скопировать заголовок"
+                            >
+                              {copiedIdeaId === `title-${idea.id}` ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteOutlierIdea(idea.id)}
+                              className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+                              title="Удалить идею"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Badges Bar */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {idea.estimatedDuration && (
+                            <span className="px-2 py-0.5 bg-neutral-800 text-neutral-300 text-[10px] rounded-md font-medium flex items-center gap-1">
+                              <Gauge size={11} className="text-blue-400" />
+                              {idea.estimatedDuration}
+                            </span>
+                          )}
+                          {idea.emotionalTrigger && (
+                            <span className="px-2 py-0.5 bg-rose-950/40 border border-rose-800/40 text-rose-300 text-[10px] rounded-md font-medium flex items-center gap-1">
+                              <Heart size={11} className="text-rose-400" />
+                              {idea.emotionalTrigger}
+                            </span>
+                          )}
+                          {idea.playlist && (
+                            <span className="px-2 py-0.5 bg-purple-950/60 border border-purple-500/40 text-purple-300 text-[10px] rounded-md font-medium flex items-center gap-1">
+                              <Sparkles size={11} className="text-purple-400" />
+                              {idea.playlist}
+                            </span>
+                          )}
+                          {isDone && (
+                            <span className="px-2 py-0.5 bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-[10px] rounded-md font-medium flex items-center gap-1">
+                              <CheckCircle2 size={11} className="text-emerald-400" />
+                              Сценарий создан
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Automatic Playlist Suggestion (> 5 ideas) */}
+                        <IdeaPlaylistSuggestionBanner
+                          nicheName={nicheData.niche}
+                          totalNicheIdeasCount={outlierIdeas.length}
+                          currentIdeaTitle={idea.title}
+                          currentIdeaDescription={idea.whyItWorks}
+                          currentPlaylist={idea.playlist}
+                          suggestedPlaylistName={`🎬 Shorts: ${idea.emotionalTrigger ? `${idea.emotionalTrigger} серия` : (nicheData.niche || "Серия Shorts")}`}
+                          suggestedReason="Объединит короткие ролики в серийный плейлист Shorts для алгоритмов автопроигрывания"
+                          isShort={true}
+                          onAssignPlaylist={(pName) => {
+                            setOutlierIdeas((prev: ShortsOutlierIdea[]) => prev.map((item: ShortsOutlierIdea) => item.id === idea.id ? { ...item, playlist: pName } : item));
+                            toast.success(`Плейлист «${pName}» назначен! 🎬`);
+                          }}
+                          onBatchAssignSimilar={(pName) => {
+                            setOutlierIdeas((prev: ShortsOutlierIdea[]) => prev.map((item: ShortsOutlierIdea) => !item.playlist ? { ...item, playlist: pName } : item));
+                            toast.success(`Плейлист «${pName}» назначен всем Shorts идеям! 🎬`);
+                          }}
+                          similarIdeasCount={outlierIdeas.filter((i: ShortsOutlierIdea) => !i.playlist).length}
+                        />
+
+                        {/* Why It Works Box */}
+                        <div className="p-2.5 bg-neutral-950/60 border border-neutral-800/80 rounded-xl space-y-1">
+                          <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
+                            <Flame size={12} />
+                            Почему сработает (на основе аутлаеров):
+                          </div>
+                          <p className="text-[11px] text-neutral-300 leading-relaxed">
+                            {idea.whyItWorks}
+                          </p>
+                        </div>
+
+                        {/* Hook of first 3 seconds */}
+                        <div className="p-2.5 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-1">
+                          <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wide flex items-center justify-between">
+                            <span>Хук первых 3 секунд:</span>
+                            <button
+                              onClick={() => handleCopyText(idea.hook, `hook-${idea.id}`, "Хук")}
+                              className="text-[10px] text-amber-400 hover:text-amber-200 cursor-pointer flex items-center gap-1"
+                            >
+                              {copiedIdeaId === `hook-${idea.id}` ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                              <span>Копировать</span>
+                            </button>
+                          </div>
+                          <p className="text-xs font-semibold text-white italic">
+                            «{idea.hook}»
+                          </p>
+                        </div>
+
+                        {/* Visuals Plan */}
+                        {idea.visualContent && idea.visualContent.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wide flex items-center gap-1">
+                              <Camera size={12} className="text-neutral-400" />
+                              Что будет в кадре (3–5 типов визуала):
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {idea.visualContent.map((v, vIdx) => (
+                                <span key={vIdx} className="px-2 py-0.5 bg-neutral-950 border border-neutral-800 text-neutral-300 text-[10px] rounded-md">
+                                  {v}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Bottom Action Button */}
+                      <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between gap-2">
+                        {isDone ? (
+                          <div className="flex items-center gap-2 w-full">
+                            <button
+                              onClick={() => {
+                                if (idea.fullScript) {
+                                  setSelectedShortForVisuals(idea.fullScript);
+                                }
+                                setShortsActiveSubTab("visuals");
+                              }}
+                              className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-neutral-700"
+                              title="Перейти к генерации сцен и визуальных промптов"
+                            >
+                              <Palette size={13} className="text-amber-400" />
+                              <span>Промпты сцен</span>
+                            </button>
+                            <button
+                              onClick={() => setShortsActiveSubTab("cut")}
+                              className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-neutral-700"
+                              title="Перейти к тексту сценария"
+                            >
+                              <Scissors size={13} className="text-amber-400" />
+                              <span>Сценарий</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleGenerateScriptFromOutlierIdea(idea)}
+                            disabled={isGen}
+                            className="w-full py-2.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                          >
+                            {isGen ? (
+                              <>
+                                <Loader2 size={14} className="animate-spin text-amber-400" />
+                                <span>Генерируем сценарий...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Zap size={14} className="text-amber-400" />
+                                <span>Сгенерировать сценарий по этой идее</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            !isAnalyzingOutliers && (
+              <div className="p-8 bg-neutral-900/50 border border-neutral-800 border-dashed rounded-2xl text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mx-auto flex items-center justify-center">
+                  <Flame size={24} />
+                </div>
+                <h5 className="text-sm font-bold text-white">
+                  Готовы найти скрытые аутлаеры в нише «{nicheData.niche}»?
+                </h5>
+                <p className="text-xs text-neutral-400 max-w-lg mx-auto leading-relaxed">
+                  ИИ проанализирует видео конкурентов, выделит аномально успешные форматы (&ge;2x просмотров), сохранит формулу ниши и предложит 10 свежих идей без повторов с вашим каналом.
+                </p>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <button
+                    onClick={() => handleAnalyzeCompetitorOutliers()}
+                    className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-neutral-950 font-bold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20"
+                  >
+                    <Flame size={14} />
+                    <span>Начать анализ и выдать 10 идей</span>
+                  </button>
+                  <button
+                    onClick={() => setIsAddCustomModalOpen(true)}
+                    className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-neutral-700 hover:border-amber-500/30 font-bold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer"
+                  >
+                    <PlusCircle size={14} className="text-amber-400" />
+                    <span>Добавить свою идею вручную</span>
+                  </button>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
       {shortsActiveSubTab === "cut" && (
         <div className="space-y-6" id="shorts-cut-container">
           <div className="bg-neutral-900 border border-neutral-800/80 p-4 rounded-2xl space-y-3">
@@ -339,6 +1123,24 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                 <h4 className="text-sm font-bold text-neutral-300 uppercase tracking-wider">
                   Сгенерировано сценариев: {cutShortsResults.length}
                 </h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsAddCustomModalOpen(true)}
+                    className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Вставить свой готовый сценарий Shorts"
+                  >
+                    <PlusCircle size={12} className="text-amber-400" />
+                    <span>+ Свой сценарий</span>
+                  </button>
+                  <button
+                    onClick={() => setIsIdeasExportModalOpen(true)}
+                    className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white border border-neutral-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+                    title="Экспортировать список нарезок в файл"
+                  >
+                    <Download size={12} />
+                    <span>Экспорт нарезок</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
@@ -360,6 +1162,17 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const script = item.loopEnding?.loopedFullScript || item.script;
+                              handleOpenSubtitlesModal(script, item.title);
+                            }}
+                            className="w-9 h-9 rounded-xl border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary transition-all flex items-center justify-center cursor-pointer shadow-[0_0_18px_rgba(16,185,129,0.12)]"
+                            title="Создать и экспортировать субтитры (TXT, SRT, SBV) для этого Shorts"
+                          >
+                            <Subtitles size={13} className="text-primary" />
+                          </button>
                           <button
                             type="button"
                             onClick={async () => {
@@ -413,9 +1226,14 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
 
                       {/* Script */}
                       <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
-                          Сценарий ролика:
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                            Сценарий ролика:
+                          </span>
+                          <span className="text-[9px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono">
+                            TTS: (500ms) • *акцент* • [эмоция] • [ТЕКСТ НА ЭКРАНЕ]
+                          </span>
+                        </div>
                         <p className="text-xs text-neutral-300 whitespace-pre-wrap font-sans max-h-48 overflow-y-auto bg-neutral-950/60 p-3 rounded-xl border border-neutral-800/50 leading-relaxed">
                           {item.loopEnding?.loopedFullScript || item.script}
                         </p>
@@ -424,7 +1242,18 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
 
                     {/* Action buttons */}
                     <div className="pt-2 border-t border-neutral-800/60 space-y-2">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <button
+                          onClick={() => {
+                            const script = item.loopEnding?.loopedFullScript || item.script;
+                            handleOpenSubtitlesModal(script, item.title);
+                          }}
+                          className="py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 hover:border-primary/40 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-[10px]"
+                          title="Создать и экспортировать субтитры в формате TXT, SRT, SBV"
+                        >
+                          <Subtitles size={12} className="text-primary" />
+                          <span>Субтитры</span>
+                        </button>
                         <button
                           onClick={() => handleGenerateShortsVisuals(item.loopEnding?.loopedFullScript || item.script)}
                           className="py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-[10px]"
@@ -587,7 +1416,7 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                         <button
                           onClick={() => {
                             const full = item.loopEnding?.loopedFullScript || item.script;
-                            navigator.clipboard.writeText(full);
+                            copyToClipboard(full);
                             toast.success(
                               item.loopEnding
                                 ? `Зацикленный сценарий "${item.title}" скопирован в буфер обмена!`
@@ -645,8 +1474,14 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                     disabled={isGeneratingShortsVisuals}
                     className="px-4 py-2 bg-accent hover:bg-accent/80 text-white rounded-xl font-bold text-xs transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
-                    {isGeneratingShortsVisuals ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                    Перегенерировать
+                    {isGeneratingShortsVisuals ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : shortsVisuals.length === 0 ? (
+                      <Sparkles size={16} />
+                    ) : (
+                      <RefreshCw size={16} />
+                    )}
+                    {shortsVisuals.length === 0 ? "Сгенерировать промпты сцен" : "Перегенерировать"}
                   </button>
                 </div>
 
@@ -655,35 +1490,204 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                     <Loader2 size={40} className="text-accent animate-spin" />
                     <p className="text-neutral-400 animate-pulse font-medium">Создание детализированных промптов...</p>
                   </div>
+                ) : shortsVisuals.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center p-10 bg-neutral-950/60 border border-dashed border-neutral-800 rounded-2xl text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                      <Palette size={24} />
+                    </div>
+                    <div>
+                      <h5 className="font-bold text-white text-sm">Сцены и визуальные промпты ещё не созданы</h5>
+                      <p className="text-xs text-neutral-400 max-w-md mt-1">
+                        Нажмите кнопку ниже, чтобы разделить сценарий на сцены по 5 секунд и сгенерировать детальные 9:16 промпты для генерации видео.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleGenerateShortsVisuals(selectedShortForVisuals)}
+                      disabled={isGeneratingShortsVisuals}
+                      className="mt-2 px-5 py-2.5 bg-accent hover:bg-accent/80 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                    >
+                      <Sparkles size={15} />
+                      <span>Сгенерировать промпты для сцен</span>
+                    </button>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-6">
-                    <div className="space-y-4">
-                      <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2">
-                        <Camera size={14} className="text-emerald-400" />
-                        Визуальные Промпты (Сцены)
-                      </h5>
-                      {shortsVisuals.map((v, i) => (
-                        <div key={`shorts-visual-scene-${v.text.slice(0, 15)}-${i}`} className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl space-y-3 relative group">
-                          <span className="absolute -top-2.5 -left-2.5 w-6 h-6 bg-emerald-500/20 text-emerald-400 font-black rounded-lg flex items-center justify-center text-xs border border-emerald-500/30">
-                            {i + 1}
-                          </span>
-                          <div className="text-xs text-neutral-400 italic bg-neutral-900/50 p-2 rounded-lg">
-                            "{v.text}"
-                          </div>
-                          <div className="text-sm font-mono text-neutral-200 whitespace-pre-wrap">
-                            {v.prompt}
+                    {/* Полный исходный сценарий с информацией об объёме */}
+                    {selectedShortForVisuals && (
+                      <div className="bg-neutral-950/80 border border-neutral-800 p-4 rounded-xl space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <FileText size={14} className="text-accent" />
+                              Полный сценарий Shorts (100% охват)
+                            </span>
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-neutral-900 text-neutral-400 border border-neutral-800">
+                              {selectedShortForVisuals.split(/\s+/).filter(Boolean).length} слов • {shortsVisuals.length} сцен
+                            </span>
                           </div>
                           <button
                             onClick={() => {
-                              navigator.clipboard.writeText(v.prompt);
-                              toast.success("Промпт скопирован");
+                              copyToClipboard(selectedShortForVisuals);
+                              toast.success("Полный сценарий скопирован");
                             }}
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-md cursor-pointer"
+                            className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
                           >
-                            📋
+                            <Copy size={12} />
+                            <span>Копировать весь текст</span>
                           </button>
                         </div>
-                      ))}
+                        <div className="text-xs text-neutral-300 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800/60 leading-relaxed max-h-36 overflow-y-auto whitespace-pre-wrap select-text">
+                          {selectedShortForVisuals}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-neutral-800">
+                        <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2">
+                          <Camera size={14} className="text-emerald-400" />
+                          Визуальные Промпты с ротацией планов ({shortsVisuals.length} сцен)
+                        </h5>
+                        {shortsVisuals.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                const allP1 = shortsVisuals.map((v, idx) => `// Сцена ${idx + 1} (${v.shotTypeRu || v.shotType || "План"} • ${v.cameraMovementRu || v.cameraMovement || "Движение"})\n${v.videoPrompt1 || v.prompt}`).join("\n\n");
+                                copyToClipboard(allP1);
+                                toast.success("Все промпты (Ракурс 1) скопированы");
+                              }}
+                              className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer"
+                            >
+                              📋 Скопировать все (Ракурс 1)
+                            </button>
+                            {shortsVisuals.some(v => v.videoPrompt2) && (
+                              <button
+                                onClick={() => {
+                                  const allP2 = shortsVisuals.map((v, idx) => `// Сцена ${idx + 1} (Ракурс 2 - Альтернативный/Контр-план)\n${v.videoPrompt2 || v.videoPrompt1 || v.prompt}`).join("\n\n");
+                                  copyToClipboard(allP2);
+                                  toast.success("Все промпты (Ракурс 2) скопированы");
+                                }}
+                                className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer"
+                              >
+                                📋 Скопировать все (Ракурс 2)
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {shortsVisuals.map((v, i) => {
+                        const hasDualAngles = Boolean(v.videoPrompt1 && v.videoPrompt2 && v.videoPrompt1 !== v.videoPrompt2);
+                        const isRegeneratingThis = regeneratingSceneIdx === i;
+                        return (
+                          <div key={`shorts-visual-scene-${v.text.slice(0, 15)}-${i}`} className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl space-y-3 relative group">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 font-black rounded-lg flex items-center justify-center text-xs border border-emerald-500/30">
+                                  {i + 1}
+                                </span>
+                                {(v.shotTypeRu || v.shotType) && (
+                                  <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs rounded-md font-medium">
+                                    🎬 {v.shotTypeRu || v.shotType}
+                                  </span>
+                                )}
+                                {(v.cameraMovementRu || v.cameraMovement) && (
+                                  <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 text-xs rounded-md font-medium">
+                                    🎯 {v.cameraMovementRu || v.cameraMovement}
+                                  </span>
+                                )}
+                                {v.focalLength && (
+                                  <span className="px-2 py-0.5 bg-neutral-800 text-neutral-300 text-xs rounded-md">
+                                    🔍 {v.focalLength}
+                                  </span>
+                                )}
+                                {v.duration && (
+                                  <span className="px-2 py-0.5 bg-neutral-900 text-neutral-400 text-xs rounded-md">
+                                    ⏱ ~{v.duration} с
+                                  </span>
+                                )}
+                              </div>
+
+                              <button
+                                onClick={() => handleRegenerateSingleSceneVisual(i)}
+                                disabled={isRegeneratingThis || isGeneratingShortsVisuals}
+                                title="Перегенерировать промпты для этой сцены"
+                                className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-600 text-neutral-300 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <RefreshCw size={12} className={isRegeneratingThis ? "animate-spin text-accent" : ""} />
+                                <span>{isRegeneratingThis ? "Генерация..." : "Перегенерировать сцену"}</span>
+                              </button>
+                            </div>
+
+                            <div className="text-xs text-neutral-300 italic bg-neutral-900/60 p-2.5 rounded-lg border border-neutral-800/80">
+                              <span className="text-neutral-500 font-semibold mr-1.5">Текст сцены:</span>
+                              "{v.text}"
+                            </div>
+
+                            {v.sceneSummary && (
+                              <div className="text-xs text-neutral-400">
+                                <span className="text-neutral-500 font-semibold mr-1">Действие:</span>
+                                {v.sceneSummary}
+                              </div>
+                            )}
+
+                            {hasDualAngles ? (
+                              <div className="space-y-3 pt-1">
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-emerald-400 font-medium">
+                                    <span>Ракурс 1 (Основной план • {v.shotType || "Main"})</span>
+                                    <button
+                                      onClick={() => {
+                                        copyToClipboard(v.videoPrompt1 || v.prompt);
+                                        toast.success("Ракурс 1 скопирован");
+                                      }}
+                                      className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] cursor-pointer"
+                                    >
+                                      📋 Копировать
+                                    </button>
+                                  </div>
+                                  <div className="text-xs font-mono text-neutral-200 bg-neutral-900/80 p-3 rounded-lg border border-neutral-800/60 whitespace-pre-wrap leading-relaxed">
+                                    {v.videoPrompt1 || v.prompt}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-blue-400 font-medium">
+                                    <span>Ракурс 2 (Контр-план / Альтернативный угол)</span>
+                                    <button
+                                      onClick={() => {
+                                        copyToClipboard(v.videoPrompt2 || "");
+                                        toast.success("Ракурс 2 скопирован");
+                                      }}
+                                      className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] cursor-pointer"
+                                    >
+                                      📋 Копировать
+                                    </button>
+                                  </div>
+                                  <div className="text-xs font-mono text-neutral-200 bg-neutral-900/80 p-3 rounded-lg border border-neutral-800/60 whitespace-pre-wrap leading-relaxed">
+                                    {v.videoPrompt2}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <div className="text-xs font-mono text-neutral-200 bg-neutral-900/80 p-3 rounded-lg border border-neutral-800/60 whitespace-pre-wrap leading-relaxed">
+                                  {v.prompt}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    copyToClipboard(v.prompt);
+                                    toast.success("Промпт скопирован");
+                                  }}
+                                  className="absolute top-2 right-2 p-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-md cursor-pointer text-xs"
+                                >
+                                  📋
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                       {shortsVisuals.length === 0 && (
                         <p className="text-neutral-500 text-sm">Нет данных.</p>
                       )}
@@ -701,7 +1705,7 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                         {shortsMusicPrompt && (
                           <button
                             onClick={() => {
-                              navigator.clipboard.writeText(shortsMusicPrompt);
+                              copyToClipboard(shortsMusicPrompt);
                               toast.success("Промпт скопирован");
                             }}
                             className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-md cursor-pointer"
@@ -801,15 +1805,20 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-neutral-300">
-                  Первая строка описания (Сниппет):
+                <label className="text-xs font-bold text-neutral-300 flex items-center justify-between">
+                  <span>Описание Shorts (первые 200 символов — сниппет):</span>
+                  {shortsCtrDescription && (
+                    <span className="text-[10px] text-neutral-400 font-mono">
+                      {shortsCtrDescription.length} знаков
+                    </span>
+                  )}
                 </label>
                 <textarea
                   value={shortsCtrDescription}
                   onChange={(e) => setShortsCtrDescription(e.target.value)}
-                  placeholder="Введите описание Shorts. Алгоритмы и зрители в ленте увидят первые 100 символов..."
-                  rows={3}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-accent/50 focus:ring-1 focus:ring-accent/20 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-600 transition-all outline-none resize-none"
+                  placeholder="Вставьте полное описание Shorts (~3000 знаков). Первые 200 символов анализируются как сниппет с ключевыми словами..."
+                  rows={4}
+                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-accent/50 focus:ring-1 focus:ring-accent/20 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-600 transition-all outline-none resize-none leading-relaxed"
                 />
               </div>
 
@@ -1080,17 +2089,53 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                 </div>
 
                 {/* Description */}
-                <div className="bg-gradient-to-br from-neutral-950 via-neutral-950 to-amber-950/10 border border-neutral-800/80 p-4 rounded-2xl space-y-2 shadow-[0_12px_28px_rgba(245,158,11,0.05)]">
+                <div className="bg-gradient-to-br from-neutral-950 via-neutral-950 to-amber-950/10 border border-neutral-800/80 p-4 rounded-2xl space-y-2.5 shadow-[0_12px_28px_rgba(245,158,11,0.05)]">
                   <div className="text-[10px] text-neutral-400 font-bold flex items-center justify-between">
-                    <span>Описание Shorts:</span>
-                    <button
-                      onClick={() => handleApplyDescriptionToSeo(currentSeoToShow.description || "")}
-                      className="text-emerald-400 hover:text-emerald-300 font-bold text-[10px] cursor-pointer"
-                    >
-                      Вставить в анализатор
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-neutral-200">SEO-Описание Shorts:</span>
+                      {currentSeoToShow.description && (
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${
+                          currentSeoToShow.description.length >= 2500 && currentSeoToShow.description.length <= 3500
+                            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                            : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        }`}>
+                          {currentSeoToShow.description.length} знаков (~3000)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {currentSeoToShow.description && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            copyToClipboard(currentSeoToShow.description);
+                            toast.success("Описание Shorts скопировано!");
+                          }}
+                          className="text-neutral-400 hover:text-white font-semibold text-[10px] transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <Copy size={11} />
+                          <span>Копировать</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleApplyDescriptionToSeo(currentSeoToShow.description || "")}
+                        className="text-emerald-400 hover:text-emerald-300 font-bold text-[10px] cursor-pointer"
+                      >
+                        Вставить в анализатор CTR
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-neutral-300 whitespace-pre-wrap font-sans text-xs bg-neutral-900/60 p-3 rounded-xl border border-neutral-800/60 max-h-32 overflow-y-auto">
+
+                  {currentSeoToShow.description && currentSeoToShow.description.length > 0 && (
+                    <div className="text-[10px] text-neutral-400 bg-neutral-950/60 p-2 rounded-lg border border-neutral-800/60 flex items-start gap-1.5">
+                      <span className="text-amber-400 font-bold shrink-0">🎯 Сниппет (первые 200 знаков):</span>
+                      <span className="text-neutral-300 font-medium line-clamp-2">
+                        {currentSeoToShow.description.slice(0, 200)}
+                      </span>
+                    </div>
+                  )}
+
+                  <p className="text-neutral-300 whitespace-pre-wrap font-sans text-xs bg-neutral-900/60 p-3 rounded-xl border border-neutral-800/60 max-h-56 overflow-y-auto leading-relaxed selection:bg-amber-500/30">
                     {currentSeoToShow.description || "Нет описания."}
                   </p>
                 </div>
@@ -1140,7 +2185,7 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                         <span
                           key={`shorts-seo-hashtag-${tag}-${i}`}
                           onClick={() => {
-                            navigator.clipboard.writeText(tag);
+                            copyToClipboard(tag);
                             toast.success(`Хештег ${tag} скопирован!`);
                           }}
                           className="px-2.5 py-1 bg-neutral-800/90 hover:bg-neutral-700/90 text-neutral-200 text-[9px] rounded-md font-bold cursor-pointer transition-colors border border-neutral-700/60"
@@ -1166,6 +2211,417 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Pinned Comment */}
+                {currentSeoToShow.pinnedComment && (
+                  <div className="bg-gradient-to-br from-neutral-950 via-neutral-950 to-pink-950/10 border border-neutral-800/80 p-3.5 rounded-[18px] space-y-2 shadow-[0_12px_28px_rgba(236,72,153,0.05)]">
+                    <div className="text-[10px] text-neutral-400 font-bold flex items-center justify-between">
+                      <span className="text-neutral-200">📌 Закрепленный комментарий (Pinned Comment):</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          copyToClipboard(currentSeoToShow.pinnedComment || "");
+                          toast.success("Закрепленный комментарий скопирован!");
+                        }}
+                        className="text-neutral-400 hover:text-white font-semibold text-[10px] transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <Copy size={11} />
+                        <span>Копировать</span>
+                      </button>
+                    </div>
+                    <p className="text-neutral-300 font-sans text-xs bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800/60 leading-relaxed">
+                      {currentSeoToShow.pinnedComment}
+                    </p>
+                  </div>
+                )}
+
+                {/* SEO Audit Button */}
+                <div className="pt-2 border-t border-neutral-800 relative">
+                  <button
+                    onClick={handleAnalyzeShortsSEO}
+                    disabled={isAnalyzingShortsSeoAudit}
+                    className={`w-full py-2.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      isAnalyzingShortsSeoAudit
+                        ? "bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse"
+                        : "bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border-yellow-500/20"
+                    }`}
+                  >
+                    {isAnalyzingShortsSeoAudit ? (
+                      <>
+                        <Loader2 className="animate-spin" size={14} />
+                        ИИ выполняет глубокий SEO-аудит Shorts...
+                      </>
+                    ) : (
+                      <>
+                        <BarChart3 size={14} />
+                        Запустить глубокий SEO-аудит и получить рекомендации
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* SEO AUDIT & RECOMMENDATIONS PANEL */}
+                {shortsSeoAnalysis && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    className="p-4 bg-neutral-950 rounded-2xl border border-yellow-500/30 space-y-4"
+                  >
+                    {/* Header with Total Score and Status */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-800">
+                      <div className="flex items-center gap-2">
+                        <BarChart3 size={18} className="text-yellow-500" />
+                        <div>
+                          <h5 className="text-xs font-bold text-white uppercase tracking-wider">
+                            Глубокий SEO-аудит и проверка правил Shorts
+                          </h5>
+                          <p className="text-[10px] text-neutral-400">
+                            Оценка метаданных, кликабельности и соответствия стандартам YouTube Shorts
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                            shortsSeoAnalysis.score >= 80
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : shortsSeoAnalysis.score >= 50
+                              ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                              : "bg-red-500/15 text-red-400 border border-red-500/30"
+                          }`}
+                        >
+                          <span className="text-[10px] uppercase font-semibold text-neutral-400">SEO Оценка:</span>
+                          <span>{shortsSeoAnalysis.score}/100</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Score Breakdown */}
+                    {shortsSeoAnalysis.scoreBreakdown && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                        <div className="p-2.5 bg-neutral-900/70 border border-neutral-800/80 rounded-xl text-center space-y-0.5">
+                          <span className="text-[9px] text-neutral-500 font-bold uppercase">Заголовок</span>
+                          <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
+                            {shortsSeoAnalysis.scoreBreakdown.titleScore}/100
+                          </div>
+                          <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                            <div
+                              className="bg-blue-500 h-full rounded-full transition-all"
+                              style={{ width: `${shortsSeoAnalysis.scoreBreakdown.titleScore}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-neutral-900/70 border border-neutral-800/80 rounded-xl text-center space-y-0.5">
+                          <span className="text-[9px] text-neutral-500 font-bold uppercase">Описание</span>
+                          <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
+                            {shortsSeoAnalysis.scoreBreakdown.descriptionScore}/100
+                          </div>
+                          <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                            <div
+                              className="bg-emerald-500 h-full rounded-full transition-all"
+                              style={{ width: `${shortsSeoAnalysis.scoreBreakdown.descriptionScore}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-neutral-900/70 border border-neutral-800/80 rounded-xl text-center space-y-0.5">
+                          <span className="text-[9px] text-neutral-500 font-bold uppercase">Ключи и теги</span>
+                          <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
+                            {shortsSeoAnalysis.scoreBreakdown.keywordsScore}/100
+                          </div>
+                          <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                            <div
+                              className="bg-purple-500 h-full rounded-full transition-all"
+                              style={{ width: `${shortsSeoAnalysis.scoreBreakdown.keywordsScore}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div
+                          className={`p-2.5 rounded-xl text-center space-y-0.5 border ${
+                            shortsSeoAnalysis.scoreBreakdown.rulesComplianceScore >= 90
+                              ? "bg-emerald-500/10 border-emerald-500/30"
+                              : "bg-red-500/10 border-red-500/30"
+                          }`}
+                        >
+                          <span className="text-[9px] font-bold uppercase text-neutral-400">Кастомные правила</span>
+                          <div
+                            className={`text-sm font-bold flex items-center justify-center gap-1 ${
+                              shortsSeoAnalysis.scoreBreakdown.rulesComplianceScore >= 90 ? "text-emerald-400" : "text-red-400"
+                            }`}
+                          >
+                            {shortsSeoAnalysis.scoreBreakdown.rulesComplianceScore}/100
+                          </div>
+                          <div className="w-full bg-neutral-800 h-1 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                shortsSeoAnalysis.scoreBreakdown.rulesComplianceScore >= 90 ? "bg-emerald-400" : "bg-red-400"
+                              }`}
+                              style={{ width: `${shortsSeoAnalysis.scoreBreakdown.rulesComplianceScore}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CTR PREDICTION CARD */}
+                    {shortsSeoAnalysis.ctrPrediction && (() => {
+                      const cp = shortsSeoAnalysis.ctrPrediction as any;
+                      const predCtr = cp.predictedCtr ?? cp.predictedCTR ?? "N/A";
+                      const benchmark = cp.benchmark ?? cp.benchmarkCTR ?? "5-8%";
+                      const advice = cp.advice ?? cp.ctrKeyAdvice ?? "";
+                      const potential = cp.potential ?? (typeof predCtr === "number" && predCtr >= 7 ? "high" : "medium");
+                      return (
+                        <div className="p-3 bg-gradient-to-r from-neutral-900 via-neutral-900/90 to-blue-950/30 border border-blue-500/20 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <TrendingUp size={16} className="text-blue-400 shrink-0" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white">
+                                  Прогноз CTR: ~{typeof predCtr === "number" ? `${predCtr}%` : predCtr}
+                                </span>
+                                <span className="text-[10px] text-neutral-400">
+                                  (Бенчмарк ниши: {benchmark})
+                                </span>
+                              </div>
+                              {advice && (
+                                <p className="text-[11px] text-blue-200/80 leading-snug mt-0.5">
+                                  {advice}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded border shrink-0 ${
+                              potential === "high"
+                                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                                : "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
+                            }`}
+                          >
+                            Потенциал: {potential === "high" ? "Высокий" : "Умеренный"}
+                          </span>
+                        </div>
+                      );
+                    })()}
+
+                    {/* CUSTOM RULES AUDIT PANEL */}
+                    {shortsSeoAnalysis.customRulesAudit &&
+                      shortsSeoAnalysis.customRulesAudit.items &&
+                      shortsSeoAnalysis.customRulesAudit.items.length > 0 && (
+                        <div className="p-3.5 bg-neutral-900/90 border border-emerald-500/30 rounded-xl space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck size={16} className="text-emerald-400" />
+                              <h6 className="text-xs font-bold text-white uppercase tracking-wider">
+                                Аудит кастомных правил канала
+                              </h6>
+                              <span
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                                  shortsSeoAnalysis.customRulesAudit.passedRules ===
+                                  shortsSeoAnalysis.customRulesAudit.totalRules
+                                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                                    : "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                                }`}
+                              >
+                                Соблюдено: {shortsSeoAnalysis.customRulesAudit.passedRules} из{" "}
+                                {shortsSeoAnalysis.customRulesAudit.totalRules}
+                              </span>
+                            </div>
+
+                            {shortsSeoAnalysis.customRulesAudit.passedRules <
+                              shortsSeoAnalysis.customRulesAudit.totalRules &&
+                              handleApplyAllShortsRuleFixes && (
+                                <button
+                                  type="button"
+                                  onClick={handleApplyAllShortsRuleFixes}
+                                  className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                                >
+                                  <Zap size={12} className="text-emerald-400" />
+                                  Применить все исправления правил в 1 клик
+                                </button>
+                              )}
+                          </div>
+
+                          <div className="space-y-2">
+                            {shortsSeoAnalysis.customRulesAudit.items.map((auditItem: any, idx: number) => {
+                              const isPassed = auditItem.status === "passed";
+                              const isWarning = auditItem.status === "warning";
+                              return (
+                                <div
+                                  key={`shorts-rule-audit-item-${idx}`}
+                                  className={`p-2.5 rounded-lg border text-xs space-y-1.5 transition-colors ${
+                                    isPassed
+                                      ? "bg-emerald-500/5 border-emerald-500/20 text-neutral-300"
+                                      : isWarning
+                                      ? "bg-yellow-500/5 border-yellow-500/25 text-neutral-300"
+                                      : "bg-red-500/5 border-red-500/30 text-neutral-200"
+                                  }`}
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 font-semibold text-white">
+                                      {isPassed ? (
+                                        <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                                      ) : isWarning ? (
+                                        <AlertTriangle size={13} className="text-yellow-400 shrink-0" />
+                                      ) : (
+                                        <AlertCircle size={13} className="text-red-400 shrink-0" />
+                                      )}
+                                      <span>{auditItem.ruleTitle}</span>
+                                    </div>
+                                    <span
+                                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${
+                                        isPassed
+                                          ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                                          : isWarning
+                                          ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
+                                          : "bg-red-500/20 text-red-400 border-red-500/30"
+                                      }`}
+                                    >
+                                      {isPassed ? "Соблюдено" : isWarning ? "Внимание" : "Нарушено"}
+                                    </span>
+                                  </div>
+
+                                  <p className="text-[11px] text-neutral-300 leading-snug">{auditItem.details}</p>
+
+                                  {!isPassed && auditItem.suggestedFix && (
+                                    <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-800/60">
+                                      <div className="text-[10px] text-neutral-400 truncate max-w-md font-mono bg-neutral-950/80 px-2 py-1 rounded border border-neutral-800">
+                                        Исправление:{" "}
+                                        {auditItem.suggestedFix.length > 70
+                                          ? auditItem.suggestedFix.substring(0, 70) + "..."
+                                          : auditItem.suggestedFix}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          applyBroadShortsSEOChange(
+                                            auditItem.targetField || "description",
+                                            auditItem.suggestedFix,
+                                            {
+                                              ruleTitle: auditItem.ruleTitle,
+                                              targetField: auditItem.targetField,
+                                              isRuleViolation: true,
+                                            }
+                                          )
+                                        }
+                                        className="px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold rounded transition-all flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Check size={11} /> Исправить по правилу
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                    {shortsSeoAnalysis.analysis && (
+                      <div className="p-3 bg-neutral-900/40 rounded-lg border border-neutral-800/80">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block mb-1">
+                          Резюме аудитора:
+                        </span>
+                        <p className="text-xs text-neutral-300 italic leading-relaxed">{shortsSeoAnalysis.analysis}</p>
+                      </div>
+                    )}
+
+                    {/* SEO Audit Improvements List - Dynamic Apply & Remove */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                          Точечные замечания аудита ({shortsSeoAnalysis.improvements?.length || 0})
+                        </span>
+                      </div>
+
+                      {shortsSeoAnalysis.improvements && shortsSeoAnalysis.improvements.length > 0 ? (
+                        shortsSeoAnalysis.improvements.map((imp: any, i: number) => (
+                          <div
+                            key={`shorts-seo-audit-item-${i}`}
+                            className={`p-3 bg-neutral-900/60 rounded-lg border space-y-2 relative group transition-colors ${
+                              imp.isRuleViolation
+                                ? "border-red-500/40 hover:border-red-500/60"
+                                : "border-neutral-800 hover:border-yellow-500/40"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-white uppercase flex items-center gap-1.5">
+                                  <Sparkles
+                                    size={11}
+                                    className={imp.isRuleViolation ? "text-red-400" : "text-yellow-500"}
+                                  />
+                                  {getAreaLabel(imp.area)}
+                                </span>
+                                {imp.isRuleViolation && (
+                                  <span className="px-1.5 py-0.2 bg-red-500/20 text-red-300 border border-red-500/30 rounded text-[9px] font-bold">
+                                    Кастомное правило
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`text-[8px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                                    imp.impact === "high"
+                                      ? "bg-red-500/10 text-red-400"
+                                      : imp.impact === "medium"
+                                      ? "bg-yellow-500/10 text-yellow-400"
+                                      : "bg-blue-500/10 text-blue-400"
+                                  }`}
+                                >
+                                  {getImpactLabel(imp.impact)}
+                                </span>
+                                <button
+                                  onClick={() => handleRemoveShortsAuditImprovement(i)}
+                                  className="p-1 hover:bg-neutral-800 text-neutral-500 hover:text-red-400 rounded transition-colors cursor-pointer"
+                                  title="Удалить замечание из списка"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-neutral-300 leading-snug">{imp.suggestion}</p>
+
+                            {imp.suggestedValue && (
+                              <div className="p-2 bg-neutral-950 rounded border border-neutral-800 text-[10px] text-neutral-400 font-mono">
+                                Предлагаемый вариант:{" "}
+                                {imp.suggestedValue && imp.suggestedValue.length > 90
+                                  ? imp.suggestedValue.substring(0, 90) + "..."
+                                  : imp.suggestedValue || ""}
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                onClick={() => handleApplyShortsSEOImprovement({ ...imp }, i)}
+                                className={`w-full py-1.5 text-[10px] font-bold uppercase rounded-lg transition-colors border flex items-center justify-center gap-1.5 cursor-pointer ${
+                                  imp.isRuleViolation
+                                    ? "bg-red-500/15 hover:bg-red-500/25 text-red-300 border-red-500/30"
+                                    : "bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/20"
+                                }`}
+                              >
+                                <Check size={12} /> Применить и убрать из списка
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-center space-y-1">
+                          <CheckCircle2 className="mx-auto text-emerald-400" size={18} />
+                          <p className="text-xs font-bold text-emerald-300 uppercase">
+                            Все замечания аудита успешно применены!
+                          </p>
+                          <p className="text-[10px] text-neutral-400">
+                            Заголовок, описание и ключевые слова Shorts максимально оптимизированы.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
               </div>
             ) : (
               <div className="text-center py-12 border border-dashed border-neutral-800/60 rounded-2xl flex flex-col items-center justify-center gap-3 bg-neutral-950/20">
@@ -1188,7 +2644,103 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
               </div>
             )}
           </div>
+
+          {/* Social Media Cross-Promotion & 1:1 Quote Cards for Shorts */}
+          <SocialPromoSection
+            socialData={currentSeoToShow?.socialPromo || shorts.shortsSocialPromo || null}
+            isGenerating={shorts.isGeneratingShortsSocial}
+            onGenerate={shorts.handleGenerateShortsSocialPromo}
+            title={shortsCtrTitle || (currentSeoToShow?.titles && currentSeoToShow.titles[0]) || "Shorts"}
+            sourceType="shorts"
+            channelName={selectedBranding?.name || (typeof nicheData?.branding?.names?.[0] === "string" ? nicheData.branding.names[0] : nicheData?.branding?.names?.[0]?.name) || "YouTube Shorts"}
+          />
         </div>
+      )}
+
+      {/* Subtitles Modal for Shorts (TXT, SRT, SBV) */}
+      <SubtitlesModal
+        isOpen={subtitlesModalData.isOpen}
+        onClose={() => setSubtitlesModalData((prev) => ({ ...prev, isOpen: false }))}
+        scriptText={subtitlesModalData.script}
+        title={subtitlesModalData.title || "Shorts"}
+        isShorts={true}
+      />
+
+      {/* Shorts Ideas Export Modal */}
+      <ShortsIdeasExportModal
+        isOpen={isIdeasExportModalOpen}
+        onClose={() => setIsIdeasExportModalOpen(false)}
+        ideas={outlierIdeas}
+        cutShorts={cutShortsResults}
+        nicheName={nicheData?.niche}
+        channelName={selectedBranding?.name}
+        framework={outlierAnalysis?.framework}
+      />
+
+      {/* Shorts JSON Import/Export Modal */}
+      <ShortsJsonImportExportModal
+        isOpen={isJsonModalOpen}
+        onClose={() => setIsJsonModalOpen(false)}
+        ideas={outlierIdeas}
+        onImportIdeas={handleImportIdeasFromJson}
+        nicheName={nicheData?.niche}
+        channelName={selectedBranding?.name}
+      />
+
+      {/* Add Custom Short Idea or Script Modal */}
+      <AddCustomShortModal
+        isOpen={isAddCustomModalOpen}
+        onClose={() => setIsAddCustomModalOpen(false)}
+        onAddIdea={handleAddCustomIdea}
+        onAddDirectScript={handleAddCustomDirectScript}
+        defaultNiche={nicheData?.niche}
+      />
+
+      {/* Context Menu for Shorts Idea Cards */}
+      {contextMenuShort && (
+        <IdeaCardContextMenu
+          isOpen={Boolean(contextMenuShort)}
+          onClose={() => setContextMenuShort(null)}
+          position={contextMenuShort.position}
+          currentColor={outlierIdeas.find(i => i.id === contextMenuShort.id)?.color}
+          currentColorType={outlierIdeas.find(i => i.id === contextMenuShort.id)?.colorType}
+          currentStatus={outlierIdeas.find(i => i.id === contextMenuShort.id)?.status || (outlierIdeas.find(i => i.id === contextMenuShort.id)?.isGenerated ? "Готово" : "Идея")}
+          currentCategory={outlierIdeas.find(i => i.id === contextMenuShort.id)?.category}
+          playlists={Array.from(new Set(outlierIdeas.map(i => i.playlist).filter(Boolean) as string[]))}
+          suggestedPlaylist={`🎬 Shorts: ${nicheData?.niche || "Серия Shorts"}`}
+          ideaTitle={contextMenuShort.title}
+          onSelectColor={(color, colorType) => {
+            setOutlierIdeas((prev: ShortsOutlierIdea[]) =>
+              prev.map((item: ShortsOutlierIdea) =>
+                item.id === contextMenuShort.id
+                  ? { ...item, color, colorType }
+                  : item
+              )
+            );
+            if (color) {
+              toast.success("Цвет карточки Shorts обновлен 🎨");
+            } else {
+              toast.info("Цвет карточки Shorts сброшен");
+            }
+          }}
+          onAddToPlaylist={(pName) => {
+            setOutlierIdeas((prev: ShortsOutlierIdea[]) =>
+              prev.map((item: ShortsOutlierIdea) =>
+                item.id === contextMenuShort.id
+                  ? { ...item, playlist: pName }
+                  : item
+              )
+            );
+            toast.success(`Shorts добавлен в плейлист «${pName}» 🎬`);
+          }}
+          onCopyTitle={() => {
+            copyToClipboard(contextMenuShort.title);
+            toast.success("Заголовок Shorts скопирован!");
+          }}
+          onDelete={() => {
+            handleDeleteOutlierIdea(contextMenuShort.id);
+          }}
+        />
       )}
     </div>
   );

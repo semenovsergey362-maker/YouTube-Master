@@ -1,6 +1,7 @@
 import React from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Plus, Sparkles, X, Loader2 } from "lucide-react";
+import { PlaylistSelector } from "../common/PlaylistSelector";
 
 interface CustomIdeasModalProps {
   isOpen: boolean;
@@ -19,6 +20,8 @@ interface CustomIdeasModalProps {
   manualTone: string;
   setManualTone: (tone: string) => void;
   playlists: string[];
+  onAddPlaylist?: (playlistName: string) => void;
+  niche?: string;
   onAddManualIdea: () => void;
   // AI description fields
   aiDescription: string;
@@ -43,6 +46,8 @@ export const CustomIdeasModal: React.FC<CustomIdeasModalProps> = ({
   manualTone,
   setManualTone,
   playlists,
+  onAddPlaylist,
+  niche = "",
   onAddManualIdea,
   aiDescription,
   setAiDescription,
@@ -129,26 +134,23 @@ export const CustomIdeasModal: React.FC<CustomIdeasModalProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1">
-                    Поместить в плейлист
-                  </label>
-                  <select
-                    value={manualPlaylist}
-                    onChange={(e) => setManualPlaylist(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-2.5 py-2 text-xs text-neutral-200 focus:outline-none focus:border-accent font-sans cursor-pointer"
-                  >
-                    <option value="">🎬 Без плейлиста</option>
-                    {playlists.map((p, idx) => (
-                      <option key={`playlist-opt-${idx}-${p}`} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                    <option value="__new__">➕ Новый плейлист</option>
-                  </select>
-                </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-1">
+                  Плейлист (с авто-подбором по тематике)
+                </label>
+                <PlaylistSelector
+                  value={manualPlaylist}
+                  onChange={setManualPlaylist}
+                  playlists={playlists}
+                  niche={niche}
+                  ideaTitle={manualTitle}
+                  ideaDescription={manualDescription}
+                  onAddPlaylist={onAddPlaylist}
+                  showChips={true}
+                />
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1">
                     Длительность

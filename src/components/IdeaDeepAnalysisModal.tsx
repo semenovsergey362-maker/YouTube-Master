@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { IdeaDeepAnalysis } from "../services/geminiService";
 import { toast } from "sonner";
+import { copyToClipboard } from "../utils/helpers";
 
 interface IdeaDeepAnalysisModalProps {
   isOpen: boolean;
@@ -68,7 +69,7 @@ ${analysis.retentionTriggers?.map((t) => `• ${t}`).join("\n")}
 ${analysis.recommendations?.map((r) => `• ${r}`).join("\n")}
     `.trim();
 
-    navigator.clipboard.writeText(textToCopy);
+    copyToClipboard(textToCopy);
     toast.success("Полный анализ скопирован в буфер обмена!");
   };
 

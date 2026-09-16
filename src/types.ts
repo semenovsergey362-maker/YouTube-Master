@@ -58,6 +58,11 @@ export interface GeneratedIdea {
   duration?: string;
   tone?: string;
   viral_potential?: string;
+  color?: string;
+  colorType?: "custom" | "status" | "category";
+  status?: string;
+  category?: string;
+  playlist?: string;
 }
 
 export type ContentPlanItem = GeneratedIdea;

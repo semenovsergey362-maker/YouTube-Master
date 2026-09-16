@@ -63,7 +63,7 @@ ${fullScript}
   );
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: {
       systemInstruction: systemInst,
@@ -127,7 +127,7 @@ ${customInst}
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: validateAndEnrichSystemPrompt("Ты — экспертный саунд-дизайнер и музыкальный Промпт-Инженер для генераторов нейромузыки (Treblo, Suno, Udio). Твоя задача — создавать точные музыкальные стили и теги с учетом выбранного Звукового Окружения (музыкальный фон, темп, характер).", "", customInst),
@@ -179,13 +179,14 @@ export async function generateTTSMarkup(text: string, options?: AnalysisOptions)
 
   try {
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: validateAndEnrichSystemPrompt("Ты — эксперт по озвучке и дикторской разметке.", "", customInst)
       }
     });
-    return extractTextFromResponse(response) || text;
+    const raw = extractTextFromResponse(response) || text;
+    return raw.replace(/^```[a-z]*\s*\n/i, "").replace(/\n```\s*$/i, "").trim() || text;
   } catch (err) {
     logger.error("Error generating TTS markup:", err);
     return text;
@@ -258,7 +259,7 @@ EDM, синтезаторные лиды, трап-биты, дабстеп.
     );
 
     const response = await callGeminiWithRetry({
-      model: options?.model || "gemini-3.7-flash",
+      model: options?.model || "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: systemInst,
@@ -299,7 +300,7 @@ ${instructionsContext}
 Return only the music prompt string (no JSON, no explanations).`;
 
   const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.7-flash",
+    model: options?.model || "gemini-3.1-flash-lite",
     contents: buildContents(prompt, options),
     config: { responseMimeType: "text/plain" }
   });
