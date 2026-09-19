@@ -92,6 +92,8 @@ export interface AnalysisOptions {
   niche?: any;
   veoSfxEnabled?: boolean;
   existingChannelVideos?: ChannelVideoInfo[];
+  nextIdeaTitle?: string;
+  isLastBlock?: boolean;
 }
 
 export interface QuoteCardPrompt {
@@ -280,6 +282,7 @@ export interface SceneBreakdown {
 
 export interface ShortsVisualScene {
   text: string;
+  voiceoverText?: string;
   prompt: string;
   videoPrompt1?: string;
   videoPrompt2?: string;
@@ -290,6 +293,9 @@ export interface ShortsVisualScene {
   focalLength?: string;
   duration?: number;
   sceneSummary?: string;
+  frameVisual?: string;
+  frameAudio?: string;
+  screenText?: string;
 }
 
 export interface CinematicShotProfile {

@@ -1373,4 +1373,59 @@ export function showWarningToast(title: string, description?: string) {
   });
 }
 
+/**
+ * Finds the title of the next idea in sequence from available ideas sources.
+ */
+export function getNextIdeaTitle(
+  currentTopic: string,
+  ideasSource?: {
+    trendingIdeas?: any[];
+    nicheIdeas?: any[];
+    userCustomIdeas?: any[];
+    outlierIdeas?: any[];
+  }
+): string {
+  if (!ideasSource) return "";
+
+  const allList: string[] = [];
+
+  const add = (items?: any[]) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      const t = typeof item === "string" ? item : (item?.title || item?.name || item?.topic || "");
+      if (t && t.trim() && !allList.includes(t.trim())) {
+        allList.push(t.trim());
+      }
+    }
+  };
+
+  add(ideasSource.trendingIdeas);
+  add(ideasSource.nicheIdeas);
+  add(ideasSource.userCustomIdeas);
+  add(ideasSource.outlierIdeas);
+
+  if (allList.length === 0) return "";
+
+  const currClean = (currentTopic || "").trim().toLowerCase();
+  if (!currClean) return allList[0] || "";
+
+  const idx = allList.findIndex(
+    (t) =>
+      t.toLowerCase() === currClean ||
+      currClean.includes(t.toLowerCase()) ||
+      t.toLowerCase().includes(currClean)
+  );
+
+  if (idx >= 0 && idx < allList.length - 1) {
+    return allList[idx + 1];
+  } else if (allList.length > 1) {
+    const filtered = allList.filter((t) => t.toLowerCase() !== currClean);
+    return filtered[0] || allList[0];
+  } else if (allList.length === 1 && allList[0].toLowerCase() !== currClean) {
+    return allList[0];
+  }
+
+  return "";
+}
+
 

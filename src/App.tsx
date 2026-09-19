@@ -295,7 +295,8 @@ import {
   exportToZip,
   downloadImage,
   exportScriptAndPlanToPDF,
-  copyToClipboard as copyTextToClipboard
+  copyToClipboard as copyTextToClipboard,
+  getNextIdeaTitle,
 } from "./utils/helpers";
 import { parseSFXTags, autoGenerateSFXFromScene } from "./utils/sfxAutoTagger";
 import { Header } from "./components/Header";
@@ -2395,17 +2396,26 @@ export default function App() {
         const valB = getDurationNum(b);
         return ideasSortOrder === "desc" ? valB - valA : valA - valB;
       } else {
-        // Sort by creation date or index (newest first on desc)
-        const getIdeaTimestamp = (idea: any) => {
-          if (typeof idea === "object" && idea !== null && idea.createdAt) {
-            return typeof idea.createdAt === "number" ? idea.createdAt : new Date(idea.createdAt).getTime();
+        // Sort by creation date; for ideas without timestamps or equal timestamps, preserve natural array order
+        const timeA = typeof a === "object" && a?.createdAt ? (typeof a.createdAt === "number" ? a.createdAt : new Date(a.createdAt).getTime()) : null;
+        const timeB = typeof b === "object" && b?.createdAt ? (typeof b.createdAt === "number" ? b.createdAt : new Date(b.createdAt).getTime()) : null;
+
+        if (timeA !== null && timeB !== null && timeA !== timeB) {
+          return ideasSortOrder === "desc" ? timeB - timeA : timeA - timeB;
+        } else if (timeA !== null && timeB === null) {
+          return -1; // Items with explicit timestamp stay on top
+        } else if (timeA === null && timeB !== null) {
+          return 1;
+        } else {
+          // Preserve natural original array order for items from JSON / storage list
+          const list = nicheData?.ideas || filteredIdeas || [];
+          const idxA = list.indexOf(a);
+          const idxB = list.indexOf(b);
+          if (idxA !== -1 && idxB !== -1) {
+            return idxA - idxB;
           }
-          const idx = (nicheData?.ideas || []).indexOf(idea);
-          return idx >= 0 ? idx : 0;
-        };
-        const timeA = getIdeaTimestamp(a);
-        const timeB = getIdeaTimestamp(b);
-        return ideasSortOrder === "desc" ? timeB - timeA : timeA - timeB;
+          return 0;
+        }
       }
     });
   }, [filteredIdeas, ideasSortField, ideasSortOrder, nicheData]);
@@ -4976,22 +4986,30 @@ export default function App() {
         }
 
         // Format raw ideas if they are strings to detailed objects
-        const formattedIdeas = importedIdeas.map((idea: any) => {
+        const baseTimestamp = Date.now();
+        const formattedIdeas = importedIdeas.map((idea: any, idx: number) => {
+          const itemCreatedAt = idea.createdAt
+            ? (typeof idea.createdAt === "number" ? idea.createdAt : new Date(idea.createdAt).getTime())
+            : (baseTimestamp - idx * 100);
+
           if (typeof idea === "string") {
             return {
               title: idea,
               description: "Импортированная идея контент-плана",
               duration: "10 мин",
               tone: "Информационный",
-              viral_potential: "Высокий (90%)"
+              viral_potential: "Высокий (90%)",
+              createdAt: itemCreatedAt
             };
           }
           return {
+            ...idea,
             title: idea.title || idea.name || "Без названия",
             description: idea.description || idea.desc || "",
             duration: idea.duration || "10 - 15 мин",
             tone: idea.tone || "Информационный",
-            viral_potential: idea.viral_potential || idea.viral || "Высокий (90%)"
+            viral_potential: idea.viral_potential || idea.viral || "Высокий (90%)",
+            createdAt: itemCreatedAt
           };
         });
 
@@ -5612,6 +5630,13 @@ export default function App() {
     // 1. Generate Structure
     setIsGeneratingStructure(true);
     let structure;
+    const nextIdeaTitle = getNextIdeaTitle(shortIdea, {
+      trendingIdeas,
+      nicheIdeas: nicheData?.ideas,
+      userCustomIdeas,
+      outlierIdeas: shorts.outlierIdeas,
+    });
+
     try {
       const mode = "Shorts";
       const tone = scriptTone || "Динамичный, вовлекающий";
@@ -5622,7 +5647,7 @@ export default function App() {
         tone,
         "",
         getCompetitorAnalysis(),
-        getCommonAnalysisOptions({ noVoiceover: scriptNoVoiceover }),
+        getCommonAnalysisOptions({ noVoiceover: scriptNoVoiceover, nextIdeaTitle }),
       );
       setScriptStructure(structure);
       toast.info("Структура создана, пишем текст...");
@@ -5653,6 +5678,7 @@ export default function App() {
       for (const index of blockIndices) {
         const block = structure[index];
         const prevContext = fullText.slice(-500);
+        const isLastBlock = index === blockIndices.length - 1;
         const generated = await generateScriptBlock(
           shortIdea,
           block,
@@ -5660,7 +5686,7 @@ export default function App() {
           prevContext,
           "1",
           getCompetitorAnalysis(),
-          getCommonAnalysisOptions({ noVoiceover: scriptNoVoiceover })
+          getCommonAnalysisOptions({ noVoiceover: scriptNoVoiceover, nextIdeaTitle, isLastBlock })
         );
         newBlocks[index] = generated;
         fullText += (fullText ? "\n\n" : "") + generated.text;
@@ -5778,6 +5804,13 @@ export default function App() {
       const mode =
         scriptMode === "Свой вариант" ? scriptCustomMode : scriptMode;
       const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
+      const nextIdeaTitle = getNextIdeaTitle(scriptTopic, {
+        trendingIdeas,
+        nicheIdeas: nicheData?.ideas,
+        userCustomIdeas,
+        outlierIdeas: shorts.outlierIdeas,
+      });
+
       const structure = await generateScriptStructure(
         scriptTopic,
         durationVal,
@@ -5785,7 +5818,7 @@ export default function App() {
         scriptTone,
         scriptWishes,
         getCompetitorAnalysis(),
-        getCommonAnalysisOptions({ toneOfVoice, noVoiceover: scriptNoVoiceover }),
+        getCommonAnalysisOptions({ toneOfVoice, noVoiceover: scriptNoVoiceover, nextIdeaTitle }),
       );
       setScriptStructure(structure);
       setIsScriptTopicLocked(true);
@@ -6439,6 +6472,13 @@ export default function App() {
     setIsGeneratingFullScript(true);
     setScriptProgress(0);
     try {
+      const nextIdeaTitle = getNextIdeaTitle(scriptTopic, {
+        trendingIdeas,
+        nicheIdeas: nicheData?.ideas,
+        userCustomIdeas,
+        outlierIdeas: shorts.outlierIdeas,
+      });
+
       let currentStructure = scriptStructure;
       if (!currentStructure || currentStructure.length === 0) {
         toast.info("1/2: Проектирование структуры и плана сценария...");
@@ -6451,7 +6491,7 @@ export default function App() {
           scriptTone,
           scriptWishes,
           getCompetitorAnalysis(),
-          getCommonAnalysisOptions({ toneOfVoice, noVoiceover: scriptNoVoiceover }),
+          getCommonAnalysisOptions({ toneOfVoice, noVoiceover: scriptNoVoiceover, nextIdeaTitle }),
         );
         if (!currentStructure || currentStructure.length === 0) {
           throw new Error("Не удалось сформировать структуру сценария");
@@ -6478,6 +6518,7 @@ export default function App() {
 
         const combinedWishes = [scriptWishes, blockRefinements[i]].filter(Boolean).join("\n\nДополнительно для этого блока: ");
         const durationVal = scriptDuration === "custom" ? scriptCustomDuration : String(scriptDuration);
+        const isLastBlock = i === currentStructure.length - 1;
 
         const result = await generateScriptBlock(
           scriptTopic,
@@ -6490,7 +6531,9 @@ export default function App() {
             model: selectedModel,
             noVoiceover: scriptNoVoiceover,
             globalMusicMood: promptMusicMood,
-            globalAudioPrompt: generalAudioPrompt
+            globalAudioPrompt: generalAudioPrompt,
+            nextIdeaTitle,
+            isLastBlock,
           }
         );
 
@@ -10456,7 +10499,14 @@ export default function App() {
           </div>
         );
       }
-            case "Сценарий":
+            case "Сценарий": {
+        const nextIdeaTitleForTab = getNextIdeaTitle(scriptTopic, {
+          trendingIdeas,
+          nicheIdeas: nicheData?.ideas,
+          userCustomIdeas,
+          outlierIdeas: shorts.outlierIdeas,
+        });
+
         return (
           <ScriptTab
             nicheData={nicheData}
@@ -10517,8 +10567,10 @@ export default function App() {
             activeModel={selectedModel}
             copyToClipboard={copyToClipboard}
             onNavigateToSEO={() => setActivePage("SEO")}
+            nextIdeaTitle={nextIdeaTitleForTab}
           />
         );
+      }
 
       case "Шортс":
         return (

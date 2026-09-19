@@ -107,6 +107,7 @@ export interface ScriptTabProps {
   activeModel?: string;
   copyToClipboard?: (text: string, section?: string) => void;
   onNavigateToSEO?: () => void;
+  nextIdeaTitle?: string;
 }
 
 export const ScriptTab: React.FC<ScriptTabProps> = ({
@@ -164,6 +165,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
   activeModel,
   copyToClipboard,
   onNavigateToSEO,
+  nextIdeaTitle,
 }) => {
   const hasBlocks = generatedBlocks && Object.keys(generatedBlocks).length > 0;
   const [activeSubView, setActiveSubView] = useState<"editor" | "chapters" | "recommendations" | "timeline">("editor");
@@ -485,6 +487,32 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                 placeholder="Например: Как создать вирусный ролик, разоблачение мифов..."
                 className="w-full bg-neutral-900/50 border border-neutral-800 rounded-2xl py-4 pl-12 pr-14 text-sm text-neutral-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder-neutral-600 font-sans"
               />
+            </div>
+
+            {/* Блок анонса следующего видео из вкладки Идеи */}
+            <div className="bg-purple-950/30 border border-purple-800/40 p-3 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 text-purple-300">
+                <span className="text-base shrink-0">📣</span>
+                <div>
+                  <div className="font-bold text-purple-200 text-xs">
+                    Авто-анонс следующего видео в конце сценария
+                  </div>
+                  <div className="text-[11px] text-purple-300/80 leading-tight">
+                    В финале последнего блока диктор произнесёт интригующий мостик-клиффхэнгер к следующей теме из списка.
+                  </div>
+                </div>
+              </div>
+
+              {nextIdeaTitle ? (
+                <div className="flex items-center gap-1.5 text-xs bg-purple-900/50 border border-purple-700/60 px-3 py-1.5 rounded-xl text-purple-200 font-bold truncate max-w-xs shadow-sm" title={`Следующее видео: ${nextIdeaTitle}`}>
+                  <span className="text-purple-400 font-semibold text-[10px] uppercase tracking-wider">След. выпуск:</span>
+                  <span className="truncate">{nextIdeaTitle}</span>
+                </div>
+              ) : (
+                <span className="text-[11px] text-purple-400/70 italic bg-purple-950/40 px-2.5 py-1 rounded-lg border border-purple-900/40">
+                  (Идеи на вкладке «Идеи» еще не созданы)
+                </span>
+              )}
             </div>
 
             {/* Generated Hooks Suggestions */}

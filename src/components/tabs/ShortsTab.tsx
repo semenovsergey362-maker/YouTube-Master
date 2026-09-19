@@ -16,7 +16,6 @@ import {
   RefreshCw,
   Camera,
   Music,
-  FileText,
   Gauge,
   Heart,
   Activity,
@@ -39,10 +38,12 @@ import {
   AlertTriangle,
   AlertCircle,
   FileJson,
+  Wand2,
+  Type,
 } from "lucide-react";
 import { getFullScriptText, exportToCSV, exportToMarkdown, copyToClipboard } from "../../utils/helpers";
 import { optimizeTitle, type CutShortItem, type NicheData, type GeneratedBlock, type ShortsOutlierIdea } from "../../services/geminiService";
-import { useShortsGeneration } from "../../hooks/useShortsGeneration";
+import { useShortsGeneration, isValidScreenText } from "../../hooks/useShortsGeneration";
 import { SubtitlesModal } from "../SubtitlesModal";
 import { ShortsIdeasExportModal } from "../ShortsIdeasExportModal";
 import { AddCustomShortModal } from "../AddCustomShortModal";
@@ -95,6 +96,8 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
     shortsVisuals = [],
     shortsMusicPrompt = "",
     isGeneratingShortsVisuals = false,
+    isRegeneratingShortsMusicPrompt = false,
+    handleRegenerateShortsMusicPrompt = () => {},
     selectedShortForSeo = "",
     setSelectedShortForSeo = () => {},
     shortsSeoResult = null,
@@ -173,6 +176,7 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
     )?.seo || shortsSeoResult;
 
   const [isAddCustomModalOpen, setIsAddCustomModalOpen] = React.useState(false);
+  const [activeAngles, setActiveAngles] = React.useState<Record<number, 1 | 2>>({});
   const [subtitlesModalData, setSubtitlesModalData] = React.useState<{
     isOpen: boolean;
     script: string;
@@ -187,6 +191,8 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
   const [isJsonModalOpen, setIsJsonModalOpen] = React.useState(false);
   const [copiedIdeaId, setCopiedIdeaId] = React.useState<string | null>(null);
   const [contextMenuShort, setContextMenuShort] = React.useState<{ id: string; title: string; position: { x: number; y: number } } | null>(null);
+  const [sceneUserWishes, setSceneUserWishes] = React.useState<Record<number, string>>({});
+  const [expandedWishIdx, setExpandedWishIdx] = React.useState<number | null>(null);
 
   const handleImportIdeasFromJson = (newIdeas: ShortsOutlierIdea[], mode: "append" | "replace") => {
     if (mode === "replace") {
@@ -296,25 +302,6 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
             )}
           </button>
 
-          <button
-            id="shorts-json-import-export-btn"
-            onClick={() => setIsJsonModalOpen(true)}
-            className="px-3 py-1.5 bg-gradient-to-r from-amber-500/15 via-yellow-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer text-[10px] shadow-sm"
-            title="Импорт и экспорт тем Shorts в формате JSON"
-          >
-            <FileJson size={13} className="text-amber-400" />
-            <span>JSON Тем</span>
-          </button>
-
-          <button
-            id="shorts-apply-longform-seo-btn"
-            onClick={() => handleApplyLongFormSeoToShorts()}
-            className="px-3 py-1.5 bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-amber-600/15 hover:from-amber-500/25 hover:to-orange-500/25 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer text-[10px] shadow-sm"
-            title="Перенести ключевые слова и хештеги из вкладки SEO (для длинных видео) в активный Shorts для поддержания единства метаданных на канале"
-          >
-            <Layers size={13} className="text-amber-400" />
-            <span>SEO в Shorts</span>
-          </button>
           <button
             id="shorts-download-zip-btn"
             onClick={handleExportShortsZip}
@@ -996,6 +983,26 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
               className="w-full h-40 bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-accent font-sans resize-y"
             />
 
+            {/* Блок уведомления об автоматическом анонсе следующего видео из вкладки Идеи */}
+            <div className="bg-purple-950/30 border border-purple-800/40 p-2.5 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-purple-300">
+                <span className="text-sm">📣</span>
+                <span className="font-medium text-[11px]">
+                  <strong className="text-purple-200">Авто-анонс в финале:</strong> В конец каждого сгенерированного сценария будет встроен анонс следующего видео из списка вкладки «Идеи».
+                </span>
+              </div>
+              {outlierIdeas && outlierIdeas.length > 0 ? (
+                <div className="flex items-center gap-1.5 text-[10px] bg-purple-900/40 border border-purple-700/50 px-2.5 py-1 rounded-lg text-purple-200 font-semibold truncate max-w-xs" title={`Следующее видео: ${outlierIdeas[0].title}`}>
+                  <span className="text-purple-400">След. выпуск:</span>
+                  <span className="truncate">{outlierIdeas[0].title}</span>
+                </div>
+              ) : (
+                <span className="text-[10px] text-purple-400/80 italic">
+                  (Идеи на вкладке «Идеи» еще не созданы — будет предложена актуальная тема)
+                </span>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <button
                 type="button"
@@ -1012,24 +1019,44 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
                 <span>ИИ-анализ удержания</span>
               </button>
 
-              <button
-                id="shorts-cut-longform-btn"
-                onClick={handleCutLongFormScript}
-                disabled={isCuttingLongForm || (!longFormScriptToCut.trim() && !getFullScriptText(generatedBlocks).trim())}
-                className="px-4 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-accent/10 ml-auto text-[10px]"
-              >
-                {isCuttingLongForm ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    <span>Нарезка...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={14} />
-                    <span>Выделить Shorts</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const textToBreak = longFormScriptToCut.trim() || getFullScriptText(generatedBlocks).trim();
+                    if (textToBreak) {
+                      handleGenerateShortsVisuals(textToBreak);
+                    } else {
+                      toast.error("Вставьте или загрузите текст сценария!");
+                    }
+                  }}
+                  disabled={isGeneratingShortsVisuals || (!longFormScriptToCut.trim() && !getFullScriptText(generatedBlocks).trim())}
+                  className="px-3.5 py-2.5 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-neutral-200 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer border border-neutral-700/60 text-[10px]"
+                  title="Разбить имеющийся сценарий на сцены и сгенерировать промпты без повторной нарезки"
+                >
+                  <Palette size={14} className="text-accent" />
+                  <span>🎬 Разбить на сцены</span>
+                </button>
+
+                <button
+                  id="shorts-cut-longform-btn"
+                  onClick={handleCutLongFormScript}
+                  disabled={isCuttingLongForm || (!longFormScriptToCut.trim() && !getFullScriptText(generatedBlocks).trim())}
+                  className="px-4 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-accent/10 text-[10px]"
+                >
+                  {isCuttingLongForm ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Нарезка...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={14} />
+                      <span>Выделить Shorts</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Long Form Retention Analysis Panel */}
@@ -1457,279 +1484,381 @@ export const ShortsTab: React.FC<ShortsTabProps> = ({
 
       {shortsActiveSubTab === "visuals" && (
         <div className="space-y-6" id="shorts-visuals-container">
-          {!selectedShortForVisuals ? (
-            <div className="text-center p-8 bg-neutral-900 rounded-3xl border border-neutral-800">
-              <p className="text-neutral-400">Выберите сценарий Shorts из раздела "Нарезка" для генерации промптов.</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-base font-bold text-white flex items-center gap-2">
-                    <Palette size={18} className="text-accent" />
-                    Визуальные и Музыкальный Промпты
-                  </h4>
-                  <button
-                    onClick={() => handleGenerateShortsVisuals(selectedShortForVisuals)}
-                    disabled={isGeneratingShortsVisuals}
-                    className="px-4 py-2 bg-accent hover:bg-accent/80 text-white rounded-xl font-bold text-xs transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {isGeneratingShortsVisuals ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : shortsVisuals.length === 0 ? (
-                      <Sparkles size={16} />
-                    ) : (
-                      <RefreshCw size={16} />
-                    )}
-                    {shortsVisuals.length === 0 ? "Сгенерировать промпты сцен" : "Перегенерировать"}
-                  </button>
+          {/* Объединенная панель сценария, выбора, охвата и управления */}
+          <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                  <Palette size={18} />
                 </div>
+                <div>
+                  <h4 className="text-base font-bold text-white">Сценарий для раскадровки и визуализации</h4>
+                  <p className="text-xs text-neutral-400">Вставьте свой сценарий или выберите готовый для разбиения на сцены</p>
+                </div>
+              </div>
 
-                {isGeneratingShortsVisuals ? (
-                  <div className="flex flex-col items-center justify-center p-12 space-y-4">
-                    <Loader2 size={40} className="text-accent animate-spin" />
-                    <p className="text-neutral-400 animate-pulse font-medium">Создание детализированных промптов...</p>
-                  </div>
-                ) : shortsVisuals.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center p-10 bg-neutral-950/60 border border-dashed border-neutral-800 rounded-2xl text-center space-y-3">
-                    <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-                      <Palette size={24} />
-                    </div>
-                    <div>
-                      <h5 className="font-bold text-white text-sm">Сцены и визуальные промпты ещё не созданы</h5>
-                      <p className="text-xs text-neutral-400 max-w-md mt-1">
-                        Нажмите кнопку ниже, чтобы разделить сценарий на сцены по 5 секунд и сгенерировать детальные 9:16 промпты для генерации видео.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleGenerateShortsVisuals(selectedShortForVisuals)}
-                      disabled={isGeneratingShortsVisuals}
-                      className="mt-2 px-5 py-2.5 bg-accent hover:bg-accent/80 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+              <div className="flex items-center gap-2 flex-wrap">
+                {cutShortsResults.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-neutral-400 hidden sm:inline">Из сохранённых:</span>
+                    <select
+                      value={selectedShortForVisuals}
+                      onChange={(e) => setSelectedShortForVisuals(e.target.value)}
+                      className="bg-neutral-950 border border-neutral-700 text-neutral-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-accent max-w-xs truncate"
                     >
-                      <Sparkles size={15} />
-                      <span>Сгенерировать промпты для сцен</span>
-                    </button>
+                      <option value="">-- Ввести свой сценарий вручную --</option>
+                      {cutShortsResults.map((item, idx) => (
+                        <option key={idx} value={item.loopEnding?.loopedFullScript || item.script}>
+                          {idx + 1}. {item.title || `Shorts #${idx + 1}`}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-6">
-                    {/* Полный исходный сценарий с информацией об объёме */}
-                    {selectedShortForVisuals && (
-                      <div className="bg-neutral-950/80 border border-neutral-800 p-4 rounded-xl space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
-                              <FileText size={14} className="text-accent" />
-                              Полный сценарий Shorts (100% охват)
-                            </span>
-                            <span className="text-[11px] px-2 py-0.5 rounded bg-neutral-900 text-neutral-400 border border-neutral-800">
-                              {selectedShortForVisuals.split(/\s+/).filter(Boolean).length} слов • {shortsVisuals.length} сцен
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => {
-                              copyToClipboard(selectedShortForVisuals);
-                              toast.success("Полный сценарий скопирован");
-                            }}
-                            className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                          >
-                            <Copy size={12} />
-                            <span>Копировать весь текст</span>
-                          </button>
-                        </div>
-                        <div className="text-xs text-neutral-300 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800/60 leading-relaxed max-h-36 overflow-y-auto whitespace-pre-wrap select-text">
-                          {selectedShortForVisuals}
-                        </div>
-                      </div>
-                    )}
+                )}
 
-                    <div className="space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-neutral-800">
-                        <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2">
-                          <Camera size={14} className="text-emerald-400" />
-                          Визуальные Промпты с ротацией планов ({shortsVisuals.length} сцен)
-                        </h5>
-                        {shortsVisuals.length > 0 && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                const allP1 = shortsVisuals.map((v, idx) => `// Сцена ${idx + 1} (${v.shotTypeRu || v.shotType || "План"} • ${v.cameraMovementRu || v.cameraMovement || "Движение"})\n${v.videoPrompt1 || v.prompt}`).join("\n\n");
-                                copyToClipboard(allP1);
-                                toast.success("Все промпты (Ракурс 1) скопированы");
-                              }}
-                              className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer"
-                            >
-                              📋 Скопировать все (Ракурс 1)
-                            </button>
-                            {shortsVisuals.some(v => v.videoPrompt2) && (
-                              <button
-                                onClick={() => {
-                                  const allP2 = shortsVisuals.map((v, idx) => `// Сцена ${idx + 1} (Ракурс 2 - Альтернативный/Контр-план)\n${v.videoPrompt2 || v.videoPrompt1 || v.prompt}`).join("\n\n");
-                                  copyToClipboard(allP2);
-                                  toast.success("Все промпты (Ракурс 2) скопированы");
-                                }}
-                                className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer"
-                              >
-                                📋 Скопировать все (Ракурс 2)
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {shortsVisuals.map((v, i) => {
-                        const hasDualAngles = Boolean(v.videoPrompt1 && v.videoPrompt2 && v.videoPrompt1 !== v.videoPrompt2);
-                        const isRegeneratingThis = regeneratingSceneIdx === i;
-                        return (
-                          <div key={`shorts-visual-scene-${v.text.slice(0, 15)}-${i}`} className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl space-y-3 relative group">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 font-black rounded-lg flex items-center justify-center text-xs border border-emerald-500/30">
-                                  {i + 1}
-                                </span>
-                                {(v.shotTypeRu || v.shotType) && (
-                                  <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs rounded-md font-medium">
-                                    🎬 {v.shotTypeRu || v.shotType}
-                                  </span>
-                                )}
-                                {(v.cameraMovementRu || v.cameraMovement) && (
-                                  <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 text-xs rounded-md font-medium">
-                                    🎯 {v.cameraMovementRu || v.cameraMovement}
-                                  </span>
-                                )}
-                                {v.focalLength && (
-                                  <span className="px-2 py-0.5 bg-neutral-800 text-neutral-300 text-xs rounded-md">
-                                    🔍 {v.focalLength}
-                                  </span>
-                                )}
-                                {v.duration && (
-                                  <span className="px-2 py-0.5 bg-neutral-900 text-neutral-400 text-xs rounded-md">
-                                    ⏱ ~{v.duration} с
-                                  </span>
-                                )}
-                              </div>
-
-                              <button
-                                onClick={() => handleRegenerateSingleSceneVisual(i)}
-                                disabled={isRegeneratingThis || isGeneratingShortsVisuals}
-                                title="Перегенерировать промпты для этой сцены"
-                                className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-600 text-neutral-300 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                <RefreshCw size={12} className={isRegeneratingThis ? "animate-spin text-accent" : ""} />
-                                <span>{isRegeneratingThis ? "Генерация..." : "Перегенерировать сцену"}</span>
-                              </button>
-                            </div>
-
-                            <div className="text-xs text-neutral-300 italic bg-neutral-900/60 p-2.5 rounded-lg border border-neutral-800/80">
-                              <span className="text-neutral-500 font-semibold mr-1.5">Текст сцены:</span>
-                              "{v.text}"
-                            </div>
-
-                            {v.sceneSummary && (
-                              <div className="text-xs text-neutral-400">
-                                <span className="text-neutral-500 font-semibold mr-1">Действие:</span>
-                                {v.sceneSummary}
-                              </div>
-                            )}
-
-                            {hasDualAngles ? (
-                              <div className="space-y-3 pt-1">
-                                <div className="space-y-1.5">
-                                  <div className="flex items-center justify-between text-xs text-emerald-400 font-medium">
-                                    <span>Ракурс 1 (Основной план • {v.shotType || "Main"})</span>
-                                    <button
-                                      onClick={() => {
-                                        copyToClipboard(v.videoPrompt1 || v.prompt);
-                                        toast.success("Ракурс 1 скопирован");
-                                      }}
-                                      className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] cursor-pointer"
-                                    >
-                                      📋 Копировать
-                                    </button>
-                                  </div>
-                                  <div className="text-xs font-mono text-neutral-200 bg-neutral-900/80 p-3 rounded-lg border border-neutral-800/60 whitespace-pre-wrap leading-relaxed">
-                                    {v.videoPrompt1 || v.prompt}
-                                  </div>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                  <div className="flex items-center justify-between text-xs text-blue-400 font-medium">
-                                    <span>Ракурс 2 (Контр-план / Альтернативный угол)</span>
-                                    <button
-                                      onClick={() => {
-                                        copyToClipboard(v.videoPrompt2 || "");
-                                        toast.success("Ракурс 2 скопирован");
-                                      }}
-                                      className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] cursor-pointer"
-                                    >
-                                      📋 Копировать
-                                    </button>
-                                  </div>
-                                  <div className="text-xs font-mono text-neutral-200 bg-neutral-900/80 p-3 rounded-lg border border-neutral-800/60 whitespace-pre-wrap leading-relaxed">
-                                    {v.videoPrompt2}
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="relative">
-                                <div className="text-xs font-mono text-neutral-200 bg-neutral-900/80 p-3 rounded-lg border border-neutral-800/60 whitespace-pre-wrap leading-relaxed">
-                                  {v.prompt}
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    copyToClipboard(v.prompt);
-                                    toast.success("Промпт скопирован");
-                                  }}
-                                  className="absolute top-2 right-2 p-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-md cursor-pointer text-xs"
-                                >
-                                  📋
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {shortsVisuals.length === 0 && (
-                        <p className="text-neutral-500 text-sm">Нет данных.</p>
-                      )}
-                    </div>
-
-                    <div className="space-y-4">
-                      <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2">
-                        <Music size={14} className="text-purple-400" />
-                        Музыкальный Промпт
-                      </h5>
-                      <div className="bg-neutral-950 border border-neutral-800 p-5 rounded-xl space-y-3 relative group">
-                        <div className="text-sm font-mono text-neutral-200 whitespace-pre-wrap">
-                          {shortsMusicPrompt || <span className="text-neutral-500">Нет данных.</span>}
-                        </div>
-                        {shortsMusicPrompt && (
-                          <button
-                            onClick={() => {
-                              copyToClipboard(shortsMusicPrompt);
-                              toast.success("Промпт скопирован");
-                            }}
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-md cursor-pointer"
-                          >
-                            📋
-                          </button>
-                        )}
-                      </div>
-
-                      <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2 mt-8">
-                        <FileText size={14} className="text-neutral-400" />
-                        Исходный текст Shorts
-                      </h5>
-                      <div className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-xs text-neutral-400 whitespace-pre-wrap font-sans max-h-48 overflow-y-auto">
-                        {selectedShortForVisuals}
-                      </div>
-                    </div>
-                  </div>
+                {selectedShortForVisuals && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      copyToClipboard(selectedShortForVisuals);
+                      toast.success("Полный сценарий скопирован");
+                    }}
+                    className="px-3 py-2 text-xs bg-neutral-950 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Скопировать весь текст сценария"
+                  >
+                    <Copy size={13} />
+                    <span>Копировать сценарий</span>
+                  </button>
                 )}
               </div>
             </div>
+
+            <textarea
+              value={selectedShortForVisuals}
+              onChange={(e) => setSelectedShortForVisuals(e.target.value)}
+              placeholder="Вставьте сюда ваш сценарий Shorts... Поддерживаются авторские ремарки [КАДР: ...], [ЗВУК: ...], [ТЕКСТ НА ЭКРАНЕ: ...] или обычный текст по предложениям."
+              className="w-full h-36 bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-accent font-sans resize-y leading-relaxed"
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="text-[11px] text-neutral-400 flex items-center gap-2 flex-wrap">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-accent" />
+                  {selectedShortForVisuals ? `${selectedShortForVisuals.split(/\s+/).filter(Boolean).length} слов` : "Вставьте текст сценария"}
+                </span>
+                {shortsVisuals.length > 0 && (
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                    {shortsVisuals.length} сцен (100% охват)
+                  </span>
+                )}
+                <span className="text-neutral-500 hidden md:inline">
+                  • Авто-распознавание [КАДР:], [ЗВУК:], [ТЕКСТ:]
+                </span>
+              </div>
+
+              <button
+                onClick={() => handleGenerateShortsVisuals(selectedShortForVisuals)}
+                disabled={isGeneratingShortsVisuals || !selectedShortForVisuals.trim()}
+                className="px-5 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white rounded-xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-accent/10 ml-auto"
+              >
+                {isGeneratingShortsVisuals ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Разбивка на сцены и генерация промптов...</span>
+                  </>
+                ) : (
+                  <>
+                    <Palette size={16} />
+                    <span>{shortsVisuals.length === 0 ? "🎬 Разбить на сцены и сгенерировать промпты" : "🔄 Перегенерировать сцены и промпты"}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Результаты генерации сцен и промптов */}
+          {isGeneratingShortsVisuals ? (
+            <div className="flex flex-col items-center justify-center p-12 bg-neutral-900/60 border border-neutral-800 rounded-3xl space-y-4">
+              <Loader2 size={40} className="text-accent animate-spin" />
+              <p className="text-neutral-400 animate-pulse font-medium text-sm">Создание детализированных сцен и 9:16 промптов...</p>
+            </div>
+          ) : shortsVisuals.length > 0 ? (
+            <div className="space-y-6">
+              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl space-y-6">
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-neutral-800">
+                    <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2">
+                      <Camera size={14} className="text-emerald-400" />
+                      Визуальные Промпты ({shortsVisuals.length} сцен)
+                    </h5>
+                    {shortsVisuals.length > 0 && (
+                      <button
+                        onClick={() => {
+                          const allP1 = shortsVisuals.map((v, idx) => `// Сцена ${idx + 1} (${v.shotTypeRu || v.shotType || "План"})\n${v.videoPrompt1 || v.prompt}`).join("\n\n");
+                          copyToClipboard(allP1);
+                          toast.success("Все промпты скопированы");
+                        }}
+                        className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Copy size={12} />
+                        <span>Скопировать все промпты</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {shortsVisuals.map((v, i) => {
+                    const hasDualAngles = Boolean(v.videoPrompt1 && v.videoPrompt2 && v.videoPrompt1 !== v.videoPrompt2);
+                    const isRegeneratingThis = regeneratingSceneIdx === i;
+                    const currentAngle = activeAngles[i] || 1;
+                    const currentPrompt = currentAngle === 2 && v.videoPrompt2 ? v.videoPrompt2 : (v.videoPrompt1 || v.prompt);
+                    const isScreenTextValid = isValidScreenText(v.screenText);
+                    const hasFrameDetails = Boolean(v.frameVisual || isScreenTextValid || v.frameAudio);
+
+                    return (
+                      <div key={`shorts-visual-scene-${i}`} className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl space-y-3 relative">
+                        {/* Верхняя панель карточки */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800/60 pb-2.5">
+                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded-md border border-emerald-500/30">
+                              Сцена #{i + 1}
+                            </span>
+                            <span className="text-neutral-400 text-[11px]">
+                              {[
+                                `${i * 5}–${(i + 1) * 5}с (5 сек)`,
+                                v.shotTypeRu || v.shotType,
+                                v.cameraMovementRu || v.cameraMovement
+                              ].filter(Boolean).join(" • ")}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setExpandedWishIdx(expandedWishIdx === i ? null : i)}
+                              className={`px-2.5 py-1 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                                expandedWishIdx === i || sceneUserWishes[i]
+                                  ? "bg-accent/20 border-accent/40 text-accent font-medium"
+                                  : "bg-neutral-900 hover:bg-neutral-800 border-neutral-800 text-neutral-400 hover:text-neutral-200"
+                              }`}
+                              title="Корректировка кадра"
+                            >
+                              <Wand2 size={12} />
+                              <span>{sceneUserWishes[i] ? "Пожелание учтено" : "Пожелание"}</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleRegenerateSingleSceneVisual(i, sceneUserWishes[i])}
+                              disabled={isRegeneratingThis || isGeneratingShortsVisuals}
+                              title="Перегенерировать эту сцену"
+                              className="p-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-neutral-300 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <RefreshCw size={12} className={isRegeneratingThis ? "animate-spin text-accent" : ""} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Поле ввода пожелания (раскрывающееся) */}
+                        {(expandedWishIdx === i || sceneUserWishes[i]) && (
+                          <div className="flex items-center gap-2 bg-neutral-900/80 p-2 rounded-lg border border-neutral-800">
+                            <input
+                              type="text"
+                              value={sceneUserWishes[i] || ""}
+                              onChange={(e) => setSceneUserWishes((prev) => ({ ...prev, [i]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleRegenerateSingleSceneVisual(i, sceneUserWishes[i]);
+                              }}
+                              placeholder="Пожелание к этой сцене (ночь/день, погода, ракурс, эмоции)..."
+                              className="flex-1 bg-neutral-950 border border-neutral-700 rounded-md px-2.5 py-1 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-accent"
+                            />
+                            <button
+                              onClick={() => handleRegenerateSingleSceneVisual(i, sceneUserWishes[i])}
+                              disabled={isRegeneratingThis || isGeneratingShortsVisuals}
+                              className="px-2.5 py-1 bg-accent hover:bg-accent/90 text-white font-medium rounded-md text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                            >
+                              Обновить
+                            </button>
+                            {sceneUserWishes[i] && (
+                              <button
+                                onClick={() => setSceneUserWishes((prev) => { const n = { ...prev }; delete n[i]; return n; })}
+                                className="p-1 text-neutral-500 hover:text-neutral-300 text-xs cursor-pointer"
+                                title="Очистить"
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Текст диктора */}
+                        <div className="text-xs text-neutral-300 italic bg-neutral-900/40 p-2.5 rounded-lg border border-neutral-800/60 leading-relaxed">
+                          <span className="text-neutral-500 font-semibold not-italic mr-1.5">Текст сцены:</span>
+                          "{v.text}"
+                        </div>
+
+                        {/* Единый компактный блок деталей из сценария */}
+                        {hasFrameDetails && (
+                          <div className="bg-neutral-900/60 border border-neutral-800 p-2.5 rounded-lg text-xs space-y-1.5">
+                            {v.frameVisual && (
+                              <div className="flex items-start gap-1.5 text-amber-300">
+                                <Camera size={13} className="text-amber-400 mt-0.5 shrink-0" />
+                                <span><strong className="text-amber-400 font-medium">Кадр:</strong> {v.frameVisual}</span>
+                              </div>
+                            )}
+                            {isScreenTextValid && (
+                              <div className="flex items-center justify-between gap-2 text-cyan-300 bg-cyan-950/40 border border-cyan-800/60 p-2 rounded-lg">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Type size={14} className="text-cyan-400 shrink-0" />
+                                  <span className="truncate">
+                                    <strong className="text-cyan-400 font-semibold mr-1.5">Текст на экране:</strong>
+                                    <span className="text-cyan-100 font-bold select-all">"{v.screenText}"</span>
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => { copyToClipboard(v.screenText || ""); toast.success("Текст на экране скопирован"); }}
+                                    className="text-[10px] px-2 py-0.5 bg-cyan-900/60 hover:bg-cyan-800/80 text-cyan-200 rounded font-medium shrink-0 cursor-pointer flex items-center gap-1 transition-colors"
+                                    title="Скопировать ремарку текста на экране"
+                                  >
+                                    <Copy size={11} />
+                                    <span>Копировать</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const updated = [...shortsVisuals];
+                                      updated[i] = { ...updated[i], screenText: undefined };
+                                      shorts.setShortsVisuals(updated);
+                                      toast.success("Текст на экране удален");
+                                    }}
+                                    className="p-1 text-cyan-400/60 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors cursor-pointer"
+                                    title="Удалить ремарку"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            {v.frameAudio && (
+                              <div className="flex items-center gap-1.5 text-purple-300">
+                                <span className="text-purple-400 font-bold">🔊</span>
+                                <span><strong className="text-purple-400 font-medium">Звук / SFX:</strong> {v.frameAudio}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Блок промпта с переключением ракурсов */}
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between text-xs">
+                            {hasDualAngles ? (
+                              <div className="flex items-center gap-1 bg-neutral-900 p-0.5 rounded-lg border border-neutral-800">
+                                <button
+                                  onClick={() => setActiveAngles((prev) => ({ ...prev, [i]: 1 }))}
+                                  className={`px-2.5 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                                    currentAngle === 1 ? "bg-accent text-white" : "text-neutral-400 hover:text-neutral-200"
+                                  }`}
+                                >
+                                  Ракурс 1
+                                </button>
+                                <button
+                                  onClick={() => setActiveAngles((prev) => ({ ...prev, [i]: 2 }))}
+                                  className={`px-2.5 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                                    currentAngle === 2 ? "bg-accent text-white" : "text-neutral-400 hover:text-neutral-200"
+                                  }`}
+                                >
+                                  Ракурс 2 (Контр-план)
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-neutral-400 font-medium text-[11px]">Видеопромпт (Veo 3 / Sora):</span>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                copyToClipboard(currentPrompt);
+                                toast.success(`Промпт скопирован`);
+                              }}
+                              className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded-lg text-[11px] cursor-pointer flex items-center gap-1.5 transition-colors ml-auto"
+                            >
+                              <Copy size={11} />
+                              <span>Копировать промпт</span>
+                            </button>
+                          </div>
+
+                          <div className="text-xs font-mono text-neutral-200 bg-neutral-900/90 p-3 rounded-lg border border-neutral-800/80 whitespace-pre-wrap leading-relaxed select-text">
+                            {currentPrompt}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {shortsVisuals.length === 0 && (
+                    <p className="text-neutral-500 text-sm">Нет данных.</p>
+                  )}
+                </div>
+
+                <div className="space-y-4 pt-2 border-t border-neutral-800/80">
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-bold text-neutral-300 uppercase tracking-widest text-xs flex items-center gap-2">
+                      <Music size={14} className="text-purple-400" />
+                      Музыкальный Промпт
+                    </h5>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRegenerateShortsMusicPrompt()}
+                        disabled={isRegeneratingShortsMusicPrompt || isGeneratingShortsVisuals}
+                        className="px-2.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 active:scale-95 text-purple-300 border border-purple-500/30 hover:border-purple-500/50 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 shadow-sm"
+                        title="Перегенерировать музыкальный промпт под сценарий (можно нажимать неоднократно)"
+                      >
+                        <RefreshCw size={13} className={isRegeneratingShortsMusicPrompt ? "animate-spin text-purple-400" : "text-purple-300"} />
+                        <span>{isRegeneratingShortsMusicPrompt ? "Генерация..." : "Перегенерировать"}</span>
+                      </button>
+                      {shortsMusicPrompt && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            copyToClipboard(shortsMusicPrompt);
+                            toast.success("Музыкальный промпт скопирован");
+                          }}
+                          className="px-2.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-neutral-300 hover:text-white border border-neutral-700 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Скопировать музыкальный промпт"
+                        >
+                          <Copy size={13} />
+                          <span>Копировать</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-neutral-950 border border-neutral-800 p-5 rounded-xl space-y-3 relative group">
+                    {isRegeneratingShortsMusicPrompt ? (
+                      <div className="flex items-center gap-3 py-3 text-neutral-400 text-sm">
+                        <Loader2 size={16} className="animate-spin text-purple-400" />
+                        <span>Подбор новой тональности, BPM и акустической драматургии под сюжет...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-sm font-mono text-neutral-200 whitespace-pre-wrap leading-relaxed select-text">
+                          {shortsMusicPrompt || (
+                            <span className="text-neutral-500 italic">
+                              Музыкальный промпт пока не сгенерирован. Нажмите «Перегенерировать», чтобы составить промпт под этот сценарий.
+                            </span>
+                          )}
+                        </div>
+                        {shortsMusicPrompt && (
+                          <div className="flex items-center justify-between pt-2 border-t border-neutral-900 text-[11px] text-neutral-500">
+                            <span>Готово для Suno / Udio (Key + BPM включены)</span>
+                            <span>{shortsMusicPrompt.length} / 1000 знаков</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+            </div>
           )}
-        </div>
-      )}
 
       {shortsActiveSubTab === "seo" && (
         <div className="grid grid-cols-1 gap-6" id="shorts-seo-container">

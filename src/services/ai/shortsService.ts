@@ -35,7 +35,7 @@ import {
   getToneContext,
 } from "./aiConfig";
 import { getCustomInstructions } from "./scriptService";
-import { VISUAL_DIVERSITY_RULES, CUSTOM_INSTRUCTIONS_SUPREMACY_RULE, BANNED_AI_VISUAL_CLICHES } from "./visualPromptService";
+import { VISUAL_DIVERSITY_RULES, CUSTOM_INSTRUCTIONS_SUPREMACY_RULE, BANNED_AI_VISUAL_CLICHES, STRICT_NO_ASSOCIATIONS_RULE } from "./visualPromptService";
 
 /**
  * Instruction for TTS text markup for expressive voiceovers and visual captions in Shorts
@@ -101,21 +101,11 @@ export function enforceCustomRulesOnShortsItem(
 
   if (!effectiveRules) return item;
 
-  // 1. Check if user wants to mention related/main/full video
-  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|упоминани[ея]\s+видео\s+на\s+канале|shorts_link)/i.test(effectiveRules);
+  // 1. Check if subscribe call is explicitly forbidden in rules
+  const forbidsSubscription = /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис|убрать\s+подпис|без\s+призывов\s+к\s+подпис)/i.test(effectiveRules);
 
-  // 2. Check if subscribe call is forbidden (or if related video rule requires replacing CTA)
-  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис|убрать\s+подпис|без\s+призывов\s+к\s+подпис)/i.test(effectiveRules);
-
-  // 3. Check hook rule (forbid starting with greeting)
+  // 2. Check hook rule (forbid starting with greeting)
   const forbidsGreetingHook = /(?:мастер\s+хуков|запрещено.*начинать.*привет|без.*привет|hook_master)/i.test(effectiveRules);
-
-  // Determine phrase to add for related video
-  let phraseToAdd = "Полный разбор этой темы смотри в связанном видео внизу!";
-  const matchExample = effectiveRules.match(/(?:пример[ы]?|фраза|текст):\s*[«"']([^»"'\n]+)[»"']/i);
-  if (matchExample && matchExample[1] && matchExample[1].trim().length > 10) {
-    phraseToAdd = matchExample[1].trim();
-  }
 
   let cleanScript = item.script || "";
   let cleanHook = item.hook || "";
@@ -132,36 +122,11 @@ export function enforceCustomRulesOnShortsItem(
     cleanHook = removeSubscriptionCalls(cleanHook);
   }
 
-  // Ensure related video mention if required
-  if (wantsRelatedVideo) {
-    const endSlice = cleanScript.slice(-250);
-    if (!hasRelatedVideoCall(endSlice)) {
-      if (cleanScript.endsWith("[пауза]")) {
-        cleanScript = `${cleanScript}\n${phraseToAdd}`;
-      } else {
-        cleanScript = `${cleanScript.trim()}\n\n[пауза]\n${phraseToAdd}`;
-      }
-    }
-  }
-
   // Handle loopEnding if present
   let cleanLoopEnding = item.loopEnding ? { ...item.loopEnding } : undefined;
-  if (cleanLoopEnding) {
-    if (forbidsSubscription) {
-      cleanLoopEnding.loopedFullScript = removeSubscriptionCalls(cleanLoopEnding.loopedFullScript);
-      cleanLoopEnding.loopEndingPhrase = removeSubscriptionCalls(cleanLoopEnding.loopEndingPhrase);
-    }
-    if (wantsRelatedVideo) {
-      const loopEndSlice = cleanLoopEnding.loopedFullScript.slice(-250);
-      if (!hasRelatedVideoCall(loopEndSlice)) {
-        if (cleanLoopEnding.loopEndingPhrase && cleanLoopEnding.loopedFullScript.includes(cleanLoopEnding.loopEndingPhrase)) {
-          const parts = cleanLoopEnding.loopedFullScript.split(cleanLoopEnding.loopEndingPhrase);
-          cleanLoopEnding.loopedFullScript = `${parts[0].trim()}\n\n[пауза]\n${phraseToAdd}\n\n${cleanLoopEnding.loopEndingPhrase}${parts.slice(1).join(cleanLoopEnding.loopEndingPhrase)}`.trim();
-        } else {
-          cleanLoopEnding.loopedFullScript = `${cleanLoopEnding.loopedFullScript.trim()}\n\n[пауза]\n${phraseToAdd}`;
-        }
-      }
-    }
+  if (cleanLoopEnding && forbidsSubscription) {
+    cleanLoopEnding.loopedFullScript = removeSubscriptionCalls(cleanLoopEnding.loopedFullScript);
+    cleanLoopEnding.loopEndingPhrase = removeSubscriptionCalls(cleanLoopEnding.loopEndingPhrase);
   }
 
   // Handle SEO if present
@@ -172,10 +137,7 @@ export function enforceCustomRulesOnShortsItem(
     hook: cleanHook,
     script: cleanScript,
     loopEnding: cleanLoopEnding,
-    seo: cleanSeo,
-    viral_potential: wantsRelatedVideo && !item.viral_potential.includes("связанном видео")
-      ? `${item.viral_potential} (Внедрена отсылка на основное видео)`
-      : item.viral_potential
+    seo: cleanSeo
   };
 }
 
@@ -418,18 +380,20 @@ export async function cutLongFormScriptToShorts(
   const customInst = getActiveCustomInstructionsText(options?.customInstructions);
   const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}\n` : '';
 
-  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|shorts_link)/i.test(customInst || "");
-  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис)/i.test(customInst || "");
+  const outlierIdeasText = Array.isArray(options?.outlierIdeas) && options.outlierIdeas.length > 0
+    ? options.outlierIdeas.map((i: any, idx: number) => `   ${idx + 1}. "${i.title}"${i.hook ? ` (Хук: "${i.hook}")` : ""}`).join("\n")
+    : (options?.nextIdeaTitle ? `   1. "${options.nextIdeaTitle}"` : "");
 
-  const ctaRule = wantsRelatedVideo
-    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- В самом конце каждого Shorts сценария диктор ОБЯЗАТЕЛЬНО должен сказать фразу-отсылку к полному/связанному видео на канале (например: «Полный разбор этой темы смотри в связанном видео внизу!»).\n- СТРОЖАЙШЕ ЗАПРЕЩЕНО добавлять призывы подписаться на канал ("подпишись", "не забудь подписаться", "лайк" и т.п.)!`
-    : forbidsSubscription
-    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- СТРОЖАЙШЕ ЗАПРЕЩЕНО добавлять любые призывы подписаться на канал или ставить лайк! Завершай ролик открытым вопросом или интригой.`
+  const nextIdeasAnnouncementRule = outlierIdeasText
+    ? `\n\nТРЕБОВАНИЕ К ФИНАЛУ КАЖДОГО СЦЕНАРИЯ (АНОНС СЛЕДУЮЩЕГО ВИДЕО ИЗ ВКЛАДКИ ИДЕИ):
+- В конце сценария Shorts (в финальной фразе / кадре) органично сделай анонс следующей темы из списка идей!
+- Доступные темы из вкладки «Идеи»:
+${outlierIdeasText}`
     : "";
 
   const prompt = `
 Анализируй следующий длинный сценарий (Long-Form) и выдели из него от 3 до 5 самых острых, вирусных и интересных мыслей. Не просто нарезай текст на куски, а сгенерируй на основе этих мыслей полноценные, глубоко раскрытые темы в виде готовых сценариев для Shorts / Reels. Длительность каждого ролика должна быть НЕ МЕНЕЕ ОДНОЙ МИНУТЫ (от 60 до 90 секунд).
-${instructionsContext}${ctaRule}
+${instructionsContext}${nextIdeasAnnouncementRule}
 Для каждого Shorts выполни:
 1. Выдели сильный вовлекающий хук (первые 3 секунды), который зацепит зрителя.
 2. Сгенерируй полноценный сценарий, который детально раскрывает тему.
@@ -439,7 +403,8 @@ ${instructionsContext}${ctaRule}
    - Эмоция/Стиль: Теги вроде [шепот], [интригующе], [с удивлением], [уверенно], [пауза] задают настроение фразы.
    - Текст на экране: Делай явную разметку, если на экране должен появляться текст ([ТЕКСТ НА ЭКРАНЕ: "..."]).
 4. Адаптируй текст под динамичный вертикальный формат (9:16): добавь пометки для визуального монтажа (например, [ЭФФЕКТ: ...], [КАДР: ...], [ЗВУК: ...]).
-5. Рассчитай хронометраж, чтобы он был от 60 секунд.
+5. В ФИНАЛЕ каждого сценария обязательно анонсируй следующее видео из списка идей!
+6. Рассчитай хронометраж, чтобы он был от 60 секунд.
 
 Исходный сценарий:
 """
@@ -452,7 +417,7 @@ ${longFormScript}
     {
       "title": "Интригующее название ролика",
       "hook": "Мощный хук для первых секунд",
-      "script": "Полный текст сценария Shorts (от 1 минуты) с интонациями, акцентами и пометками для монтажа",
+      "script": "Полный текст сценария Shorts (от 1 минуты) с интонациями, акцентами, пометками для монтажа и анонсом следующего видео из идей в конце",
       "viral_potential": "Краткое объяснение, почему эта тема завирусится",
       "duration": "Хронометраж в секундах (например, '65 сек')"
     }
@@ -810,15 +775,6 @@ export async function optimizeShortsRetentionAndIntegrate(
   const customInst = getActiveCustomInstructionsText(options?.customInstructions);
   const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ КАНАЛА:\n${customInst}\n` : '';
 
-  const wantsRelatedVideo = /(?:отсылк[а-я]*\s*(?:на|к)?\s*(?:видео|ролик)|связанн[а-я]*\s*видео|основн[а-я]*\s*видео|полн[а-я]*\s*видео|длинн[а-я]*\s*видео|related\s*video|посмотреть\s+полное\s+видео|перейти\s+на\s+длинное|упоминани[ея]\s+основного\s+видео|упоминани[ея]\s+связанного\s+видео|shorts_link)/i.test(customInst || "");
-  const forbidsSubscription = wantsRelatedVideo || /(?:запрещ[а-я]*\s*(?:призыв[а-я]*)?\s*(?:к\s*)?подпис|без\s+подпис|не\s+(?:просить|призывать|требовать|добавлять|использовать).*(?:подпис|лайк)|никаких\s+подпис|отсутств[а-я]*\s+призыв[а-я]*\s+к\s+подпис)/i.test(customInst || "");
-
-  const ctaRule = wantsRelatedVideo
-    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА ДЛЯ ФИНАЛА РОЛИКА):\n- В конце сценария Shorts диктор ОБЯЗАТЕЛЬНО произносит отсылку к полному видео (например: «Полный разбор этой темы смотри в связанном видео внизу!»).\n- СТРОГО ЗАПРЕЩЕНЫ призывы подписаться на канал ("подпишись", "лайк" и т.п.)!`
-    : forbidsSubscription
-    ? `\nКРИТИЧЕСКИ ВАЖНО (ПРАВИЛО КАНАЛА):\n- СТРОГО ЗАПРЕЩЕНЫ призывы подписаться на канал или ставить лайк!`
-    : "";
-
   const recs = analysis?.keyRecommendations?.length 
     ? analysis.keyRecommendations.join("\n- ") 
     : "Ликвидировать точки проседания, повысить динамику речи, разбить сплошной текст на короткие акцентные фразы, добавить пометки для эмоций и интонаций";
@@ -830,7 +786,7 @@ export async function optimizeShortsRetentionAndIntegrate(
   const prompt = `
 Ты — шеф-редактор и сценарист вирусных Shorts / Reels с миллионными охватами.
 Твоя задача — ПЕРЕРАБОТАТЬ И ОПТИМИЗИРОВАТЬ следующий сценарий Shorts, ВНЕДРИВ ВСЕ РЕКОМЕНДАЦИИ по удержанию темы и ПОЛНОСТЬЮ УСТРАНИВ точки проседания внимания.
-${instructionsContext}${ctaRule}
+${instructionsContext}
 
 НАЗВАНИЕ/ТЕМА: ${title || "Shorts"}
 
@@ -848,13 +804,14 @@ ${currentScript}
 ТРЕБОВАНИЯ К ОПТИМИЗИРОВАННОМУ СЦЕНАРИЮ:
 1. Внедри все рекомендации прямо в текст сценария.
 2. Ликвидируй лишнюю воду, затянутые фразы и неловкие паузы.
-3. РАЗМЕТКА ТЕКСТА ДЛЯ ОЗВУЧКИ (TTS):
+3. СОХРАНЯЙ АВТОРСКИЙ ФИНАЛ И ПРИЗЫВ (CTA): Сохраняй авторскую концовку сценария и призыв к действию (название канала, финальный вопрос или авторскую фразу). КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО заменять авторскую концовку на шаблонные призывы о "связанном видео внизу", если этого явно нет в исходном тексте!
+4. РАЗМЕТКА ТЕКСТА ДЛЯ ОЗВУЧКИ (TTS):
    - Паузы: (500ms) или (1s) для задания точных пауз.
    - Логический акцент: Окружай ключевые слова звездочками *слово* для логического ударения.
    - Эмоция/Стиль: Используй теги вроде [шепот], [интригующе], [с удивлением], [уверенно], [пауза] для задания настроения фразы.
    - Текст на экране: Делай разметку, если на экране должен появляться текст ([ТЕКСТ НА ЭКРАНЕ: "..."]).
-4. Оформи пометки для динамичного 9:16 видеорядов: [ЭФФЕКТ: ...], [КАДР: ...], [ЗВУК: ...].
-5. Выдай полный готовый переработанный текст и детальный список внесенных изменений.
+5. Оформи пометки для динамичного 9:16 видеорядов: [ЭФФЕКТ: ...], [КАДР: ...], [ЗВУК: ...].
+6. Выдай полный готовый переработанный текст и детальный список внесенных изменений.
 
 ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON:
 {
@@ -987,6 +944,64 @@ ${scriptText}
 
 
 
+export function stripTechnicalRemarksFromScript(text: string): string {
+  if (!text) return "";
+  let cleaned = text;
+
+  // 1. Удаляем все блоки в квадратных, фигурных и угловых скобках
+  cleaned = cleaned.replace(/\[[^\]]*\]/g, " ");
+  cleaned = cleaned.replace(/\{[^}]*\}/g, " ");
+  cleaned = cleaned.replace(/<[^>]*>/g, " ");
+
+  // 2. Удаляем круглые скобки с техническими директивами, ремарками, эмоциями, таймкодами
+  cleaned = cleaned.replace(
+    /\(\s*(?:интонация|эмоция|подача|акцент|настроение|темп|действие|звук|музыка|эффект|ремарка|кадр|сцена|персонаж|диктор|ведущий|голос|автор|спикер|пауза|паузы|смех|смеётся|вздох|вздыхает|шепот|шепотом|тихо|громко|улыбается|визуал|визуальный|анимация|текст|надпись|экран|камера|b-roll|б-ролл|sfx|\d+(?:\.\d+)?\s*(?:ms|мс|s|сек|с|мин|минут[а-я]*)|0:\d+|\d+:\d+)[^)]*\)/gi,
+    " "
+  );
+  cleaned = cleaned.replace(/\(\s*\d+(?::\d+)?\s*(?:-\s*\d+(?::\d+)?)?\s*(?:сек|с|sec|s)?\s*\)/gi, " ");
+
+  // 3. Построчная отфильтровка чисто технических строк и префиксов
+  const lines = cleaned.split(/\r?\n/);
+  const filteredLines = lines.map((line) => {
+    let l = line.trim();
+    if (!l) return "";
+
+    l = l.replace(/^#+\s+/g, "");
+
+    if (
+      /^(?:визуальный\s+ряд|визуал|visuals?|видеоряд|видео|камера|план|анимация|графика)\s*:\s*/i.test(l) ||
+      /^(?:текст\s+на\s+экране|текст|надпись|экран|screen\s+text|overlay\s+text|subtitle)\s*:\s*/i.test(l) ||
+      /^(?:звуковые?\s+эффекты|звук|sfx|audio|музыка|фонограмма)\s*:\s*/i.test(l) ||
+      /^(?:b-roll|б-ролл|доп\.?\s*материал)\s*:\s*/i.test(l) ||
+      /^(?:ремарка|примечание|инструкция|монтаж)\s*:\s*/i.test(l) ||
+      /^(?:сцена|scene|кадр|shot|блок|фрагмент)\s*\d+[^:\n]*:\s*$/i.test(l)
+    ) {
+      return "";
+    }
+
+    l = l.replace(/^(?:закадровый\s+голос|диктор|ведущий|голос\s+за\s+кадром|спикер|автор|voiceover|narrator|speaker|host)\s*:\s*/gi, "");
+
+    if (/^(?:\[?\s*\d{1,2}:\d{2}\s*(?:-\s*\d{1,2}:\d{2})?\s*\]?|сцена\s*\d+|кадр\s*\d+|scene\s*\d+|shot\s*\d+)\s*$/i.test(l)) {
+      return "";
+    }
+
+    return l;
+  }).filter(Boolean);
+
+  cleaned = filteredLines.join(" ");
+
+  cleaned = cleaned
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || text.trim();
+}
+
 export async function generateShortsVisualsAndMusic(
   scriptText: string,
   options?: AnalysisOptions
@@ -1021,16 +1036,13 @@ export async function generateShortsVisualsAndMusic(
    - videoPrompt2 (Ракурс 2): КОНТРАСТНЫЙ АЛЬТЕРНАТИВНЫЙ РАКУРС той же сцены (например, если Ракурс 1 — лицо крупным планом с Dolly-in, то Ракурс 2 — макро-деталь рук или силуэт со спины с Orbital облётом). ЗАПРЕЩЕНО копировать текст из videoPrompt1 в videoPrompt2!
 6. Самопроверка: убедись, что ни движения камеры, ни микродинамики, ни ракурсы не повторяются!`;
 
-  const voiceoverScriptText = scriptText
-    .replace(/\[[^\]]*\]/g, " ")
-    .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const voiceoverScriptText = stripTechnicalRemarksFromScript(scriptText);
 
   const prompt = `Ты — ведущий арт-директор и кинорежиссер вертикальных видео 9:16 (YouTube Shorts / Reels). Тебе передан сценарий:
   
 "${voiceoverScriptText}"
 
+${STRICT_NO_ASSOCIATIONS_RULE}
 ${CUSTOM_INSTRUCTIONS_SUPREMACY_RULE}
 ${BANNED_AI_VISUAL_CLICHES}
 
@@ -1043,7 +1055,7 @@ ${BANNED_AI_VISUAL_CLICHES}
    - videoPrompt2 (Ракурс 2): Альтернативный контрастный ракурс той же сцены (контр-план, макро-деталь или иной масштаб) с ДРУГИМ движением камеры и ДРУГОЙ оптикой.
    - prompt: строка, совпадающая с videoPrompt1 (для совместимости).
 4. Каждая сцена обязана содержать краткие поля "shotType" (например "Close-Up", "Medium Shot", "Macro Detail") и "cameraMovement" (например "Dolly-in", "Orbital", "Pull-back", "Rack focus", "Pan").
-5. Написать ОДИН общий музыкальный промпт для всего Shorts (жанр, настроение, инструменты, темп) на английском языке (подходит для Suno/Udio).
+5. Написать ОДИН детальный музыкальный промпт для всего Shorts (ДО 1000 СИМВОЛОВ) на английском языке для Suno/Udio: стиль, инструментал и драматургия трека подбираются индивидуально под сюжетную и эмоциональную арку этого сценария (оркестр, неоклассика, этника, фолк, минимализм), с ОБЯЗАТЕЛЬНЫМ явным указанием тональности (Key: ...) и темпа (Tempo: ... BPM), структура пригодна для монтажа, без резких скачков громкости.
 
 ${veoSfxPromptText}
 ${VISUAL_DIVERSITY_RULES}
@@ -1130,24 +1142,16 @@ ${instructionsContext}
   const WORDS_PER_SECOND = 2.6;
 
   const estimateDuration = (text: string) => {
-    const voiceoverText = (text || "")
-      .replace(/\[[^\]]*\]/g, " ")
-      .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const voiceoverText = stripTechnicalRemarksFromScript(text);
     const words = voiceoverText.split(/\s+/).filter(Boolean).length;
     return Math.max(0.1, words / WORDS_PER_SECOND);
   };
 
-  // Pre-clean scenes from Gemini to remove bracket tags and filter out zero-speech scenes
+  // Pre-clean scenes from Gemini to remove bracket tags, technical remarks, and filter out zero-speech scenes
   parsedResult.visuals = (parsedResult.visuals || [])
     .map(v => ({
       ...v,
-      text: (v.text || "")
-        .replace(/\[[^\]]*\]/g, " ")
-        .replace(/\((?:\d+\s*(?:сек|с|sec|ms)|пауза|pause)[^)]*\)/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim()
+      text: stripTechnicalRemarksFromScript(v.text || "")
     }))
     .filter(v => v.text.length > 0);
 
@@ -1893,7 +1897,7 @@ ${customInstructionsText ? `ПОЛЬЗОВАТЕЛЬСКИЕ ПРАВИЛА И �
 export async function generateFullShortsScriptFromOutlierIdea(
   idea: ShortsOutlierIdea,
   niche: string,
-  options?: AnalysisOptions
+  options?: AnalysisOptions & { nextIdeaTitle?: string; nextIdea?: ShortsOutlierIdea; outlierIdeas?: ShortsOutlierIdea[] }
 ): Promise<{
   title: string;
   script: string;
@@ -1912,6 +1916,22 @@ export async function generateFullShortsScriptFromOutlierIdea(
   const visualTypesString = rawVisuals.join(", ");
   const ideaHook = idea?.hook || ideaTitle;
   const ideaDuration = idea?.estimatedDuration || "65 сек";
+
+  const nextIdeaTitle = options?.nextIdeaTitle || options?.nextIdea?.title || "";
+  const nextIdeaTeaserInstruction = nextIdeaTitle
+    ? `\n5. ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ К ФИНАЛУ СЦЕНАРИЯ (АНОНС СЛЕДУЮЩЕГО ВИДЕО ИЗ ВКЛАДКИ ИДЕИ):
+   - В самой последней сцене (в финальной фразе диктора / конце сценария) ОБЯЗАТЕЛЬНО добавь интригующий анонс следующего видео из списка вкладки «Идеи»!
+   - СЛЕДУЮЩЕЕ ВИДЕО, КОТОРОЕ НУЖНО АНОНСИРОВАТЬ: "${nextIdeaTitle}"
+   - Диктор должен произнести энергичный анонс именно этой конкретной темы и сформировать клиффхэнгер.
+   - Разметка кадра должна включать плашку [ТЕКСТ НА ЭКРАНЕ: "${nextIdeaTitle.toUpperCase()}"] или аналогичное название следующего выпуска.
+   Пример идеального окончания сценария:
+   [КАДР: Диктор интригующе смотрит в камеру, плавно уходя в затемнение]
+   [ЗВУК: Легкий акцентный свуш и воодушевляющая музыка]
+   [воодушевлённо] Полный разбор этой темы смотри в связанном видео внизу! (500ms) А в следующем ролике мы разберём: «${nextIdeaTitle}» — обязательно подпишись, чтобы не пропустить!
+   [ТЕКСТ НА ЭКРАНЕ: "${nextIdeaTitle.toUpperCase()}"]`
+    : `\n5. ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ К ФИНАЛУ СЦЕНАРИЯ (АНОНС СЛЕДУЮЩЕГО ВИДЕО):
+   - В самой последней сцене сценария (в финальной фразе диктора) ОБЯЗАТЕЛЬНО добавь интригующий анонс следующего видео по каналу.
+   - Пример: «[воодушевлённо] А в следующем ролике мы разберём: [Интригующая тема следующего видео] — не пропусти! [ТЕКСТ НА ЭКРАНЕ: "[ТЕМА СЛЕДУЮЩЕГО ВИДЕО]"]»`;
 
   const prompt = `Ты — ведущий топ-сценарист вирусных YouTube Shorts с миллионными просмотрами.
 Твоя задача — написать ПОЛНОЦЕННЫЙ, ГЛУБОКИЙ, ЗАВЕРШЁННЫЙ сценарий для вертикального видео Shorts длительностью СТРОГО от 45 до 85 секунд (объём дикторского текста: 130–220 слов).
@@ -1934,7 +1954,7 @@ export async function generateFullShortsScriptFromOutlierIdea(
    - Сцена 2 (0:05–0:20): Погружение в проблему/контекст, объяснение неочевидной скрытой детали.
    - Сцена 3 (0:20–0:40): Развитие мысли, кульминация, глубокий жизненный или духовный/философский инсайт.
    - Сцена 4 (0:40–0:60): Неожиданный вывод, раскрытие тайны или практическая мудрость, переворачивающая восприятие.
-   - Сцена 5 (0:60–0:75+): Мощный финал и вовлекающий вопрос или отсылка к полному разбору в связанном видео.
+   - Сцена 5 (0:60–0:75+): Мощный финал и вовлекающий вопрос или отсылка к полному разбору в связанном видео, а ТАКЖЕ АНОНС СЛЕДУЮЩЕГО ВИДЕО ИЗ ВКЛАДКИ ИДЕИ.
 
 3. РАЗМЕТКА ДЛЯ ОЗВУЧКИ (TTS):
    ${SHORTS_TTS_MARKUP_INSTRUCTION}
@@ -1944,15 +1964,17 @@ export async function generateFullShortsScriptFromOutlierIdea(
    - КРИТИЧЕСКОЕ ТРЕБОВАНИЕ: В ПЕРВЫХ 200 СИМВОЛАХ описания ОБЯЗАТЕЛЬНО должны быть органично внедрены самые главные поисковые ключевые слова и фразы темы ролика (это видимый сниппет поисковой выдачи YouTube/Google).
    - В описании подробно раскрой контекст ролика, глубокий разбор темы, смежные поисковые запросы, инсайты и блок вовлечения зрителей в комментарии. Без таймкодов.
 
+${nextIdeaTeaserInstruction}
+
 ${customInstructionsText ? `ОБЯЗАТЕЛЬНЫЙ КАНОН КАНАЛА И КАСТОМНЫЕ ПРАВИЛА:\n${customInstructionsText}` : ''}
 
 ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON:
 {
   "title": "${ideaTitle.replace(/"/g, "'")}",
-  "script": "[интригующе] *Хук* (500ms)... [развернутый связный текст сценария на 130-220 слов со всеми паузами (500ms)/(1s), ударениями *слово* и пометками [ТЕКСТ НА ЭКРАНЕ: \"...\"]]",
+  "script": "[интригующе] *Хук* (500ms)... [развернутый связный текст сценария на 130-220 слов со всеми паузами (500ms)/(1s), ударениями *слово*, пометками [ТЕКСТ НА ЭКРАНЕ: \"...\"] и анонсом следующего видео из вкладки Идеи в финале]",
   "seo": {
     "titles": ["${ideaTitle.replace(/"/g, "'")}"],
-    "description": "Развёрнутое SEO-описание примерно на 3000 символов (в первых 200 символах ключевые слова)...",
+    "description": "Развёрнутое SEO-описание примерно на 3000 символов (в первых 200 симво символах ключевые слова)...",
     "hashtags": ["#Shorts", "#Тренды"],
     "keywords": ["тег1", "тег2"],
     "pinnedComment": "Вопрос для удержания в комментариях..."

@@ -216,43 +216,31 @@ export async function generateDetailedBlockMusicPrompt(
   options?: AnalysisOptions
 ): Promise<string> {
   const customInst = getCustomInstructions(options);
-  const instructionsContext = customInst ? `
+  const instructionsContext = customInst ? `\n\nОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:\n${customInst}` : '';
 
-ОБЯЗАТЕЛЬНЫЕ К НЕУКОСНИТЕЛЬНОМУ ИСПОЛНЕНИЮ КАСТОМНЫЕ ИНСТРУКЦИИ:
-${customInst}` : '';
+  const prompt = `Ты — эксперт-музыкант, композитор и саунд-продюсер для Suno AI и Udio.
+Твоя задача: на основе темы, текста блока и его эмоциональной драматургии составить профессиональный музыкальный промпт для саундтрека.
 
-  const prompt = `Ты - эксперт-музыкант, композитор и продюсер, специализирующийся на написании подробных промптов для музыкальных ИИ (Suno / Udio).
-Тебе нужно составить очень детальный и профессиональный музыкальный промпт для саундтрека к блоку YouTube видео.
+ПРАВИЛА И ПРИНЦИПЫ:
+1. ИНДИВИДУАЛЬНЫЙ ПОДБОР ПОД АРКУ: Стиль, инструменты и драматургия трека подбираются каждый раз заново под конкретное настроение и сюжетную арку сценария (кинематографический оркестр, неоклассика, этника, акустический фолк, эмбиент, минимализм на одном инструменте и т.д. — любой акустический язык, передающий эмоцию).
+2. ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ (для всех треков):
+   - Явно укажи ТОНАЛЬНОСТЬ трека (key signature, например: D minor, F# major, A minor).
+   - Явно укажи ТЕМП трека в BPM (например: 68 BPM, 76 BPM, 110 BPM).
+3. ДРАМАТУРГИЯ И МОНТАЖ: Драматургия музыки должна точно отражать развитие сюжета (нарастание, спад, паузы). Структура трека должна быть пригодна для монтажа: плавно затухающая или удобная для зацикливания, без резких немотивированных скачков громкости.
+4. ОБЪЕМ: До 1000 знаков на английском языке.
+5. ФОРМАТ: Плотный профессиональный набор тегов стиля, инструментов, акустического пространства, динамики, тональности и BPM через запятую, без лишней разговорной шелухи.
 
-ТЕМА ВИДЕО: "${params.topic || 'Не указана'}"
-НАЗВАНИЕ БЛОКА: "${params.blockTitle || 'Не указано'}"
-ТЕКСТ БЛОКА: "${params.blockText ? params.blockText.slice(0, 500) : 'Не указан'}"
+КОНТЕКСТ БЛОКА:
+- Тема: "${params.topic || 'Не указана'}"
+- Название блока: "${params.blockTitle || 'Не указано'}"
+- Текст блока: "${params.blockText ? params.blockText.slice(0, 500) : 'Не указан'}"
+- Пожелания (если заданы): Жанр: ${params.genre || 'На усмотрение сюжета'}, BPM: ${params.tempoBpm || 'Определить'}, Настроение: ${params.mood || 'По тексту'}, Тональность: ${params.keySignature || 'Определить'}${instructionsContext}
 
-ПОЖЕЛАНИЯ К МУЗЫКЕ:
-- Жанр: ${params.genre || 'Не указан'}
-- Темп (BPM): ${params.tempoBpm || 'Не указан'}
-- Настроение: ${params.mood || 'Не указано'}
-- Тональность: ${params.keySignature || 'Не указана'}
-- Аккордовая прогрессия: ${params.chordProgression || 'Не указана'}
-- Инструменты: ${params.instruments ? params.instruments.join(', ') : 'Не указаны'}
-- Энергетика: ${params.energyLevel || 'Не указана'}
-- Production tags: ${params.productionTags ? params.productionTags.join(', ') : 'Не указаны'}${instructionsContext}
-
-ЗАДАЧА:
-Сгенерируй только текст музыкального промпта на английском языке, без кавычек и дополнительных пояснений, длиной до 1000 знаков, учитывая то, что в среднем песня длится 3 - 5 минут.
-Описывай музыкальное настроение в стиле Ханса Циммера.
-
-СТРОГО ЗАПРЕЩЕНО:
-EDM, синтезаторные лиды, трап-биты, дабстеп.
-Вокал с текстом, хоры, церковные песнопения/чанты.
-Традиционный церковный орган.
-Мрачные хоррор-текстуры.
-Резкие перепады громкости, пики, громкие духовые всплески.
-Никогда не начинать композицию с пианино.`;
+Верни ТОЛЬКО готовый текст промпта на английском языке (без кавычек и лишних пояснений).`;
 
   try {
     const systemInst = validateAndEnrichSystemPrompt(
-      "Ты — экспертный саунд-продюсер и музпромпт-инженер для Suno AI и Udio. Создавай детальный музпромпт до 1000 символов, строго соблюдая глобальные настройки приложения и кастомные инструкции пользователя.",
+      "Ты — экспертный саунд-продюсер для Suno AI и Udio. Создавай индивидуальные детальные музпромпты до 1000 символов под сюжетную арку видео с обязательным указанием тональности и BPM.",
       "",
       customInst,
       options
@@ -271,7 +259,7 @@ EDM, синтезаторные лиды, трап-биты, дабстеп.
     return parsed;
   } catch (error) {
     logger.error("Error generating detailed music prompt", error);
-    return "Epic cinematic orchestral instrumental, slow build up, hans zimmer style";
+    return "[Instrumental], cinematic orchestral atmosphere, emotional storyline, building intensity, 72 BPM, D minor, studio soundscape";
   }
 }
 
@@ -287,9 +275,21 @@ export async function generateShortsMusicPrompt(
   const brandContext = options?.branding ? `Бренд: ${options.branding.name || options.branding}` : "";
   const seoContext = options?.videoSEO ? `Ключевые слова: ${options.videoSEO.keywords || ""}. Тон и цель: ${options.videoSEO.description || ""}` : "";
 
-  const prompt = `You are an expert music producer for short-form vertical videos. Based on the following context, produce ONE concise high-quality music prompt in English suitable for Suno/Udio or similar music generators. Include: genre, mood, key instruments, approximate BPM, energy level (low/medium/high), and a short usage note (e.g., "use as background under voiceover, keep mix not too loud"). Keep it to 1-2 sentences.
+  const prompt = `Ты — эксперт-композитор и саунд-продюсер нейромузыки (Suno AI, Udio).
+Твоя задача: проанализировать эмоциональную арку и сюжетный темпоритм сценария Shorts и составить идеальный музыкальный мастер-промпт.
 
-Context:
+ФИЛОСОФИЯ И ТРЕБОВАНИЯ К ПРОМПТУ:
+1. ИНДИВИДУАЛЬНАЯ СЮЖЕТНАЯ АРКА: Стиль, инструментал и драматургия трека подбираются заново под конкретное настроение этого сценария (оркестр, неоклассика, этника, акустический фолк, эмбиент или минимализм — любой акустический язык, наилучшим образом передающий эмоцию).
+2. ОБЯЗАТЕЛЬНЫЕ ТЕХНИЧЕСКИЕ ПАРАМЕТРЫ (строго для каждого трека):
+   - Явно укажи ТОНАЛЬНОСТЬ трека (Key: например D minor, F# major, C minor и т.д.);
+   - Явно укажи ТЕМП трека в BPM (Tempo: например 68 BPM, 78 BPM, 120 BPM и т.д.).
+3. ДРАМАТУРГИЯ И ПРИГОДНОСТЬ К МОНТАЖУ:
+   - Драматургия трека должна отражать эмоциональную арку сценария (например: напряжение / тишина / разрешение).
+   - Трек должен быть пригоден для монтажа (плавно затухающий или зацикливаемый, без резких немотивированных скачков громкости).
+4. ОБЪЕМ: До 1000 знаков на АНГЛИЙСКОМ языке.
+5. ФОРМАТ: Плотный профессиональный набор тегов стилей, инструментов, пространства, динамики, тональности и BPM через запятую.
+
+СЦЕНАРИЙ SHORTS:
 """
 ${scriptText}
 """
@@ -297,14 +297,31 @@ ${scriptText}
 ${nicheContext}\n${brandContext}\n${seoContext}
 ${instructionsContext}
 
-Return only the music prompt string (no JSON, no explanations).`;
+Верни ТОЛЬКО готовый текст музыкального промпта на английском языке (без кавычек, без вводных фраз).`;
 
-  const response = await callGeminiWithRetry({
-    model: options?.model || "gemini-3.1-flash-lite",
-    contents: buildContents(prompt, options),
-    config: { responseMimeType: "text/plain" }
-  });
+  try {
+    const systemInst = validateAndEnrichSystemPrompt(
+      "Ты — экспертный саунд-продюсер для Suno AI и Udio. Создавай персонализированные музпромпты до 1000 символов под эмоциональную арку сценария с обязательным указанием тональности и темпа в BPM.",
+      "",
+      customInst,
+      options
+    );
 
-  const res = extractTextFromResponse(response);
-  return (res || "Energetic cinematic short-form music prompt (for Suno/Udio): upbeat, 100-120 BPM, punchy drums, airy synths, warm bass, suitable to sit under voiceover.").trim();
+    const response = await callGeminiWithRetry({
+      model: options?.model || "gemini-3.1-flash-lite",
+      contents: buildContents(prompt, options),
+      customInstructions: customInst,
+      options,
+      config: {
+        systemInstruction: systemInst,
+        responseMimeType: "text/plain"
+      }
+    });
+
+    const res = extractTextFromResponse(response).trim();
+    return res || "[Instrumental], cinematic narrative soundtrack, organic acoustic textures, emotional arc, 72 BPM, D minor, studio production";
+  } catch (err) {
+    logger.error("Error generating shorts music prompt:", err);
+    return "[Instrumental], cinematic narrative soundtrack, organic acoustic textures, emotional arc, 72 BPM, D minor, studio production";
+  }
 }

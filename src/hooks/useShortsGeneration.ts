@@ -56,112 +56,550 @@ export interface UseShortsGenerationProps {
   handleGeminiError?: (error: any, defaultMessage: string) => void;
 }
 
+/**
+ * Проверяет, является ли строка настоящей ремаркой текста на экране (плашкой/титром),
+ * а не артефактом вроде номера сцены, таймкода или чистого числа ("11", "13", "14").
+ */
+export function isValidScreenText(text?: string | null): boolean {
+  if (!text) return false;
+  const clean = text.trim().replace(/^["'«»“”„]+|["'«»“”„]+$/g, "").trim();
+  if (!clean) return false;
+  // Отбрасываем чисто цифровые значения ("11", "13", "14" и т.д.)
+  if (/^\d+$/.test(clean)) return false;
+  // Отбрасываем таймкоды и счетчики секунд ("0:15", "5s", "5 сек", "11 сек", "14s")
+  if (/^\d+(?::\d+)?\s*(?:сек|с|sec|s)?$/i.test(clean)) return false;
+  // Отбрасываем номера кадров, сцен, блоков ("Кадр 11", "Сцена 13", "Shot 14", "11.")
+  if (/^(?:сцена|кадр|scene|shot|блок|часть|п\.|пункт)\s*\d+[\.\)]?$/i.test(clean)) return false;
+  if (/^\d+[\.\)]\s*$/i.test(clean)) return false;
+  return true;
+}
+
+/**
+ * Очищает дикторский текст от технических режиссерских меток кадров/звуков/титров,
+ * сохраняя авторский текст, эмоциональные ремарки и паузы без искажений!
+ */
 export const cleanShortsVoiceoverText = (text: string): string => {
   if (!text) return "";
-  // Удаляем только системные таймкоды, технические теги и разметку пауз/директивы TTS
-  // НЕ удаляем текст реплик или сценарий при наличии скобок
-  const cleaned = text
-    .replace(/\[\s*(?:0:\d+|\d+:\d+(?:-\d+:\d+)?|Сцена\s*\d+|Scene\s*\d+|Кадр\s*\d+|Хук|Hook|Интро|Intro|Финал|Outro|Закадровый\s*голос|Voiceover|Диктор|TTS|Audio|Visual|Визуальный\s*ряд|ТЕКСТ\s*НА\s*ЭКРАНЕ|Screen\s*text)[^\]]*\]/gi, " ")
-    .replace(/\((?:\d+\s*(?:сек|с|sec|ms|s)|пауза|pause)[^)]*\)/gi, " ")
-    .replace(/\[(?:[^\]]{1,25})\]/g, " ") // короткие пометки настроения вроде [интригующе] или [шёпотом]
-    .replace(/\s+/g, " ")
-    .trim();
 
-  // Если регулярка случайно стерла больше 70% текста, возвращаем исходный с удалением только пауз
-  if (cleaned.length < text.length * 0.3 && text.trim().length > 30) {
-    return text
-      .replace(/\((?:\d+\s*(?:сек|с|sec|ms|s)|пауза|pause)[^)]*\)/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
+  let cleaned = text
+    // Удаляем директивы и теги с номерами/названиями сцен [СЦЕНА 1], [КАДР 1], [SCENE 1], [SHOT 2]
+    .replace(/\[\s*(?:СЦЕНА|SCENE|КАДР|SHOT|БЛОК|ЧАСТЬ)\s*\d*[^\]]*\]/gi, " ")
+    // Удаляем директивы визуала, звука и текста на экране
+    .replace(/\[\s*(?:КАДР|ВИЗУАЛ|ВИЗУАЛЬНЫЙ\s+РЯД|VISUAL|SHOT|CAMERA|КАМЕРА)[^:\]]*:\s*[^\]]+\]/gi, " ")
+    .replace(/\[\s*(?:ЗВУК|AUDIO|SFX|МУЗЫКА|SOUND)[^:\]]*:\s*[^\]]+\]/gi, " ")
+    .replace(/\[\s*(?:ТЕКСТ\s+НА\s+ЭКРАНЕ|НАДПИСЬ\s+НА\s+ЭКРАНЕ|ТИТР(?:Ы)?(?:\s+НА\s+ЭКРАНЕ)?|SCREEN\s*TEXT|ON[\s-_]*SCREEN\s*TEXT|OVERLAY\s+TEXT)[^:\]]*:\s*[^\]]+\]/gi, " ")
+    // Удаляем строчные технические префиксы
+    .replace(/(?:^|\n)\s*(?:\*\*|__)?(?:Визуальный\s+ряд|Визуал|Кадр|Visuals?|Сцена|Scene|Shot)(?:\*\*|__)?\s*:\s*[^\n]+/gi, " ")
+    .replace(/(?:^|\n)\s*(?:\*\*|__)?(?:Звуковые?\s+эффекты|Звук|SFX|Audio|Музыка)(?:\*\*|__)?\s*:\s*[^\n]+/gi, " ")
+    .replace(/(?:^|\n)\s*(?:\*\*|__)?(?:Текст\s+на\s+экране|Надпись\s+на\s+экране|Титр(?:ы)?(?:\s+на\s+экране)?|Screen\s*text|On[\s-_]*screen\s*text)(?:\*\*|__)?\s*:\s*[^\n]+/gi, " ")
+    // Удаляем только ярлыки "Текст: " или "Диктор: ", сохраняя сами слова озвучки
+    .replace(/(?:^|\n)\s*(?:\*\*|__)?(?:Текст|Реплика|Диктор)(?:\*\*|__)?\s*:\s*/gi, " ")
+    .replace(/^(?:Сцена|Кадр|Scene|Shot|Блок)\s*\d+[^:\n]*:\s*/gim, "")
+    .replace(/\[\s*\d+\s*\]/g, "")
+    .replace(/^\s*(?:\d+[\.\)]|[-*•])\s+/gm, "")
+    .replace(/\(\s*\d+(?::\d+)?\s*(?:-\s*\d+(?::\d+)?)?\s*(?:сек|с|sec|s)?\s*\)/gi, " ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
 
   return cleaned || text.trim();
 };
 
+export interface StructuredScriptScene {
+  text: string;
+  frameVisual?: string;
+  frameAudio?: string;
+  screenText?: string;
+}
+
+export function extractSceneMetadata(block: string): {
+  frameVisual?: string;
+  frameAudio?: string;
+  screenText?: string;
+} {
+  let frameVisual = "";
+  let frameAudio = "";
+  let screenText = "";
+
+  const visualMatch =
+    block.match(/\[\s*(?:КАДР|ВИЗУАЛ|ВИЗУАЛЬНЫЙ\s+РЯД|VISUAL|SHOT|CAMERA|КАМЕРА)[^:\]]*:\s*([^\]]+)\]/i) ||
+    block.match(/(?:^|\n)\s*(?:\*\*|__)?(?:Визуальный\s+ряд|Визуал|Кадр|Visuals?|Сцена|Scene|Shot)(?:\*\*|__)?\s*:\s*([^\n]+)/i);
+  if (visualMatch) frameVisual = visualMatch[1].trim();
+
+  const audioMatch =
+    block.match(/\[\s*(?:ЗВУК|AUDIO|SFX|МУЗЫКА|SOUND)[^:\]]*:\s*([^\]]+)\]/i) ||
+    block.match(/(?:^|\n)\s*(?:\*\*|__)?(?:Звуковые?\s+эффекты|Звук|SFX|Audio|Музыка)(?:\*\*|__)?\s*:\s*([^\n]+)/i);
+  if (audioMatch) frameAudio = audioMatch[1].trim();
+
+  // Извлекаем ТОЛЬКО явные ремарки текста на экране (никогда не путать с обычным текстом сценария/озвучки)
+  const textMatch =
+    block.match(/\[\s*(?:ТЕКСТ\s+НА\s+ЭКРАНЕ|НАДПИСЬ\s+НА\s+ЭКРАНЕ|ТИТР(?:Ы)?(?:\s+НА\s+ЭКРАНЕ)?|SCREEN\s*TEXT|ON[\s-_]*SCREEN\s*TEXT|OVERLAY\s+TEXT)[^:\]]*:\s*([^\]]+)\]/i) ||
+    block.match(/(?:^|\n)\s*(?:\*\*|__)?(?:Текст\s+на\s+экране|Надпись\s+на\s+экране|Титр(?:ы)?(?:\s+на\s+экране)?|Screen\s*text|On[\s-_]*screen\s*text)(?:\*\*|__)?\s*:\s*([^\n]+)/i);
+  if (textMatch) {
+    const candidate = textMatch[1].trim().replace(/^["'«»“”„]+|["'«»“”„]+$/g, "").trim();
+    if (isValidScreenText(candidate)) {
+      screenText = candidate;
+    }
+  }
+
+  return {
+    frameVisual: frameVisual || undefined,
+    frameAudio: frameAudio || undefined,
+    screenText: screenText || undefined,
+  };
+}
+
 /**
- * Разбивает полный сценарий Shorts на смысловые сцены по 4–7 секунд (~10–18 слов)
- * БЕЗ потери единого слова или обрыва предложений в конце!
+ * Подсчитывает реальное количество произносимых диктором слов (отсекая теги пауз вроде (500ms),
+ * эмоциональные ремарки в скобках, кавычки и знаки препинания).
+ */
+export function countSpokenWords(text: string): number {
+  if (!text) return 0;
+  const pureSpoken = text
+    .replace(/\(\s*\d+(?:\.\d+)?\s*(?:ms|s|сек|с|sec)?\s*\)/gi, " ")
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/[«»""''„“”.,!?:;—–\-\(\)\/\\]/g, " ")
+    .trim();
+  return pureSpoken.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Склеивает висячие теги пауз (например, (500ms) или (1s)) с предшествующей фразой/предложением,
+ * чтобы они никогда не отрывались в отдельную пустую строку или фиктивную сцену.
+ */
+export function cleanAndGluePauses(sentences: string[]): string[] {
+  const result: string[] = [];
+  const pauseRegex = /^\s*(\(\s*\d+(?:\.\d+)?\s*(?:ms|s|сек|с|sec)?\s*\))\s*(.*)$/i;
+
+  for (let s of sentences) {
+    s = s.trim();
+    if (!s) continue;
+
+    const m = s.match(pauseRegex);
+    if (m) {
+      const pauseTag = m[1];
+      const remainder = m[2];
+      if (result.length > 0) {
+        result[result.length - 1] = (result[result.length - 1] + " " + pauseTag).trim().replace(/[ \t]+/g, " ");
+      } else {
+        result.push(pauseTag);
+      }
+      if (remainder && remainder.trim()) {
+        result.push(remainder.trim());
+      }
+    } else {
+      result.push(s);
+    }
+  }
+  return result;
+}
+
+/**
+ * Аккуратно делит чрезмерно длинное предложение (> 20 слов) по смысловым союзам и знакам,
+ * гарантируя, что каждая часть имеет достаточный объем слов (не менее minWords).
+ */
+export function splitLongSentence(sentence: string, minWords = 8): string[] {
+  const splitPoints = [
+    /(?<=[,;:])\s+(?=(?:а|но|и|да|или|что|чтобы|когда|если|хотя|потому|ведь|так как)\b)/i,
+    /(?<=[;:])\s+/,
+    /(?<=—|–)\s+/,
+    /(?<=,)\s+/,
+  ];
+
+  for (const regex of splitPoints) {
+    const chunks = sentence.split(regex).map((c) => c.trim()).filter(Boolean);
+    if (chunks.length > 1) {
+      let firstHalf = "";
+      let secondHalf = "";
+      const totalWords = countSpokenWords(sentence);
+      let running = 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        const cWords = countSpokenWords(chunks[i]);
+        if (!firstHalf || running + cWords <= totalWords / 2 || running < minWords) {
+          firstHalf = firstHalf ? `${firstHalf} ${chunks[i]}` : chunks[i];
+          running += cWords;
+        } else {
+          secondHalf = secondHalf ? `${secondHalf} ${chunks[i]}` : chunks[i];
+        }
+      }
+
+      if (countSpokenWords(firstHalf) >= minWords && countSpokenWords(secondHalf) >= minWords) {
+        return [firstHalf.trim(), secondHalf.trim()];
+      }
+    }
+  }
+
+  return [sentence];
+}
+
+/**
+ * Гарантирует, что ни одна сцена не является микро-обрезком (< 6 слов)
+ * или пустой сценой без озвучки (например, одиночной паузой (500ms) или точкой).
+ * Автоматически объединяет мелкие обрезки с соседними сценами для плавной драматургии.
+ */
+export function mergeMicroScenes(scenes: StructuredScriptScene[], minWords = 4): StructuredScriptScene[] {
+  const list = scenes.filter((s) => Boolean(s.text?.trim() || s.frameVisual?.trim()));
+  if (list.length <= 1) return list;
+
+  const result: StructuredScriptScene[] = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const sc = { ...list[i] };
+    const words = countSpokenWords(sc.text);
+
+    // Если в сцене вообще нет слов (только визуальная ремарка или пустая пауза)
+    if (words === 0) {
+      if (result.length > 0) {
+        const prev = result[result.length - 1];
+        if (sc.text?.trim()) {
+          prev.text = (prev.text + " " + sc.text).trim().replace(/[ \t]+/g, " ");
+        }
+        if (!prev.frameVisual && sc.frameVisual) prev.frameVisual = sc.frameVisual;
+        if (!prev.screenText && sc.screenText) prev.screenText = sc.screenText;
+        if (!prev.frameAudio && sc.frameAudio) prev.frameAudio = sc.frameAudio;
+      } else if (i + 1 < list.length) {
+        const next = list[i + 1];
+        if (sc.text?.trim()) {
+          next.text = (sc.text + " " + next.text).trim().replace(/[ \t]+/g, " ");
+        }
+        if (!next.frameVisual && sc.frameVisual) next.frameVisual = sc.frameVisual;
+        if (!next.screenText && sc.screenText) next.screenText = sc.screenText;
+        if (!next.frameAudio && sc.frameAudio) next.frameAudio = sc.frameAudio;
+      } else {
+        result.push(sc);
+      }
+      continue;
+    }
+
+    // Если слов меньше порогового значения и нет явного авторского описания визуала
+    if (words < minWords && !sc.frameVisual) {
+      if (result.length > 0) {
+        const prev = result[result.length - 1];
+        prev.text = (prev.text + " " + sc.text).trim().replace(/[ \t]+/g, " ");
+        if (!prev.frameVisual && sc.frameVisual) prev.frameVisual = sc.frameVisual;
+        if (!prev.screenText && sc.screenText) prev.screenText = sc.screenText;
+        if (!prev.frameAudio && sc.frameAudio) prev.frameAudio = sc.frameAudio;
+        continue;
+      }
+      if (i + 1 < list.length) {
+        const next = list[i + 1];
+        next.text = (sc.text + " " + next.text).trim().replace(/[ \t]+/g, " ");
+        if (!next.frameVisual && sc.frameVisual) next.frameVisual = sc.frameVisual;
+        if (!next.screenText && sc.screenText) next.screenText = sc.screenText;
+        if (!next.frameAudio && sc.frameAudio) next.frameAudio = sc.frameAudio;
+        continue;
+      }
+    }
+
+    result.push(sc);
+  }
+
+  if (result.length > 1) {
+    const lastIdx = result.length - 1;
+    const last = result[lastIdx];
+    const lastWords = countSpokenWords(last.text);
+    if (lastWords < minWords && !last.frameVisual) {
+      const popped = result.pop()!;
+      const prev = result[result.length - 1];
+      prev.text = (prev.text + " " + popped.text).trim().replace(/[ \t]+/g, " ");
+      if (!prev.screenText && popped.screenText) prev.screenText = popped.screenText;
+      if (!prev.frameVisual && popped.frameVisual) prev.frameVisual = popped.frameVisual;
+      if (!prev.frameAudio && popped.frameAudio) prev.frameAudio = popped.frameAudio;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Объединяет микро-сцены и пустые паузы в массиве сгенерированных визуальных карточек ShortsVisualScene.
+ */
+export function mergeMicroVisualScenes(scenes: ShortsVisualScene[]): ShortsVisualScene[] {
+  if (!scenes || scenes.length <= 1) return scenes || [];
+
+  const result: ShortsVisualScene[] = [];
+  const MIN_WORDS = 6;
+
+  for (let i = 0; i < scenes.length; i++) {
+    const sc = { ...scenes[i] };
+    const textVal = sc.text || sc.voiceoverText || "";
+    const words = countSpokenWords(textVal);
+
+    if (words === 0) {
+      if (result.length > 0) {
+        const prev = result[result.length - 1];
+        const extra = textVal.trim();
+        if (extra) {
+          prev.text = ((prev.text || "") + " " + extra).trim().replace(/[ \t]+/g, " ");
+          if (prev.voiceoverText) prev.voiceoverText = prev.text;
+        }
+        if (!prev.screenText && sc.screenText) prev.screenText = sc.screenText;
+        if (!prev.frameVisual && sc.frameVisual) prev.frameVisual = sc.frameVisual;
+        if (!prev.frameAudio && sc.frameAudio) prev.frameAudio = sc.frameAudio;
+      } else if (i + 1 < scenes.length) {
+        const next = scenes[i + 1];
+        const extra = textVal.trim();
+        if (extra) {
+          next.text = (extra + " " + (next.text || "")).trim().replace(/[ \t]+/g, " ");
+          if (next.voiceoverText) next.voiceoverText = next.text;
+        }
+        if (!next.screenText && sc.screenText) next.screenText = sc.screenText;
+        if (!next.frameVisual && sc.frameVisual) next.frameVisual = sc.frameVisual;
+        if (!next.frameAudio && sc.frameAudio) next.frameAudio = sc.frameAudio;
+      } else {
+        result.push(sc);
+      }
+      continue;
+    }
+
+    if (words < MIN_WORDS) {
+      if (result.length > 0) {
+        const prev = result[result.length - 1];
+        const extra = textVal.trim();
+        prev.text = ((prev.text || "") + " " + extra).trim().replace(/[ \t]+/g, " ");
+        if (prev.voiceoverText) prev.voiceoverText = prev.text;
+        if (!prev.screenText && sc.screenText) prev.screenText = sc.screenText;
+        if (!prev.frameVisual && sc.frameVisual) prev.frameVisual = sc.frameVisual;
+        if (!prev.frameAudio && sc.frameAudio) prev.frameAudio = sc.frameAudio;
+        continue;
+      }
+      if (i + 1 < scenes.length) {
+        const next = scenes[i + 1];
+        const extra = textVal.trim();
+        next.text = (extra + " " + (next.text || "")).trim().replace(/[ \t]+/g, " ");
+        if (next.voiceoverText) next.voiceoverText = next.text;
+        if (!next.screenText && sc.screenText) next.screenText = sc.screenText;
+        if (!next.frameVisual && sc.frameVisual) next.frameVisual = sc.frameVisual;
+        if (!next.frameAudio && sc.frameAudio) next.frameAudio = sc.frameAudio;
+        continue;
+      }
+    }
+
+    result.push(sc);
+  }
+
+  if (result.length > 1) {
+    const last = result[result.length - 1];
+    const lastWords = countSpokenWords(last.text || last.voiceoverText || "");
+    if (lastWords < MIN_WORDS) {
+      const popped = result.pop()!;
+      const prev = result[result.length - 1];
+      const extra = (popped.text || popped.voiceoverText || "").trim();
+      prev.text = ((prev.text || "") + " " + extra).trim().replace(/[ \t]+/g, " ");
+      if (prev.voiceoverText) prev.voiceoverText = prev.text;
+      if (!prev.screenText && popped.screenText) prev.screenText = popped.screenText;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Разбивает сплошной текст сценария на органичные сцены по ~5 секунд (~8–16 слов).
+ * Не режет фразы по запятым, не создает 1-2 словных ошметков и сохраняет целостность мысли.
  */
 export function segmentShortsScriptIntoScenes(scriptText: string): string[] {
   const cleaned = cleanShortsVoiceoverText(scriptText);
   const textToSplit = cleaned.trim() || scriptText.trim();
   if (!textToSplit) return [];
 
-  // Разбиваем по границам предложений (. ! ? … ; перевод строки)
-  const rawSentences = textToSplit
-    .split(/(?<=[.!?…\n;])\s+/)
+  const rawLines = textToSplit
+    .split(/(?<=[.!?…]["«»“”„\)]*)(?:\s+|\n+)|(?:\n\s*\n+)/)
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (rawSentences.length === 0) {
-    return [textToSplit];
-  }
+  const rawSentences = cleanAndGluePauses(rawLines);
+  if (rawSentences.length === 0) return [textToSplit];
 
   const scenes: string[] = [];
-  let currentScene = "";
+  let currentAccum = "";
 
-  const TARGET_WORDS_MIN = 8;
-  const TARGET_WORDS_MAX = 18;
+  const TARGET_MIN = 8;
+  const TARGET_MAX = 16;
+  const HARD_MAX = 22;
 
   for (const sentence of rawSentences) {
-    const sentenceWordCount = sentence.split(/\s+/).filter(Boolean).length;
+    const sWords = countSpokenWords(sentence);
 
-    // Если одно предложение слишком длинное (> 22 слов), аккуратно делим по смысловым запятым и тире
-    if (sentenceWordCount > TARGET_WORDS_MAX + 4) {
-      if (currentScene.trim()) {
-        scenes.push(currentScene.trim());
-        currentScene = "";
+    if (sWords === 0) {
+      if (currentAccum) {
+        currentAccum += " " + sentence;
+      } else if (scenes.length > 0) {
+        scenes[scenes.length - 1] += " " + sentence;
+      } else {
+        currentAccum = sentence;
       }
-      const clauses = sentence
-        .split(/(?<=[,:—–])\s+/)
-        .map((c) => c.trim())
-        .filter(Boolean);
+      continue;
+    }
 
-      let clauseAcc = "";
-      for (const clause of clauses) {
-        const candidate = clauseAcc ? `${clauseAcc} ${clause}` : clause;
-        const candWords = candidate.split(/\s+/).filter(Boolean).length;
-        if (candWords >= TARGET_WORDS_MIN && candWords <= TARGET_WORDS_MAX) {
-          scenes.push(candidate.trim());
-          clauseAcc = "";
-        } else if (candWords > TARGET_WORDS_MAX) {
-          if (clauseAcc) {
-            scenes.push(clauseAcc.trim());
+    if (!currentAccum) {
+      if (sWords > HARD_MAX) {
+        const parts = splitLongSentence(sentence, TARGET_MIN);
+        if (parts.length > 1) {
+          for (let pIdx = 0; pIdx < parts.length - 1; pIdx++) {
+            scenes.push(parts[pIdx]);
           }
-          clauseAcc = clause;
+          currentAccum = parts[parts.length - 1];
         } else {
-          clauseAcc = candidate;
+          currentAccum = sentence;
         }
-      }
-      if (clauseAcc.trim()) {
-        currentScene = clauseAcc.trim();
+      } else {
+        currentAccum = sentence;
       }
       continue;
     }
 
-    if (!currentScene) {
-      currentScene = sentence;
-      continue;
-    }
+    const accumWords = countSpokenWords(currentAccum);
+    const candidate = `${currentAccum} ${sentence}`;
+    const candidateWords = countSpokenWords(candidate);
 
-    const currentWords = currentScene.split(/\s+/).filter(Boolean).length;
-    const candidate = `${currentScene} ${sentence}`;
-    const candidateWords = candidate.split(/\s+/).filter(Boolean).length;
-
-    if (currentWords < TARGET_WORDS_MIN || candidateWords <= TARGET_WORDS_MAX) {
-      currentScene = candidate;
+    if (candidateWords <= TARGET_MAX) {
+      currentAccum = candidate;
+    } else if (accumWords < TARGET_MIN && candidateWords <= HARD_MAX) {
+      currentAccum = candidate;
     } else {
-      scenes.push(currentScene.trim());
-      currentScene = sentence;
+      scenes.push(currentAccum.trim());
+
+      if (sWords > HARD_MAX) {
+        const parts = splitLongSentence(sentence, TARGET_MIN);
+        if (parts.length > 1) {
+          for (let pIdx = 0; pIdx < parts.length - 1; pIdx++) {
+            scenes.push(parts[pIdx]);
+          }
+          currentAccum = parts[parts.length - 1];
+        } else {
+          currentAccum = sentence;
+        }
+      } else {
+        currentAccum = sentence;
+      }
     }
   }
 
-  if (currentScene.trim()) {
-    scenes.push(currentScene.trim());
+  if (currentAccum.trim()) {
+    scenes.push(currentAccum.trim());
   }
 
-  // 100% гарантия: весь сценарий до последнего слова сохранён
+  if (scenes.length > 1) {
+    const last = scenes[scenes.length - 1];
+    if (countSpokenWords(last) < 6) {
+      const popped = scenes.pop()!;
+      scenes[scenes.length - 1] = (scenes[scenes.length - 1] + " " + popped).trim().replace(/[ \t]+/g, " ");
+    }
+  }
+
   return scenes.length > 0 ? scenes : [textToSplit];
+}
+
+/**
+ * Парсер сценариев: определяет авторские маркеры сцен или делит сплошной текст на кинематографичные сцены.
+ * Гарантирует отсутствие огрызков ("как они. (500ms)", "нежели тот».", "(500ms)").
+ */
+export function parseScriptIntoExplicitScenes(scriptText: string): StructuredScriptScene[] {
+  if (!scriptText || !scriptText.trim()) return [];
+
+  const rawScript = scriptText.trim();
+
+  // 1. Попытка деления по авторским маркерам сцен (СЦЕНА 1, КАДР 1, [СЦЕНА 1], [КАДР: ...], нумерация 1., буллеты -)
+  const explicitMarkerRegex = /(?:^|\n+)(?=\[\s*(?:СЦЕНА|SCENE|КАДР|SHOT|БЛОК|ЧАСТЬ)\s*\d+[^\]]*\]|\[\s*(?:КАДР|СЦЕНА|SCENE|SHOT|ВИЗУАЛ|VISUAL)\s*:[^\]]+\]|(?:Сцена|Scene|Кадр|Shot|Блок|Часть)\s+\d+[:.\s\-]|\[\s*\d+\s*\]|(?:\d+[\.\)]|[-*•])\s+[A-ZА-ЯЁ«"\[])/i;
+
+  let rawBlocks: string[] = [];
+  if (explicitMarkerRegex.test(rawScript)) {
+    rawBlocks = rawScript.split(explicitMarkerRegex).map((b) => b.trim()).filter(Boolean);
+  }
+
+  // Если явных маркеров нет, пробуем делить по двойным переводам строк (абзацам)
+  if (rawBlocks.length <= 1) {
+    const paragraphBlocks = rawScript.split(/\r?\n\s*\r?\n+/).map((b) => b.trim()).filter(Boolean);
+    if (paragraphBlocks.length > 1) {
+      rawBlocks = paragraphBlocks;
+    }
+  }
+
+  // Если все еще 1 блок, проверяем построчный сценарий (каждая строка отдельная сцена)
+  if (rawBlocks.length <= 1) {
+    const lineBlocks = rawScript.split(/\r?\n+/).map((b) => b.trim()).filter(Boolean);
+    if (lineBlocks.length > 1 && lineBlocks.every((l) => countSpokenWords(l) >= 2 || extractSceneMetadata(l).frameVisual)) {
+      rawBlocks = lineBlocks;
+    }
+  }
+
+  // Если нашлось несколько явных авторских блоков
+  if (rawBlocks.length > 1) {
+    const resultScenes: StructuredScriptScene[] = [];
+
+    for (const block of rawBlocks) {
+      const meta = extractSceneMetadata(block);
+      const voiceoverText = cleanShortsVoiceoverText(block);
+      const wordsCount = countSpokenWords(voiceoverText);
+
+      // Если в блоке нет слов диктора (например, только пауза (500ms) или техническая ремарка)
+      if (wordsCount === 0) {
+        if (resultScenes.length > 0) {
+          const prev = resultScenes[resultScenes.length - 1];
+          if (voiceoverText) prev.text = (prev.text + " " + voiceoverText).trim().replace(/[ \t]+/g, " ");
+          if (meta.frameVisual && !prev.frameVisual) prev.frameVisual = meta.frameVisual;
+          if (meta.screenText && !prev.screenText) prev.screenText = meta.screenText;
+          if (meta.frameAudio && !prev.frameAudio) prev.frameAudio = meta.frameAudio;
+        } else {
+          resultScenes.push({
+            text: voiceoverText || meta.frameVisual || "",
+            frameVisual: meta.frameVisual,
+            frameAudio: meta.frameAudio,
+            screenText: isValidScreenText(meta.screenText) ? meta.screenText : undefined,
+          });
+        }
+        continue;
+      }
+
+      // Авторский блок делим ТОЛЬКО если он действительно огромный (> 22 слов = ~10+ секунд)
+      if (wordsCount > 22) {
+        const subChunks = segmentShortsScriptIntoScenes(voiceoverText);
+        subChunks.forEach((sub, subIdx) => {
+          resultScenes.push({
+            text: sub,
+            frameVisual: subIdx === 0 ? meta.frameVisual : undefined,
+            frameAudio: subIdx === 0 ? meta.frameAudio : undefined,
+            screenText: subIdx === 0 && isValidScreenText(meta.screenText) ? meta.screenText : undefined,
+          });
+        });
+      } else {
+        resultScenes.push({
+          text: voiceoverText || meta.frameVisual || "",
+          frameVisual: meta.frameVisual,
+          frameAudio: meta.frameAudio,
+          screenText: isValidScreenText(meta.screenText) ? meta.screenText : undefined,
+        });
+      }
+    }
+
+    return mergeMicroScenes(resultScenes, 2);
+  }
+
+  // 2. Сплошной текст без явных переносов строк и маркеров
+  const singleMeta = extractSceneMetadata(rawScript);
+  const singleClean = cleanShortsVoiceoverText(rawScript);
+
+  // Делим сплошной текст на кинематографичные сцены по ~5 секунд (8–16 слов)
+  const chunks = segmentShortsScriptIntoScenes(singleClean);
+  if (chunks.length > 1) {
+    const rawList = chunks.map((chunk, idx) => ({
+      text: chunk,
+      frameVisual: idx === 0 ? singleMeta.frameVisual : undefined,
+      frameAudio: idx === 0 ? singleMeta.frameAudio : undefined,
+      screenText: idx === 0 && isValidScreenText(singleMeta.screenText) ? singleMeta.screenText : undefined,
+    }));
+    return mergeMicroScenes(rawList, 4);
+  }
+
+  return [
+    {
+      text: singleClean || rawScript,
+      frameVisual: singleMeta.frameVisual,
+      frameAudio: singleMeta.frameAudio,
+      screenText: isValidScreenText(singleMeta.screenText) ? singleMeta.screenText : undefined,
+    },
+  ];
 }
 
 export function useShortsGeneration(props: UseShortsGenerationProps) {
@@ -195,6 +633,7 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
   const [shortsVisuals, setShortsVisuals] = useState<ShortsVisualScene[]>([]);
   const [shortsMusicPrompt, setShortsMusicPrompt] = useState<string>("");
   const [isGeneratingShortsVisuals, setIsGeneratingShortsVisuals] = useState(false);
+  const [isRegeneratingShortsMusicPrompt, setIsRegeneratingShortsMusicPrompt] = useState(false);
   const [selectedShortForSeo, setSelectedShortForSeo] = useState<string>("");
   const [shortsSeoResult, setShortsSeoResult] = useState<ShortsSEO | null>(null);
   const [isGeneratingShortsSeo, setIsGeneratingShortsSeo] = useState(false);
@@ -241,7 +680,13 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
         if (parsed.longFormScriptToCut) setLongFormScriptToCut(parsed.longFormScriptToCut);
         if (parsed.cutShortsResults) setCutShortsResults(parsed.cutShortsResults);
         if (parsed.selectedShortForVisuals) setSelectedShortForVisuals(parsed.selectedShortForVisuals);
-        if (parsed.shortsVisuals) setShortsVisuals(parsed.shortsVisuals);
+        if (parsed.shortsVisuals && Array.isArray(parsed.shortsVisuals)) {
+          const sanitized = parsed.shortsVisuals.map((sc: any) => ({
+            ...sc,
+            screenText: isValidScreenText(sc.screenText) ? sc.screenText : undefined,
+          }));
+          setShortsVisuals(mergeMicroVisualScenes(sanitized));
+        }
         if (parsed.shortsMusicPrompt) setShortsMusicPrompt(parsed.shortsMusicPrompt);
         if (parsed.selectedShortForSeo) setSelectedShortForSeo(parsed.selectedShortForSeo);
         if (parsed.shortsSeoResult) setShortsSeoResult(parsed.shortsSeoResult);
@@ -396,10 +841,24 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
     setIsGeneratingIdeaScript(prev => ({ ...prev, [idea.id]: true }));
 
     try {
+      // Находим следующее видео из списка вкладки Идеи
+      const currIdx = outlierIdeas.findIndex(item => item.id === idea.id);
+      let nextIdeaTitle = "";
+      if (outlierIdeas.length > 1) {
+        const nextIdx = (currIdx >= 0 && currIdx < outlierIdeas.length - 1) ? currIdx + 1 : 0;
+        nextIdeaTitle = outlierIdeas[nextIdx]?.title || "";
+      } else if (outlierIdeas.length === 1 && outlierIdeas[0].id !== idea.id) {
+        nextIdeaTitle = outlierIdeas[0]?.title || "";
+      }
+
       const generated = await generateFullShortsScriptFromOutlierIdea(
         idea,
         activeNiche,
-        { model: selectedModel }
+        {
+          model: selectedModel,
+          nextIdeaTitle,
+          outlierIdeas
+        }
       );
 
       // Create a CutShortItem so it plugs seamlessly into the whole Shorts engine
@@ -465,8 +924,9 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
     setCutShortsResults(prev => [newItem, ...prev]);
     setSelectedShortForVisuals(newItem.script);
     setSelectedShortForSeo(newItem.script);
-    setShortsActiveSubTab("cut");
-    toast.success(`Сценарий «${newItem.title}» добавлен в список Shorts!`);
+    setShortsActiveSubTab("visuals");
+    toast.success(`Сценарий «${newItem.title}» добавлен! Выполняется разбивка на сцены...`);
+    handleGenerateShortsVisuals(newItem.script);
   };
 
   const handleAnalyzeLongFormRetention = async () => {
@@ -1229,6 +1689,7 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
         customInstructions: activeCustomInstructions,
         niche: nicheData,
         branding: selectedBranding,
+        outlierIdeas,
       });
 
       if (!results || results.length === 0) {
@@ -1322,8 +1783,6 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
 
   const handleGenerateShortsVisuals = async (shortText: string) => {
     if (!shortText.trim()) return;
-    const voiceoverText = cleanShortsVoiceoverText(shortText);
-    if (!voiceoverText) return;
     setSelectedShortForVisuals(shortText);
     setShortsActiveSubTab("visuals");
     setIsGeneratingShortsVisuals(true);
@@ -1332,9 +1791,9 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
     try {
       const activeCustomInstructions = isCustomInstructionsEnabled ? customInstructions : "";
 
-      // Гарантированное разбиение ВСЕГО сценария без потери ни единого слова или обрыва
-      const sceneChunks = segmentShortsScriptIntoScenes(voiceoverText);
-      if (sceneChunks.length === 0) {
+      // Умный парсинг сценария: извлекаем авторские блоки [КАДР: ...] или делим по предложениям
+      const structuredScenes = parseScriptIntoExplicitScenes(shortText);
+      if (structuredScenes.length === 0) {
         throw new Error("Не удалось разбить текст сценария на сцены");
       }
 
@@ -1347,26 +1806,31 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
 
       // Генерируем промпты параллельными батчами по 4 сцены для максимальной скорости и стабильности
       const BATCH_SIZE = 4;
-      const visualsOut: ShortsVisualScene[] = new Array(sceneChunks.length);
+      const visualsOut: ShortsVisualScene[] = new Array(structuredScenes.length);
 
-      for (let b = 0; b < sceneChunks.length; b += BATCH_SIZE) {
+      for (let b = 0; b < structuredScenes.length; b += BATCH_SIZE) {
         const batchIndices: number[] = [];
-        for (let i = b; i < Math.min(b + BATCH_SIZE, sceneChunks.length); i++) {
+        for (let i = b; i < Math.min(b + BATCH_SIZE, structuredScenes.length); i++) {
           batchIndices.push(i);
         }
 
         await Promise.all(
           batchIndices.map(async (i) => {
-            const chunk = sceneChunks[i];
+            const sc = structuredScenes[i];
+            const chunk = sc.text;
             const shotProfile = getRotatingShotProfile(i);
-            const wordsInChunk = chunk.split(/\s+/).filter(Boolean).length;
-            const estimatedDuration = Math.max(4.0, Math.min(8.0, Math.round((wordsInChunk / 2.6) * 10) / 10));
+            const estimatedDuration = 5.0;
 
             const sceneObj = {
-              text: chunk,
+              text: sc.text,
+              frameVisual: sc.frameVisual,
+              frameAudio: sc.frameAudio,
+              screenText: sc.screenText,
               timecode: `${i * 5}-${(i + 1) * 5}s`,
               mood: "",
-              audio: {},
+              audio: {
+                soundsAndNoises: sc.frameAudio || "",
+              },
               shotType: shotProfile.shotType,
               cameraMovement: shotProfile.cameraMovement,
               sceneIndex: i,
@@ -1379,53 +1843,72 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
                 branding: selectedBranding,
                 veoSfxEnabled: true,
                 sceneIndex: i,
-                totalScenes: sceneChunks.length,
+                totalScenes: structuredScenes.length,
                 shotType: shotProfile.shotType,
                 cameraMovement: shotProfile.cameraMovement,
+                scriptContext: shortText,
               } as any);
 
               const p1 = detailed.videoPrompt1 || detailed.videoPrompt2 || (detailed as any).prompt || "";
               const p2 = detailed.videoPrompt2 || detailed.videoPrompt1 || "";
 
+              const fallbackP1 = sc.frameVisual
+                ? `Ultra-realistic 8K cinematic 9:16 vertical video, Google Veo 3 ready. ${sc.frameVisual}. Hollywood color grading, atmospheric contrast. Natural high-fidelity sound: ${sc.frameAudio || "ambient foley"}.`
+                : `Ultra-realistic 8K cinematic 9:16 vertical video. ${shotProfile.shotType}. Camera: ${shotProfile.cameraMovement}. Scene: ${chunk}. ${shotProfile.optics}. Natural high-fidelity sound: ${sc.frameAudio || shotProfile.foleyCategory}.`;
+
+              const fallbackP2 = sc.frameVisual
+                ? `Cinematic 9:16 vertical video alternate perspective. Close-up detail view. Scene: ${sc.frameVisual}. Razor sharp focus, volumetric lighting. Natural sound.`
+                : `Cinematic 9:16 vertical video alternate perspective. Macro/Detail view. Camera: Orbital Arc. Context: ${chunk}. Razor sharp focus, volumetric lighting. Natural sound.`;
+
               visualsOut[i] = {
-                text: chunk,
-                prompt: p1.trim() || `Ultra-realistic 8K cinematic 9:16 vertical video. ${shotProfile.shotType}. Camera: ${shotProfile.cameraMovement}. Scene: ${chunk}. ${shotProfile.optics}. Natural high-fidelity Foley sound.`,
-                videoPrompt1: p1.trim() || `Ultra-realistic 8K cinematic 9:16 vertical video. ${shotProfile.shotType}. Camera: ${shotProfile.cameraMovement}. Action: ${chunk}. ${shotProfile.optics}. No 3D look. Foley: ${shotProfile.foleyCategory}.`,
-                videoPrompt2: p2.trim() || `Cinematic 9:16 vertical video alternate perspective. Macro/Detail view. Camera: Orbital Arc. Context: ${chunk}. Razor sharp focus, volumetric lighting. Natural sound.`,
+                text: sc.text,
+                frameVisual: sc.frameVisual,
+                frameAudio: sc.frameAudio,
+                screenText: sc.screenText || undefined,
+                prompt: p1.trim() || fallbackP1,
+                videoPrompt1: p1.trim() || fallbackP1,
+                videoPrompt2: p2.trim() || fallbackP2,
                 shotType: detailed.shotType || shotProfile.shotType,
                 shotTypeRu: shotProfile.shotTypeRu,
                 cameraMovement: detailed.cameraMovement || shotProfile.cameraMovement,
                 cameraMovementRu: shotProfile.cameraMovementRu,
                 focalLength: shotProfile.optics,
                 duration: estimatedDuration,
-                sceneSummary: detailed.sceneSummary || chunk.slice(0, 80),
+                sceneSummary: detailed.sceneSummary || (sc.frameVisual || chunk).slice(0, 80),
               };
             } catch (sceneError) {
               logger.warn(`Fallback для сцены ${i + 1}:`, sceneError);
-              // Создаем качественный кинематографичный промпт по профилю ракурса вместо ошибки
+              const fbP1 = sc.frameVisual
+                ? `Ultra-realistic 8K cinematic 9:16 vertical video, Google Veo 3 ready. ${sc.frameVisual}. Hollywood color grading. Natural high-fidelity sound: ${sc.frameAudio || "ambient foley"}.`
+                : `Ultra-realistic 8K, 35mm lens, 9:16 vertical video, Google Veo 3 ready. ${shotProfile.shotType}. Camera: ${shotProfile.cameraMovement}. Visualizing: ${chunk}. Hollywood color grading, deep atmospheric contrast. Natural sound: ${shotProfile.foleyCategory}.`;
+
               visualsOut[i] = {
-                text: chunk,
-                prompt: `Ultra-realistic 8K, 35mm lens, 9:16 vertical video, Google Veo 3 ready. ${shotProfile.shotType}. Camera: ${shotProfile.cameraMovement}. Visualizing: ${chunk}. Hollywood color grading, deep atmospheric contrast, slow cinematic motion. Natural high-fidelity sound of ${shotProfile.foleyCategory}.`,
-                videoPrompt1: `Ultra-realistic 8K, 35mm lens, 9:16 vertical video. ${shotProfile.shotType}. Camera: ${shotProfile.cameraMovement}. Action: ${chunk}. Deep contrast, natural lighting. Sound: ${shotProfile.foleyCategory}.`,
-                videoPrompt2: `Cinematic 9:16 vertical alternate angle. Macro detail. Camera: Smooth tracking. Scene: ${chunk}. Atmospheric lighting.`,
+                text: sc.text,
+                frameVisual: sc.frameVisual,
+                frameAudio: sc.frameAudio,
+                screenText: sc.screenText || undefined,
+                prompt: fbP1,
+                videoPrompt1: fbP1,
+                videoPrompt2: `Cinematic 9:16 vertical alternate angle. Scene: ${sc.frameVisual || chunk}. Atmospheric lighting.`,
                 shotType: shotProfile.shotType,
                 shotTypeRu: shotProfile.shotTypeRu,
                 cameraMovement: shotProfile.cameraMovement,
                 cameraMovementRu: shotProfile.cameraMovementRu,
                 focalLength: shotProfile.optics,
                 duration: estimatedDuration,
-                sceneSummary: chunk.slice(0, 80),
+                sceneSummary: (sc.frameVisual || chunk).slice(0, 80),
               };
             }
           })
         );
       }
 
-      setShortsVisuals(visualsOut.filter(Boolean));
+      const finalVisuals = mergeMicroVisualScenes(visualsOut.filter(Boolean));
+      setShortsVisuals(finalVisuals);
 
       // Музыка генерируется отдельно и остаётся одним общим промптом на весь Shorts.
       try {
-        const mp = await generateShortsMusicPrompt(voiceoverText, {
+        const mp = await generateShortsMusicPrompt(shortText, {
           model: selectedModel,
           niche: nicheData,
           branding: selectedBranding,
@@ -1438,7 +1921,7 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
         setShortsMusicPrompt("");
       }
 
-      toast.success(`Полная раскадровка готова: ${visualsOut.length} сцен охватывают 100% текста сценария без сокращений! 🎬`);
+      toast.success(`Полная раскадровка готова: ${finalVisuals.length} сцен охватывают 100% текста сценария без сокращений! 🎬`);
     } catch (error) {
       onError(error, "Ошибка при генерации промптов для сцен Shorts");
     } finally {
@@ -1446,7 +1929,7 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
     }
   };
 
-  const handleRegenerateSingleSceneVisual = async (sceneIndex: number) => {
+  const handleRegenerateSingleSceneVisual = async (sceneIndex: number, userWish?: string) => {
     if (!shortsVisuals[sceneIndex]) return;
     const targetScene = shortsVisuals[sceneIndex];
     setRegeneratingSceneIdx(sceneIndex);
@@ -1463,23 +1946,33 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
 
       const sceneObj = {
         text: targetScene.text,
+        frameVisual: targetScene.frameVisual,
+        frameAudio: targetScene.frameAudio,
+        screenText: targetScene.screenText,
         timecode: `${sceneIndex * 5}-${(sceneIndex + 1) * 5}s`,
         mood: "",
-        audio: {},
-        shotType: shotProfile.shotType,
-        cameraMovement: shotProfile.cameraMovement,
+        audio: {
+          soundsAndNoises: targetScene.frameAudio || "",
+        },
+        shotType: targetScene.shotType || shotProfile.shotType,
+        cameraMovement: targetScene.cameraMovement || shotProfile.cameraMovement,
         sceneIndex,
       };
 
+      const customInstructionPayload = userWish?.trim()
+        ? [activeCustomInstructions, `ТРЕБОВАНИЯ И ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ К ЭТОЙ СЦЕНЕ:\n"${userWish.trim()}"`].filter(Boolean).join("\n\n")
+        : activeCustomInstructions;
+
       const detailed = await generateDetailedPromptForScene(style, sceneObj, {
         model: selectedModel,
-        customInstruction: activeCustomInstructions,
+        customInstruction: customInstructionPayload,
         branding: selectedBranding,
         veoSfxEnabled: true,
         sceneIndex,
         totalScenes: shortsVisuals.length,
-        shotType: shotProfile.shotType,
-        cameraMovement: shotProfile.cameraMovement,
+        shotType: targetScene.shotType || shotProfile.shotType,
+        cameraMovement: targetScene.cameraMovement || shotProfile.cameraMovement,
+        scriptContext: selectedShortForVisuals,
       } as any);
 
       const p1 = detailed.videoPrompt1 || detailed.videoPrompt2 || (detailed as any).prompt || "";
@@ -1492,21 +1985,67 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
           prompt: p1.trim(),
           videoPrompt1: p1.trim(),
           videoPrompt2: p2.trim(),
-          shotType: detailed.shotType || shotProfile.shotType,
-          shotTypeRu: shotProfile.shotTypeRu,
-          cameraMovement: detailed.cameraMovement || shotProfile.cameraMovement,
-          cameraMovementRu: shotProfile.cameraMovementRu,
-          focalLength: shotProfile.optics,
+          shotType: detailed.shotType || targetScene.shotType || shotProfile.shotType,
+          shotTypeRu: targetScene.shotTypeRu || shotProfile.shotTypeRu,
+          cameraMovement: detailed.cameraMovement || targetScene.cameraMovement || shotProfile.cameraMovement,
+          cameraMovementRu: targetScene.cameraMovementRu || shotProfile.cameraMovementRu,
+          focalLength: targetScene.focalLength || shotProfile.optics,
           sceneSummary: detailed.sceneSummary || targetScene.text.slice(0, 80),
         };
         return updated;
       });
 
-      toast.success(`Промпты для Сцены #${sceneIndex + 1} обновлены! 🎨`);
+      toast.success(
+        userWish?.trim()
+          ? `Сцена #${sceneIndex + 1} перегенерирована с учётом ваших пожеланий! 🎨`
+          : `Промпты для Сцены #${sceneIndex + 1} обновлены! 🎨`
+      );
     } catch (error) {
       onError(error, `Ошибка регенерации сцены #${sceneIndex + 1}`);
     } finally {
       setRegeneratingSceneIdx(null);
+    }
+  };
+
+  const handleRegenerateShortsMusicPrompt = async () => {
+    let shortText = selectedShortForVisuals || "";
+    if (!shortText && outlierIdeas.length > 0) {
+      const ideaWithScript = outlierIdeas.find((i) => i.fullScript);
+      shortText = ideaWithScript?.fullScript || outlierIdeas[0].hook || "";
+    }
+    if (!shortText && cutShortsResults.length > 0) {
+      shortText = cutShortsResults[0].script || "";
+    }
+    if (!shortText && shortsVisuals.length > 0) {
+      shortText = shortsVisuals.map((s) => s.text).join(" ");
+    }
+    if (!shortText) {
+      toast.error("Не найден текст сценария для генерации музыки");
+      return;
+    }
+
+    setIsRegeneratingShortsMusicPrompt(true);
+    try {
+      const activeCustomInstructions = isCustomInstructionsEnabled ? customInstructions : "";
+      const mp = await generateShortsMusicPrompt(shortText, {
+        model: selectedModel,
+        niche: nicheData,
+        branding: selectedBranding,
+        videoSEO: videoSEO,
+        customInstructions: activeCustomInstructions,
+      } as any);
+
+      if (mp) {
+        setShortsMusicPrompt(mp);
+        toast.success("Музыкальный промпт успешно перегенерирован! 🎵");
+      } else {
+        toast.error("Не удалось сгенерировать музыкальный промпт");
+      }
+    } catch (errMusic) {
+      logger.error("handleRegenerateShortsMusicPrompt failed:", errMusic);
+      onError(errMusic, "Ошибка при перегенерации музыкального промпта");
+    } finally {
+      setIsRegeneratingShortsMusicPrompt(false);
     }
   };
 
@@ -1938,6 +2477,8 @@ export function useShortsGeneration(props: UseShortsGenerationProps) {
     shortsMusicPrompt,
     setShortsMusicPrompt,
     isGeneratingShortsVisuals,
+    isRegeneratingShortsMusicPrompt,
+    handleRegenerateShortsMusicPrompt,
     selectedShortForSeo,
     setSelectedShortForSeo,
     shortsSeoResult,

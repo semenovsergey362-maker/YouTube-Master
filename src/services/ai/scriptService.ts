@@ -51,6 +51,7 @@ import {
 import {
   validateAndEnrichSystemPrompt,
   VISUAL_DIVERSITY_RULES,
+  STRICT_NO_ASSOCIATIONS_RULE,
 } from "./visualPromptService";
 
 export const GENERIC_SCENARIO_INSTRUCTIONS = `ПРИ СОЗДАНИИ идей и сценария для видео СТРОГО СОБЛЮДАЙ СЛЕДУЮЩУЮ СТРУКТУРУ КАДРОВ И СЦЕН:
@@ -384,11 +385,14 @@ ${toneContext}${competitorContext}
 Верни JSON массив из ${recommendedBlocksCount} объектов ScriptBlockStructure { title: string, type: string, description: string, estimatedTime: string, estimatedChars: number }.`;
   } else {
     const shortsRule = mode === "Shorts" || numDuration <= 1.2 ? "\nВАЖНО ДЛЯ SHORTS: В последнем блоке ОБЯЗАТЕЛЬНО добавь призыв перейти на канал или подписаться!" : "";
+    const nextIdeaRule = options?.nextIdeaTitle
+      ? `\nКРИТИЧЕСКИ ВАЖНОЕ ТРЕБОВАНИЕ К СТРУКТУРЕ (АНОНС СЛЕДУЮЩЕГО ВИДЕО ИЗ ВКЛАДКИ ИДЕИ): В последнем блоке структуры (CTA / Финал) ОБЯЗАТЕЛЬНО заложи плановый анонс и драматургический переход к следующему ролику из списка идей канала на тему: «${options.nextIdeaTitle}».`
+      : "";
     
     prompt = `Сгенерируй структуру сценария для YouTube видео на тему "${idea}".
 СТРОГОЕ ТРЕБОВАНИЕ ПО ХРОНОМЕТРАЖУ: ровно ${numDuration} мин. (общий объем текста всего сценария ~${targetWordsTotal} слов / ~${targetCharsTotal} знаков).
 Режим: ${mode}.
-${toneContext}${competitorContext}${shortsRule}
+${toneContext}${competitorContext}${shortsRule}${nextIdeaRule}
 
 РАЗБИЕНИЕ НА БЛОКИ (КРИТИЧЕСКИ ВАЖНО):
 Создай ровно ${recommendedBlocksCount} смысловых блоков (глав/секций), последовательно раскрывающих тему (Хук, Проблема, Основная часть (несколько блоков), Практические решения, Опыт, Кульминация, Призыв к действию).
@@ -561,6 +565,16 @@ ${globalAudioContext}
     const targetChars = block.estimatedChars || Math.round(targetWords * 7);
     const blockTimeSec = Math.max(10, Math.round((targetWords / 140) * 60));
 
+    const isFinalBlock = Boolean(options?.isLastBlock) || /cta|финал|заключен|вывод|анонс/i.test(block.type);
+    const nextIdeaAnnouncementPrompt = (options?.nextIdeaTitle && isFinalBlock)
+      ? `\n\nКРИТИЧЕСКИ ВАЖНОЕ ТРЕБОВАНИЕ К ФИНАЛУ СЦЕНАРИЯ (АНОНС СЛЕДУЮЩЕГО ВИДЕО ИЗ ВКЛАДКИ «ИДЕИ»):
+В самом конце текста диктора для этого блока (в финальной фразе) ОБЯЗАТЕЛЬНО сделай яркий, интригующий анонс следующего видео из списка вкладки «Идеи»!
+ТЕМА СЛЕДУЮЩЕГО ВИДЕО ДЛЯ АНОНСИРОВАНИЯ: «${options.nextIdeaTitle}».
+Диктор должен произнести естественный мостик к этой теме и сформировать клиффхэнгер.
+Пример хорошего анонса диктора в конце:
+«... А в следующем ролике мы подробно разберём тему: "${options.nextIdeaTitle}" — обязательно подпишись, чтобы не пропустить! [ТЕКСТ НА ЭКРАНЕ: "${options.nextIdeaTitle.toUpperCase()}"]»`
+      : "";
+
     prompt = `Напиши подробный текст для конкретного блока сценария YouTube видео.
 ТЕМА ВИДЕО: "${idea}"
 ОБЩИЙ ХРОНОМЕТРАЖ РОЛИКА: ${numDuration} мин. (всего ~${totalTargetWords} слов).
@@ -571,6 +585,7 @@ ${globalAudioContext}
 
 ${wishesContext}
 ${globalAudioContext}
+${nextIdeaAnnouncementPrompt}
 
 ВАЖНО (ПРИОРИТЕТ №1 ПО ХРОНОМЕТРАЖУ):
 Пользователь задал хронометраж ролика ${numDuration} минут. 
@@ -947,6 +962,7 @@ ${customInst}
   const prompt = `Проанализируй текст сценария, который разбит на ${textChunks.length} сценарных сегментов (каждый строго около 150-170 символов, хронометраж ~10 секунд под генерацию в Veo 3 / Sora).
 Как ведущий кинорежиссер мирового уровня (HBO / Netflix / A24), создай аутентичный, кинематографичный и глубоко осмысленный визуальный ряд для каждой сцены, точно передающий эмоциональный подтекст слов диктора.
 
+${STRICT_NO_ASSOCIATIONS_RULE}
 ${VISUAL_DIVERSITY_RULES}
 
 ТРЕБОВАНИЯ К ВИЗУАЛЬНОМУ РЯДУ КАЖДОЙ СЦЕНЫ (description и visuals.description):
